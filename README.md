@@ -94,7 +94,7 @@ Run these **from inside your project** (`cd` there first) — `init` sets up wha
 ```bash
 yay init                      # set up .yaylayer/ here; name defaults to the folder name
 yay init --project "My App"   # …or give it any display name you want
-yay keygen --name you         # create your signing key (encrypted keystore)
+yay keygen --name you         # create your signing key — prompts you to SET a passphrase (hidden)
 yay adopt src                 # optional: scaffold draft specs over existing code
 #   … you + your AI write/prune spec blocks above each unit …
 yay sign --all                # approve the current specs (asks for your passphrase)
@@ -102,7 +102,12 @@ yay verify                    # the gate: paint every Cell
 yay map -o map.html           # write the visual flowchart
 ```
 
-Pass the passphrase non-interactively with `YAY_PASSPHRASE=…` for scripts/CI.
+**About the passphrase:** `yay keygen` prompts you to **set a passphrase** (typing is hidden — type it, then press Enter). It encrypts your local private key, and you re-enter it each time you `yay sign`. If the terminal seems to "hang" on `passphrase:`, it's just waiting for you to type it. To skip the prompt (scripts/CI, or if you prefer), pass it directly:
+
+```bash
+YAY_PASSPHRASE="your-passphrase" yay keygen --name you
+#   or:  yay keygen --name you --passphrase "your-passphrase"
+```
 
 Each `yay keygen` adds you to the **roster** in `.yaylayer/config.json`. A name can be a simple handle **or** a full name — just quote names with spaces (`--name "Alice Carlsen"`). Two examples of how they land in the JSON:
 
