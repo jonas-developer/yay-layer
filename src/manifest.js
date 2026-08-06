@@ -117,6 +117,7 @@ function buildManifest(targetDir) {
     for (const name of callsOf[a]) {
       for (const b of Object.keys(defs)) {
         if (b === a || !defs[b].has(name)) continue;
+        if (defs[a].has(name)) continue; // A defines this name itself → not a cross-module call
         const ma = moduleNameOf(perFile[a].ana, a), mb = moduleNameOf(perFile[b].ana, b);
         if (ma !== mb) edgeSet.add(ma + ' >> ' + mb);
       }
