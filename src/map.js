@@ -1,11 +1,11 @@
 'use strict';
 // Generate the flowchart — a self-contained, theme-aware HTML page painted from
 // the manifest + verify results. Green = proven, Yellow = flagged, Red = mismatch,
-// Unsigned = awaiting signature.
+// Unsigned = awaiting signature, PINK = no formal specification at all (untracked
+// code — the most dangerous state, where silent bugs hide).
 //
 // Click any Cell to open a popup with its sealed spec block, the code it governs
-// (or, for a module, what it contains), and the exact verify checks. Click the
-// sides or press Esc to close; click another Cell to swap. Light/dark toggle top-right.
+// (offending lines highlighted red), and the verify checks. Sides/Esc close it.
 
 function esc(s) {
   return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -14,14 +14,24 @@ function esc(s) {
 const COLORS = {
   GREEN: ['#1f9d57', 'Green'], YELLOW: ['#c9860f', 'Yellow'],
   RED: ['#cf4436', 'Red'], UNSIGNED: ['#7f8796', 'Unsigned'],
+  PINK: ['#e0559b', 'Pink'],
 };
 
 function detailInner(cell, res) {
   const [col, label] = COLORS[res.state];
+
+  if (res.untracked) {
+    return `<div class="mhead"><span class="mid">${esc(cell.id)}</span><span class="mname">${esc(res.name || cell.unitName || '')}</span><span class="mpill" style="color:${col}">${label}</span></div>
+      <div class="dmeta"><span>untracked</span><span>${esc(res.file)}:${esc(res.line)}</span></div>
+      <div class="dh" style="color:${col}">No formal specification</div>
+      <div class="allok" style="color:${col};font-weight:600">◆ This code was never described in YayLayer or signed — it sits <em>outside</em> the system entirely, where silent bugs hide.</div>
+      <div class="allok" style="margin-top:8px">Run <code>yay adopt</code> to scaffold a spec above it, then prune &amp; sign it to bring it under the gate.</div>`;
+  }
+
   const isModule = !!(cell.contains && cell.contains.length);
   const meta = [];
   meta.push(res.trust && res.trust.signed ? (res.trust.auto ? `AUTO · ${esc(res.trust.grant || 'grant')}` : `signed by ${esc(res.trust.signer)}`) : 'unsigned');
-  meta.push(`spec ${esc(cell.specHash.slice(0, 12))}…`);
+  meta.push(`spec ${esc((cell.specHash || '').slice(0, 12))}…`);
   if (cell.feeds && cell.feeds.length) meta.push(`feeds → ${esc(cell.feeds.join(', '))}`);
   meta.push(esc(`${cell.file}:${cell.line}`));
 
@@ -35,6 +45,7 @@ function detailInner(cell, res) {
     : (cell.unitBody
         ? `<div class="dh">Code</div><pre class="code">${codeHtml}</pre>`
         : `<div class="dh">Code</div><div class="allok">no unit body found below the spec</div>`);
+
   const sym = { red: '✗', yellow: '⚠', info: '•' };
   const checks = (res.notes || []).length
     ? `<div class="dh">Checks</div><ul class="checks">${res.notes.map((n) => `<li class="ck-${n.level}">${sym[n.level] || '•'} ${esc(n.text)}</li>`).join('')}</ul>`
@@ -49,24 +60,32 @@ function detailInner(cell, res) {
 
 function renderMap(manifest, verified, project) {
   const byLang = {};
-  for (const id of Object.keys(manifest.cells)) {
-    const cell = manifest.cells[id];
-    const lang = cell.lang || 'other';
-    (byLang[lang] = byLang[lang] || []).push({ cell, res: verified.results[id] });
+  for (const id of Object.keys(verified.results)) {
+    const res = verified.results[id];
+    const cell = manifest.cells[id] || {
+      id, unitName: res.name || id, file: res.file, line: res.line, lang: res.lang,
+      spec: { intent: res.untracked ? 'No formal specification — untracked code.' : '' },
+      feeds: [], contains: [], specHash: '', specBlock: '', unitBody: null,
+    };
+    const lang = cell.lang || res.lang || 'other';
+    (byLang[lang] = byLang[lang] || []).push({ cell, res });
   }
 
+  let idx = 0;
   const card = ({ cell, res }) => {
     const [col, label] = COLORS[res.state];
-    const who = res.trust && res.trust.signed ? (res.trust.auto ? 'AUTO' : 'by ' + res.trust.signer) : 'unsigned';
+    const domId = 'c' + (idx++);
+    const who = res.untracked ? 'untracked'
+      : (res.trust && res.trust.signed ? (res.trust.auto ? 'AUTO' : 'by ' + res.trust.signer) : 'unsigned');
     const feeds = (cell.feeds || []).length ? `feeds → ${esc(cell.feeds.join(', '))}` : '';
-    const kind = (cell.contains && cell.contains.length) ? ' · module' : '';
-    return `<button class="node" style="border-left-color:${col}" data-id="${esc(cell.id)}">
+    const kind = (cell.contains && cell.contains.length) ? ' · module' : (res.untracked ? ' · no spec' : '');
+    return `<button class="node" style="border-left-color:${col}" data-id="${domId}">
         <div class="top"><span class="id">${esc(cell.id)}${kind}</span><span class="tr"><span class="pill" style="color:${col}">${label}</span><span class="chev">⤢</span></span></div>
         <div class="nm">${esc(cell.unitName || cell.spec.unit || cell.id)}</div>
         <div class="ds">${esc(cell.spec.intent || '')}</div>
         <div class="fe">${feeds}${feeds && who ? ' · ' : ''}${esc(who)}</div>
       </button>
-      <div class="detail-src" id="d-${esc(cell.id)}" hidden>${detailInner(cell, res)}</div>`;
+      <div class="detail-src" id="${domId}" hidden>${detailInner(cell, res)}</div>`;
   };
 
   const layers = Object.keys(byLang).sort().map((lang) => `
@@ -75,7 +94,7 @@ function renderMap(manifest, verified, project) {
 
   const c = verified.counts;
   const legend = Object.entries(COLORS).map(([k, [col, label]]) =>
-    `<span class="lg" style="color:${col}">${label} ${c[k]}</span>`).join('');
+    `<span class="lg" style="color:${col}">${label} ${c[k] || 0}</span>`).join('');
 
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -111,7 +130,6 @@ h1{font-family:var(--mono);font-size:1.3rem;margin:0 0 4px}.sub{color:var(--mut)
 .fe{font-family:var(--mono);font-size:.66rem;color:var(--mut);margin-top:6px}
 .detail-src{display:none}
 .foot{margin-top:26px;font-family:var(--mono);font-size:.72rem;color:var(--mut)}
-/* modal */
 .modal{position:fixed;inset:0;z-index:50;display:none;padding:40px 16px;overflow:auto;background:rgba(10,10,15,.5)}
 .modal.open{display:flex;align-items:flex-start;justify-content:center}
 .modal-panel{position:relative;background:var(--paper);border:1px solid var(--rule);border-radius:12px;max-width:820px;width:100%;padding:22px 24px 26px;box-shadow:0 30px 90px -25px rgba(0,0,0,.6);max-height:calc(100vh - 80px);overflow:auto}
@@ -135,17 +153,17 @@ pre.code{margin:0;background:var(--code);border:1px solid var(--rule);border-rad
 <button id="themebtn" class="themebtn" aria-label="Toggle light or dark theme">☾ Dark</button>
 <div class="wrap">
 <h1>YayLayer map · ${esc(project || 'project')}</h1>
-<p class="sub">${Object.keys(manifest.cells).length} Cells · ${verified.passed ? 'gate PASS' : 'gate BLOCKED'}</p>
-<p class="hint">Click any Cell to open its sealed spec, code, and checks. Click the sides or press Esc to close.</p>
+<p class="sub">${Object.keys(verified.results).length} items · ${verified.passed ? 'gate PASS' : 'gate BLOCKED'}</p>
+<p class="hint">Click any Cell to open its spec, code, and checks. <b style="color:#e0559b">Pink</b> = code with no formal specification at all (untracked). Click the sides or press Esc to close.</p>
 <div class="legend">${legend}</div>
 ${layers}
-<div class="foot">Generated by <code>yay map</code> · green = code proven to match a signed spec.</div>
+<div class="foot">Generated by <code>yay map</code> · green = code proven to match a signed spec · pink = no spec at all.</div>
 </div>
 <div id="modal" class="modal" role="dialog" aria-modal="true"><div class="modal-panel"><button class="modal-close" aria-label="Close">✕</button><div class="modal-body"></div></div></div>
 <script>
 (function(){
   var modal=document.getElementById('modal'), body=modal.querySelector('.modal-body');
-  function open(id){ var s=document.getElementById('d-'+id); if(!s) return; body.innerHTML=s.innerHTML; modal.classList.add('open'); document.body.style.overflow='hidden'; }
+  function open(id){ var s=document.getElementById(id); if(!s) return; body.innerHTML=s.innerHTML; modal.classList.add('open'); document.body.style.overflow='hidden'; }
   function close(){ modal.classList.remove('open'); document.body.style.overflow=''; }
   document.querySelectorAll('.node[data-id]').forEach(function(n){ n.addEventListener('click',function(){ open(this.getAttribute('data-id')); }); });
   modal.addEventListener('click',function(e){ if(e.target===modal) close(); });

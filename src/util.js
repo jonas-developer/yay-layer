@@ -74,14 +74,18 @@ const paint = (code) => (s) => (useColor ? `\x1b[${code}m${s}\x1b[0m` : s);
 const c = {
   green: paint('32'), yellow: paint('33'), red: paint('31'),
   gray: paint('90'), bold: paint('1'), accent: paint('35'), dim: paint('2'),
+  pink: paint('95'),
 };
 
 // State → glyph + colorizer, used across verify/map output.
+// PINK = code with NO formal specification at all — untracked, never described
+// or signed. The most dangerous state: unknown territory where silent bugs hide.
 const STATE = {
   GREEN: { glyph: '●', color: c.green, label: 'GREEN' },
   YELLOW: { glyph: '●', color: c.yellow, label: 'YELLOW' },
   RED: { glyph: '●', color: c.red, label: 'RED' },
   UNSIGNED: { glyph: '○', color: c.gray, label: 'UNSIGNED' },
+  PINK: { glyph: '◆', color: c.pink, label: 'PINK' },
 };
 
 module.exports = {

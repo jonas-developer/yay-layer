@@ -192,19 +192,20 @@ function printReport(manifest, verified, details) {
   }
   const c = verified.counts;
   console.log('\n  ' + U.c.green(`${c.GREEN} green`) + '  ' + U.c.yellow(`${c.YELLOW} yellow`) + '  ' +
-    U.c.red(`${c.RED} red`) + '  ' + U.c.gray(`${c.UNSIGNED} unsigned`));
+    U.c.red(`${c.RED} red`) + '  ' + U.c.gray(`${c.UNSIGNED} unsigned`) + '  ' + U.c.pink(`${c.PINK} pink`));
+  if (c.PINK) console.log('  ' + U.c.pink(`◆ ${c.PINK} unspecified code section(s) — never described or signed. Run `) + U.c.bold('yay adopt') + U.c.pink('.'));
 }
 
 function cmdVerify(flags) {
   const { p, config, lock } = loadState();
   const manifest = buildManifest(flags.dir || p.root);
-  if (!Object.keys(manifest.cells).length && !manifest.problems.length) {
-    console.log(U.c.dim('no Cells found. Write a spec block (see README/STANDARD), or run `yay adopt`.')); return;
+  if (!Object.keys(manifest.cells).length && !manifest.problems.length && !(manifest.untracked || []).length) {
+    console.log(U.c.dim('no code found. Write a spec block (see README/STANDARD), or run `yay adopt`.')); return;
   }
   const verified = verifyManifest(manifest, lock, config);
   printReport(manifest, verified, !!(flags.details || flags.d));
   const blocked = !verified.passed || manifest.problems.length;
-  console.log('\n  ' + (blocked ? U.c.red('GATE: BLOCKED') + U.c.dim(' (red or unsigned Cells cannot reach main)')
+  console.log('\n  ' + (blocked ? U.c.red('GATE: BLOCKED') + U.c.dim(' (red, unsigned, or unspecified/pink code cannot reach main)')
     : U.c.green('GATE: PASS')));
   if (!flags.dir && process.argv.includes('--strict')) process.exit(blocked ? 1 : 0);
   if (flags.strict) process.exit(blocked ? 1 : 0);
@@ -217,7 +218,7 @@ function cmdMap(flags) {
   const html = renderMap(manifest, verified, config && config.project);
   const out = (flags.o && flags.o !== true) ? flags.o : (flags.out && flags.out !== true ? flags.out : 'yaylayer-map.html');
   fs.writeFileSync(out, html);
-  console.log(U.c.green('✓ map written → ') + out + U.c.dim(`  (${Object.keys(manifest.cells).length} Cells)`));
+  console.log(U.c.green('✓ map written → ') + out + U.c.dim(`  (${Object.keys(verified.results).length} items)`));
 }
 
 function cmdAdopt(flags, positional) {

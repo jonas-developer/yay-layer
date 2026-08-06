@@ -126,9 +126,22 @@ function verifyManifest(manifest, lock, config) {
     }
   }
 
-  const counts = { GREEN: 0, YELLOW: 0, RED: 0, UNSIGNED: 0 };
+  // PINK: code with no spec block at all — untracked, never described or signed.
+  // The most dangerous state, so it BLOCKS the gate: everything must be covered.
+  for (const u of manifest.untracked || []) {
+    let id = `«${u.name}»`;
+    if (results[id]) id += ` @${u.file}`;
+    results[id] = {
+      id, state: 'PINK', trust: { signed: false }, untracked: true,
+      name: u.name, file: u.file, line: u.line, lang: u.lang,
+      notes: [{ level: 'red', text: 'no formal specification — this code was never described or signed (run `yay adopt`)' }],
+      badLines: [],
+    };
+  }
+
+  const counts = { GREEN: 0, YELLOW: 0, RED: 0, UNSIGNED: 0, PINK: 0 };
   for (const r of Object.values(results)) counts[r.state]++;
-  const passed = counts.RED === 0 && counts.UNSIGNED === 0;
+  const passed = counts.RED === 0 && counts.UNSIGNED === 0 && counts.PINK === 0;
   return { results, counts, passed };
 }
 

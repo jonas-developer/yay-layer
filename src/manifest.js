@@ -4,6 +4,7 @@
 // sign, and map all read from. It is derived fresh from the real files every
 // time — never trusted from a stored copy.
 
+const fs = require('fs');
 const path = require('path');
 const { walk, repoRoot } = require('./util');
 const { sha256 } = require('./crypto');
@@ -41,7 +42,32 @@ function buildManifest(targetDir) {
       };
     }
   }
-  return { root, cells, problems };
+  const coveredNames = new Set(Object.values(cells).map((cell) => cell.unitName).filter(Boolean));
+  const untracked = findUntracked(root, files, coveredNames);
+  return { root, cells, problems, untracked };
+}
+
+// A top-level function / arrow / function-expression. Used to spot code that has
+// NO YayLayer spec above it → PINK (untracked, the "never even described" state).
+const COVER_FN = /^(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z0-9_$]+)|^(?:export\s+)?(?:const|let|var)\s+([A-Za-z0-9_$]+)\s*=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*=>|[A-Za-z0-9_$]+\s*=>)/;
+const JS_LIKE = /\.(js|jsx|mjs|cjs|ts|tsx)$/;
+
+function findUntracked(root, files, coveredNames) {
+  const out = [];
+  for (const file of files) {
+    if (!JS_LIKE.test(file)) continue; // MVP: coverage detection is JS/TS only
+    let lines;
+    try { lines = fs.readFileSync(file, 'utf8').split(/\r?\n/); } catch (_) { continue; }
+    for (let i = 0; i < lines.length; i++) {
+      const m = lines[i].match(COVER_FN);
+      if (!m) continue;
+      const name = m[1] || m[2];
+      if (!name || coveredNames.has(name)) continue;
+      if (/∷YAY-END|∷YAY⟨/.test(lines[i - 1] || '')) continue; // sits directly under a spec block
+      out.push({ name, file: path.relative(root, file), line: i + 1, lang: path.extname(file).slice(1) });
+    }
+  }
+  return out;
 }
 
 function parseList(v) {
