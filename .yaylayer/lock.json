@@ -13,6 +13,20 @@
         "C-040": "fb4cd944b18b397451de7dcc2e32153ea8e563ae4ca7edc43ea31b744a84e5a9"
       },
       "signature": "ns+PDp36DWGvTWjyNXhr1OK9Fqwaz9udJdLPjQW12EGoB5U3o6Z139JLCpui25kY2Nh7/ZlweVBYj0TqvtL5Dw=="
+    },
+    {
+      "id": "A-0002",
+      "project": "yay-layer",
+      "prev": "A-0001",
+      "nonce": "5f17cbf5f6fbf0256e322f9d",
+      "at": "2026-08-06T15:35:00.202Z",
+      "signer": "jonas",
+      "items": {
+        "C-041": "76d6807a2c329f37372e787650e1afc1ad076038f6d77c15281af1390f38d83e",
+        "C-040": "5af05cf693b35bc47dd6960c44ec73fce535da8eaec326e7f35534ba4fd1b36b",
+        "C-900": "c7e3b72182b5552ce4c66edfdd8177ebe70912f431fd45509ec2b19c6481b5fa"
+      },
+      "signature": "shIni/iqzBbcvMhk+vteQT7hFs4WFHifFMlN3t3Iia/JiNSnz8BVPk6tuNLNvfF7MapS/4uyaVuz8bRkyPmrAg=="
     }
   ]
 }

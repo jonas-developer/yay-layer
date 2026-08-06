@@ -41,8 +41,11 @@ function staticChecks(cell) {
   const notes = [];
   let red = false, yellow = false;
   const spec = cell.spec || {};
+  const isModule = !!(cell.contains && cell.contains.length);
 
-  if (cell.unitName && !cell.unitFound) {
+  // A module (container Cell) governs composition, not a code unit — so it is not
+  // expected to have a function body or the machine fields a leaf Cell needs.
+  if (!isModule && cell.unitName && !cell.unitFound) {
     red = true; notes.push(`code missing: no unit "${cell.unitName}" found below the spec`);
   }
 
@@ -59,9 +62,9 @@ function staticChecks(cell) {
     }
   }
 
-  // vague / prose-only spec caps at YELLOW: needs at least one machine field.
+  // vague / prose-only spec caps at YELLOW: a leaf Cell needs at least one machine field.
   const machineFields = ['in', 'out', 'ensures', 'pure', 'throws'].some((k) => spec[k]);
-  if (!machineFields) { yellow = true; notes.push('prose-only spec (no in/out/ensures/pure/throws) — capped at Yellow'); }
+  if (!isModule && !machineFields) { yellow = true; notes.push('prose-only spec (no in/out/ensures/pure/throws) — capped at Yellow'); }
   if (!spec.intent) { yellow = true; notes.push('no intent: line'); }
 
   return { red, yellow, notes };

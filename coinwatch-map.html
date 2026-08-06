@@ -5,7 +5,11 @@
 :root{--paper:#F4F1EA;--card:#FBFAF6;--ink:#1a1a21;--ink2:#4c4c58;--mut:#6f6f7a;--rule:#ddd8cd;--accent:#3d38a8;--code:#f3efe6;
 --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;--sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;}
 @media(prefers-color-scheme:dark){:root{--paper:#131318;--card:#1b1b23;--ink:#ECEAE3;--ink2:#b6b4c0;--mut:#8a8a96;--rule:#2b2b36;--accent:#9b96f6;--code:#15151c;}}
+:root[data-theme="light"]{--paper:#F4F1EA;--card:#FBFAF6;--ink:#1a1a21;--ink2:#4c4c58;--mut:#6f6f7a;--rule:#ddd8cd;--accent:#3d38a8;--code:#f3efe6;}
+:root[data-theme="dark"]{--paper:#131318;--card:#1b1b23;--ink:#ECEAE3;--ink2:#b6b4c0;--mut:#8a8a96;--rule:#2b2b36;--accent:#9b96f6;--code:#15151c;}
 *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);line-height:1.55}
+.themebtn{position:fixed;top:14px;right:14px;font-family:var(--mono);font-size:.72rem;background:var(--card);color:var(--ink);border:1px solid var(--rule);border-radius:100px;padding:6px 12px;cursor:pointer;z-index:20}
+.themebtn:hover{border-color:var(--accent)}
 .wrap{max-width:1080px;margin:0 auto;padding:28px 22px}
 h1{font-family:var(--mono);font-size:1.3rem;margin:0 0 4px}.sub{color:var(--mut);font-family:var(--mono);font-size:.8rem;margin:0 0 6px}
 .hint{color:var(--mut);font-size:.82rem;margin:0 0 18px}
@@ -37,7 +41,7 @@ pre.code{margin:0;background:var(--code);border:1px solid var(--rule);border-rad
 .checks{margin:0;padding-left:16px;font-size:.76rem;color:var(--ink2)}
 .allok{font-size:.76rem;color:var(--mut)}
 .foot{margin-top:26px;font-family:var(--mono);font-size:.72rem;color:var(--mut)}
-</style></head><body><div class="wrap">
+</style></head><body><button id="themebtn" class="themebtn" aria-label="Toggle light or dark theme">☾ Dark</button><div class="wrap">
 <h1>YayLayer map · yay-layer</h1>
 <p class="sub">2 Cells · gate BLOCKED</p>
 <p class="hint">Click any Cell to open its sealed spec, the code it governs, and the verify checks.</p>
@@ -106,5 +110,20 @@ document.querySelectorAll('.node[data-id]').forEach(function(n){
     this.setAttribute('aria-expanded',open?'true':'false');
   });
 });
+(function(){
+  var root=document.documentElement, btn=document.getElementById('themebtn');
+  function sys(){ return matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'; }
+  function current(){ return root.getAttribute('data-theme') || sys(); }
+  function label(){ btn.textContent = current()==='dark' ? '☀ Light' : '☾ Dark'; }
+  var saved; try{ saved=localStorage.getItem('yay-theme'); }catch(e){}
+  if(saved){ root.setAttribute('data-theme', saved); }
+  label();
+  btn.addEventListener('click',function(){
+    var next = current()==='dark' ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    try{ localStorage.setItem('yay-theme', next); }catch(e){}
+    label();
+  });
+})();
 </script>
 </body></html>

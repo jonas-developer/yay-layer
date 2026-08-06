@@ -103,6 +103,28 @@ function calcPortfolioValue(holdings) {
 
 **GREEN** code proven to match a signed spec · **YELLOW** matches but flagged (prose-only, undeclared effect, unproven) · **RED** code ≠ spec (or tampered signature) · **UNSIGNED** awaiting a signature. The signature covers the **spec**, so you can refactor freely; only a changed promise re-prompts you.
 
+## Higher-order: modules, flow & policies
+
+YayLayer isn't only per-Cell — it models how Cells combine.
+
+**Modules (`contains`).** A "module" is simply a Cell that declares `contains` instead of governing its own code. Its color **rolls up** to the worst of everything inside it, so a deep Red bubbles to the top and you can trace it down. By convention, container Cells use a high id range (`C-900+`):
+
+```js
+//∷YAY⟨C-900⟩ v1
+//  unit:     Portfolio
+//  intent:   The portfolio feature, composed of its calc Cells.
+//  contains: C-040, C-041
+//∷YAY-END⟨C-900⟩
+```
+
+Run `node bin/yay.js verify --dir examples` and `C-900` shows **Red** — *"rolled up from contained Cells"* — because `C-041` inside it is Red. In the map it's tagged `· module`, and its popup lists what it **Contains**.
+
+**Flow (`feeds`).** A Cell lists the Cells it hands output to with `feeds`. That builds the graph the map draws, and verify flags a **broken edge** — a `feeds →` pointing at a Cell that doesn't exist.
+
+**Policies (`P-…`) — roadmap.** Cross-cutting concerns that span many Cells and live in no single one (auth, logging, error handling) are modeled as first-class **Policies**: a selector (which Cells) + a checkable rule, verified as a **"for all matched Cells"** check — e.g. *"every route is behind auth."* Flavors: mandate / prohibit / grant. Designed in [`standard/STANDARD.md`](standard/STANDARD.md) §7 and `docs/`; not yet in the reference implementation.
+
+**Implemented today:** `contains` roll-up, the `feeds` graph, and broken-edge detection. Full flow-contract checking (`producer.out ⊨ consumer.in`) and the Policy engine are on the roadmap.
+
 ## CI gate
 
 `main` should be protected with a required check running:
