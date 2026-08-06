@@ -11,7 +11,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const readline = require('readline');
 
 const U = require('../src/util');
 const C = require('../src/crypto');
@@ -36,18 +35,58 @@ function args(argv) {
   return { flags, positional };
 }
 
+// Read a hidden passphrase from a terminal (typing is not echoed).
 function promptHidden(q) {
   return new Promise((resolve) => {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    rl._writeToOutput = () => {};
+    const stdin = process.stdin;
     process.stdout.write(q);
-    rl.question('', (ans) => { rl.close(); process.stdout.write('\n'); resolve(ans); });
+    stdin.resume();
+    stdin.setEncoding('utf8');
+    if (stdin.isTTY) stdin.setRawMode(true);
+    let input = '';
+    const finish = (val) => {
+      if (stdin.isTTY) stdin.setRawMode(false);
+      stdin.removeListener('data', onData);
+      stdin.pause();
+      process.stdout.write('\n');
+      resolve(val);
+    };
+    const onData = (chunk) => {
+      for (const ch of String(chunk)) {
+        const code = ch.charCodeAt(0);
+        if (ch === '\n' || ch === '\r' || code === 4) return finish(input); // Enter / Ctrl-D
+        if (code === 3) { process.stdout.write('\n'); process.exit(1); }     // Ctrl-C
+        if (code === 127 || code === 8) { input = input.slice(0, -1); continue; } // backspace
+        input += ch;
+      }
+    };
+    stdin.on('data', onData);
   });
 }
-async function getPassphrase(flags) {
+
+// Read one plain line (for piped/non-interactive input).
+function promptLine() {
+  return new Promise((resolve) => {
+    let data = '';
+    process.stdin.setEncoding('utf8');
+    process.stdin.resume();
+    process.stdin.on('data', (c) => {
+      data += c;
+      const nl = data.indexOf('\n');
+      if (nl >= 0) { process.stdin.pause(); resolve(data.slice(0, nl).replace(/\r$/, '')); }
+    });
+  });
+}
+
+async function getPassphrase(flags, purpose) {
   if (flags.passphrase && flags.passphrase !== true) return flags.passphrase;
   if (process.env.YAY_PASSPHRASE) return process.env.YAY_PASSPHRASE;
-  return promptHidden('passphrase: ');
+  if (process.stdin.isTTY) {
+    console.log(U.c.accent('▸ ') + (purpose || 'Enter your passphrase') +
+      U.c.dim('   (typing is hidden — type it, then press Enter)'));
+    return promptHidden('  passphrase: ');
+  }
+  return promptLine(); // piped input
 }
 
 function loadState() {
@@ -93,7 +132,7 @@ async function cmdKeygen(flags) {
   if (!config) return fail('run `yay init` first');
   const name = (flags.name && flags.name !== true) ? flags.name : null;
   if (!name) return fail('give yourself a name:  yay keygen --name alice');
-  const pass = await getPassphrase(flags);
+  const pass = await getPassphrase(flags, `Set a passphrase to encrypt ${name}'s key (you'll re-enter it each time you sign)`);
   if (!pass || pass.length < 6) return fail('passphrase must be at least 6 characters');
   const { pubB64, privDer } = C.generateKeypair();
   const ks = C.encryptKeystore(privDer, pass);
@@ -126,7 +165,7 @@ async function cmdSign(flags) {
   }
   const ksPath = path.join(p.keys, `${name}.keystore`);
   if (!fs.existsSync(ksPath)) return fail(`no keystore for "${name}"`);
-  const pass = await getPassphrase(flags);
+  const pass = await getPassphrase(flags, `Enter ${name}'s passphrase to sign`);
   let privDer;
   try { privDer = C.decryptKeystore(JSON.parse(fs.readFileSync(ksPath, 'utf8')), pass); }
   catch (e) { return fail(e.message); }
