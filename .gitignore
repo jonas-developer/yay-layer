@@ -35,3 +35,6 @@ tmp/
 # they hold the project roster (PUBLIC keys) and the seals (the proof state).
 # Only .yaylayer/keys/ (private keystores) is ignored.
 yaylayer-map.html
+coinwatch-map.html
+map.html
+*-map.html
