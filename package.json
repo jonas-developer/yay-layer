@@ -1,0 +1,35 @@
+{
+  "name": "yay-layer",
+  "version": "0.1.0",
+  "description": "A protocol for provable, signed AI code. Approved blueprints first, an inspector that checks the build matches, and it can't ship until it passes.",
+  "keywords": [
+    "ai",
+    "verification",
+    "provenance",
+    "attestation",
+    "code-signing",
+    "spec-first",
+    "vibe-coding"
+  ],
+  "license": "MIT",
+  "type": "commonjs",
+  "bin": {
+    "yay": "bin/yay.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "yay": "node bin/yay.js",
+    "test": "node test/smoke.js",
+    "example": "node bin/yay.js verify --dir examples"
+  },
+  "files": [
+    "bin",
+    "src",
+    "standard",
+    "CONSTITUTION.md",
+    "README.md"
+  ],
+  "dependencies": {}
+}

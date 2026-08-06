@@ -1,0 +1,18 @@
+{
+  "project": "yay-layer",
+  "approvals": [
+    {
+      "id": "A-0001",
+      "project": "yay-layer",
+      "prev": "genesis",
+      "nonce": "2450f16de48d0f409b19cffb",
+      "at": "2026-08-06T14:03:50.688Z",
+      "signer": "jonas",
+      "items": {
+        "C-041": "53121f67e50c5a8119ae68a01adb1bb0ead18c4e907b68030fdafc489d3a5a57",
+        "C-040": "fb4cd944b18b397451de7dcc2e32153ea8e563ae4ca7edc43ea31b744a84e5a9"
+      },
+      "signature": "ns+PDp36DWGvTWjyNXhr1OK9Fqwaz9udJdLPjQW12EGoB5U3o6Z139JLCpui25kY2Nh7/ZlweVBYj0TqvtL5Dw=="
+    }
+  ]
+}

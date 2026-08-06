@@ -1,0 +1,37 @@
+# ── Secrets — NEVER commit ────────────────────────────────
+.env
+.env.local
+.env.*.local
+*.token
+
+# ── Signing / key material — private keys stay off the repo ─
+.yaylayer/keys/
+*.keystore
+*.mnemonic
+*.key
+*.pem
+
+# ── Design docs (kept local for now, per project decision) ─
+/docs/
+
+# ── Node ──────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ── OS / editor ───────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# ── Scratch ───────────────────────────────────────────────
+tmp/
+*.log
+
+# NOTE: .yaylayer/config.json and .yaylayer/lock.json ARE committed —
+# they hold the project roster (PUBLIC keys) and the seals (the proof state).
+# Only .yaylayer/keys/ (private keystores) is ignored.
+yaylayer-map.html

@@ -1,0 +1,55 @@
+'use strict';
+// Self-contained smoke test — no disk state, no passphrase prompts.
+// Exercises: crypto sign/verify roundtrip, manifest extraction on the example,
+// and the color gate (C-040 → GREEN, C-041 → RED via purity violation).
+
+const assert = require('assert');
+const path = require('path');
+const C = require('../src/crypto');
+const { canonical } = require('../src/util');
+const { buildManifest } = require('../src/manifest');
+const { verifyManifest } = require('../src/verify');
+
+let n = 0;
+const ok = (cond, msg) => { n++; assert.ok(cond, msg); console.log('  ✓ ' + msg); };
+
+// 1) ed25519 + keystore roundtrip
+const { pubB64, privDer } = C.generateKeypair();
+const msg = canonical({ hello: 'world', n: 1 });
+const sig = C.sign(msg, privDer);
+ok(C.verify(msg, sig, pubB64), 'sign/verify roundtrip succeeds');
+ok(!C.verify(msg + 'x', sig, pubB64), 'verify fails on tampered message');
+const ks = C.encryptKeystore(privDer, 'pw-123456');
+ok(Buffer.compare(C.decryptKeystore(ks, 'pw-123456'), privDer) === 0, 'keystore decrypts with right passphrase');
+assert.throws(() => C.decryptKeystore(ks, 'wrong'), 'keystore rejects wrong passphrase');
+ok(true, 'keystore rejects wrong passphrase');
+
+// 2) manifest extraction on the example
+const exDir = path.join(__dirname, '..', 'examples');
+const manifest = buildManifest(exDir);
+ok(manifest.cells['C-040'] && manifest.cells['C-041'], 'extracts C-040 and C-041 from examples');
+ok(manifest.cells['C-040'].specHash && manifest.cells['C-040'].specHash.length === 64, 'computes a sha256 spec hash');
+
+// 3) unsigned → UNSIGNED
+let v = verifyManifest(manifest, { approvals: [] }, { signers: {} });
+ok(v.results['C-040'].state === 'UNSIGNED', 'unsigned Cell is UNSIGNED');
+ok(!v.passed, 'gate is blocked when Cells are unsigned');
+
+// 4) sign both cells, then GREEN + RED
+const approval = {
+  id: 'A-0001', project: 'test', prev: 'genesis', nonce: 'n', at: 't', signer: 'tester',
+  items: { 'C-040': manifest.cells['C-040'].specHash, 'C-041': manifest.cells['C-041'].specHash },
+};
+approval.signature = C.sign(canonical(approval), privDer);
+const config = { signers: { tester: pubB64 } };
+v = verifyManifest(manifest, { approvals: [approval] }, config);
+ok(v.results['C-040'].state === 'GREEN', 'signed clean pure Cell → GREEN');
+ok(v.results['C-041'].state === 'RED', 'signed impure-but-declared-pure Cell → RED (purity violation)');
+
+// 5) a forged/altered approval must not verify
+const forged = { ...approval, items: { ...approval.items }, signer: 'tester' };
+forged.items['C-041'] = 'deadbeef'.repeat(8);
+const { signature, ...rest } = forged;
+ok(!C.verify(canonical(rest), approval.signature, pubB64), 'tampered approval fails signature check');
+
+console.log(`\nAll ${n} checks passed.`);

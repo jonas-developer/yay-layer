@@ -1,0 +1,225 @@
+#!/usr/bin/env node
+'use strict';
+// yay — the YayLayer command line.
+//   yay init            set up YayLayer in this repo
+//   yay keygen --name   create your signing key (encrypted keystore + public key in the roster)
+//   yay adopt [path]    scaffold draft specs over existing code
+//   yay sign [--all]    sign (approve) the current specs   [local stand-in for the phone signer]
+//   yay verify          the gate: paint every Cell green/yellow/red/unsigned
+//   yay map [-o file]   write the HTML flowchart
+//   yay status          one-line summary
+
+const fs = require('fs');
+const path = require('path');
+const readline = require('readline');
+
+const U = require('../src/util');
+const C = require('../src/crypto');
+const { buildManifest } = require('../src/manifest');
+const { verifyManifest } = require('../src/verify');
+const { renderMap } = require('../src/map');
+const { adopt } = require('../src/adopt');
+
+function args(argv) {
+  const flags = {}; const positional = [];
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a.startsWith('--')) {
+      const key = a.slice(2);
+      if (i + 1 < argv.length && !argv[i + 1].startsWith('--')) { flags[key] = argv[++i]; }
+      else flags[key] = true;
+    } else positional.push(a);
+  }
+  return { flags, positional };
+}
+
+function promptHidden(q) {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    rl._writeToOutput = () => {};
+    process.stdout.write(q);
+    rl.question('', (ans) => { rl.close(); process.stdout.write('\n'); resolve(ans); });
+  });
+}
+async function getPassphrase(flags) {
+  if (flags.passphrase && flags.passphrase !== true) return flags.passphrase;
+  if (process.env.YAY_PASSPHRASE) return process.env.YAY_PASSPHRASE;
+  return promptHidden('passphrase: ');
+}
+
+function loadState() {
+  const root = U.repoRoot();
+  const p = U.paths(root);
+  const config = U.readJSON(p.config, null);
+  const lock = U.readJSON(p.lock, { approvals: [] });
+  return { root, p, config, lock };
+}
+
+// ── commands ──────────────────────────────────────────────
+async function cmdInit(flags) {
+  const root = U.repoRoot();
+  const p = U.paths(root);
+  if (fs.existsSync(p.config)) { console.log(U.c.dim('already initialized: ' + p.config)); return; }
+  const project = (flags.project && flags.project !== true) ? flags.project : path.basename(root);
+  U.writeJSON(p.config, { project, created: new Date().toISOString(), signers: {}, owners: [] });
+  U.writeJSON(p.lock, { project, approvals: [] });
+  fs.mkdirSync(p.keys, { recursive: true });
+  console.log(U.c.green('✓ initialized YayLayer') + ` for "${project}"`);
+  console.log('  ' + U.c.dim('config → .yaylayer/config.json (commit this)'));
+  console.log('  ' + U.c.dim('keys   → .yaylayer/keys/ (gitignored — private)'));
+  console.log('\nNext:  ' + U.c.bold('yay keygen --name <you>') + '   then   ' + U.c.bold('yay adopt') + '  or start writing Cells.');
+}
+
+async function cmdKeygen(flags) {
+  const { p, config } = loadState();
+  if (!config) return fail('run `yay init` first');
+  const name = (flags.name && flags.name !== true) ? flags.name : null;
+  if (!name) return fail('give yourself a name:  yay keygen --name alice');
+  const pass = await getPassphrase(flags);
+  if (!pass || pass.length < 6) return fail('passphrase must be at least 6 characters');
+  const { pubB64, privDer } = C.generateKeypair();
+  const ks = C.encryptKeystore(privDer, pass);
+  fs.mkdirSync(p.keys, { recursive: true });
+  const ksPath = path.join(p.keys, `${name}.keystore`);
+  fs.writeFileSync(ksPath, JSON.stringify(ks, null, 2) + '\n', { mode: 0o600 });
+  config.signers[name] = pubB64;
+  if (!config.owners.includes(name)) config.owners.push(name);
+  U.writeJSON(p.config, config);
+  console.log(U.c.green(`✓ key created for "${name}"`));
+  console.log('  public key → roster in .yaylayer/config.json');
+  console.log('  private key → ' + U.c.dim(path.relative(process.cwd(), ksPath)) + U.c.dim('  (gitignored, encrypted)'));
+  console.log(U.c.yellow('\n  ⚠ MVP local keystore.') + ' In production the private key lives only on your phone (Face ID),');
+  console.log('    backed up as a 24-word mnemonic. Never commit .yaylayer/keys/. See README.');
+}
+
+async function cmdSign(flags) {
+  const { p, config, lock } = loadState();
+  if (!config) return fail('run `yay init` first');
+  const name = (flags.name && flags.name !== true) ? flags.name : config.owners[0];
+  if (!name || !config.signers[name]) return fail(`unknown signer "${name}" — run \`yay keygen --name ${name || '<you>'}\``);
+  const manifest = buildManifest(flags.dir || p.root);
+  let ids = Object.keys(manifest.cells);
+  if (flags.cell && flags.cell !== true) ids = String(flags.cell).split(',').map((s) => s.trim());
+  if (!ids.length) return fail('no Cells to sign');
+  const items = {};
+  for (const id of ids) {
+    if (!manifest.cells[id]) { console.log(U.c.yellow(`  skip ${id}: not found`)); continue; }
+    items[id] = manifest.cells[id].specHash;
+  }
+  const ksPath = path.join(p.keys, `${name}.keystore`);
+  if (!fs.existsSync(ksPath)) return fail(`no keystore for "${name}"`);
+  const pass = await getPassphrase(flags);
+  let privDer;
+  try { privDer = C.decryptKeystore(JSON.parse(fs.readFileSync(ksPath, 'utf8')), pass); }
+  catch (e) { return fail(e.message); }
+
+  const n = (lock.approvals || []).length + 1;
+  const approval = {
+    id: 'A-' + String(n).padStart(4, '0'),
+    project: config.project,
+    prev: n > 1 ? lock.approvals[lock.approvals.length - 1].id : 'genesis',
+    nonce: C.randomNonce(),
+    at: new Date().toISOString(),
+    signer: name,
+    items,
+  };
+  approval.signature = C.sign(U.canonical(approval), privDer);
+  lock.approvals = lock.approvals || [];
+  lock.approvals.push(approval);
+  U.writeJSON(p.lock, lock);
+  console.log(U.c.green(`✓ signed ${Object.keys(items).length} Cell(s)`) + ` as "${name}" — approval ${approval.id}`);
+  console.log('  ' + U.c.dim('seal appended to .yaylayer/lock.json (commit this)'));
+}
+
+function printReport(manifest, verified) {
+  for (const prob of manifest.problems) {
+    console.log(U.c.red('  ✗ ') + `${prob.id || ''} ${prob.file || ''} — ${prob.error}`);
+  }
+  const ids = Object.keys(verified.results).sort();
+  for (const id of ids) {
+    const r = verified.results[id];
+    const st = U.STATE[r.state];
+    const who = r.trust && r.trust.signed ? (r.trust.auto ? 'auto' : r.trust.signer) : '';
+    console.log('  ' + st.color(st.glyph) + ' ' + st.color(r.state.padEnd(8)) + ' ' +
+      U.c.accent(id.padEnd(8)) + ' ' + U.c.dim(`${r.file}:${r.line}`) + (who ? U.c.dim('  · ' + who) : ''));
+    for (const note of r.notes) console.log('      ' + U.c.dim('– ' + note));
+  }
+  const c = verified.counts;
+  console.log('\n  ' + U.c.green(`${c.GREEN} green`) + '  ' + U.c.yellow(`${c.YELLOW} yellow`) + '  ' +
+    U.c.red(`${c.RED} red`) + '  ' + U.c.gray(`${c.UNSIGNED} unsigned`));
+}
+
+function cmdVerify(flags) {
+  const { p, config, lock } = loadState();
+  const manifest = buildManifest(flags.dir || p.root);
+  if (!Object.keys(manifest.cells).length && !manifest.problems.length) {
+    console.log(U.c.dim('no Cells found. Write a spec block (see README/STANDARD), or run `yay adopt`.')); return;
+  }
+  const verified = verifyManifest(manifest, lock, config);
+  printReport(manifest, verified);
+  const blocked = !verified.passed || manifest.problems.length;
+  console.log('\n  ' + (blocked ? U.c.red('GATE: BLOCKED') + U.c.dim(' (red or unsigned Cells cannot reach main)')
+    : U.c.green('GATE: PASS')));
+  if (!flags.dir && process.argv.includes('--strict')) process.exit(blocked ? 1 : 0);
+  if (flags.strict) process.exit(blocked ? 1 : 0);
+}
+
+function cmdMap(flags) {
+  const { p, config, lock } = loadState();
+  const manifest = buildManifest(flags.dir || p.root);
+  const verified = verifyManifest(manifest, lock, config);
+  const html = renderMap(manifest, verified, config && config.project);
+  const out = (flags.o && flags.o !== true) ? flags.o : (flags.out && flags.out !== true ? flags.out : 'yaylayer-map.html');
+  fs.writeFileSync(out, html);
+  console.log(U.c.green('✓ map written → ') + out + U.c.dim(`  (${Object.keys(manifest.cells).length} Cells)`));
+}
+
+function cmdAdopt(flags, positional) {
+  const target = positional[0] || '.';
+  const res = adopt(target, { dry: !!flags.dry });
+  if (!res.total) { console.log(U.c.dim('nothing to adopt — no un-tagged top-level functions found.')); return; }
+  console.log((res.dry ? U.c.yellow('(dry run) ') : U.c.green('✓ ')) + `${res.total} draft Cell(s) across ${res.report.length} file(s):`);
+  for (const r of res.report) console.log('  ' + U.c.dim(r.file) + '  +' + r.added);
+  console.log('\n  Next: prune each DERIVED spec, then ' + U.c.bold('yay sign') + '.');
+}
+
+function cmdStatus() {
+  const { p, config, lock } = loadState();
+  if (!config) return console.log(U.c.dim('not initialized — run `yay init`'));
+  const manifest = buildManifest(p.root);
+  const verified = verifyManifest(manifest, lock, config);
+  const c = verified.counts;
+  console.log(U.c.bold(config.project) + U.c.dim(`  · ${Object.keys(manifest.cells).length} Cells · ${Object.keys(config.signers).length} signer(s)`));
+  console.log('  ' + U.c.green(`${c.GREEN}●`) + ' ' + U.c.yellow(`${c.YELLOW}●`) + ' ' + U.c.red(`${c.RED}●`) + ' ' + U.c.gray(`${c.UNSIGNED}○`) + '  ' + (verified.passed ? U.c.green('PASS') : U.c.red('BLOCKED')));
+}
+
+function fail(msg) { console.error(U.c.red('error: ') + msg); process.exitCode = 1; }
+
+const HELP = `yay — a protocol for provable, signed AI code
+
+  yay init                    set up YayLayer in this repo
+  yay keygen --name <you>     create your signing key
+  yay adopt [path] [--dry]    scaffold draft specs over existing code
+  yay sign [--all|--cell IDs] approve the current specs (local stand-in for the phone signer)
+  yay verify [--strict]       the gate — paint every Cell; --strict exits nonzero if blocked
+  yay map [-o file.html]      write the HTML flowchart
+  yay status                  one-line summary
+
+  docs: standard/STANDARD.md · CONSTITUTION.md · README.md`;
+
+async function main() {
+  const [, , cmd, ...rest] = process.argv;
+  const { flags, positional } = args(rest);
+  switch (cmd) {
+    case 'init': return cmdInit(flags);
+    case 'keygen': return cmdKeygen(flags);
+    case 'sign': return cmdSign(flags);
+    case 'verify': case 'check': return cmdVerify(flags);
+    case 'map': return cmdMap(flags);
+    case 'adopt': return cmdAdopt(flags, positional);
+    case 'status': return cmdStatus();
+    case undefined: case 'help': case '--help': case '-h': return console.log(HELP);
+    default: console.error(U.c.red(`unknown command: ${cmd}`)); console.log(HELP); process.exitCode = 1;
+  }
+}
+main().catch((e) => { console.error(U.c.red('error: ') + (e && e.message || e)); process.exitCode = 1; });
