@@ -124,12 +124,25 @@ function looseTopLevel(ast) {
 
 // Returns { ok, units:[{name,kind,startLine,endLine}], loose:[line,…] }.
 // ok:false means the file could not be parsed (e.g. TypeScript) — caller degrades.
+function calleeName(callee) {
+  if (!callee) return null;
+  if (callee.type === 'Identifier') return callee.name;
+  if (callee.type === 'MemberExpression' && !callee.computed) return keyName(callee.property);
+  return null;
+}
+
 function analyze(code) {
   const ast = parse(code);
-  if (!ast) return { ok: false, units: [], loose: [] };
+  if (!ast) return { ok: false, units: [], loose: [], calls: [] };
   const units = [];
   const seen = new Set();
+  const calls = new Set(); // short callee names used anywhere in the file → for the call graph
   walk(ast, [], (node, ancestors) => {
+    if (node.type === 'CallExpression') {
+      const cn = calleeName(node.callee);
+      if (cn) calls.add(cn);
+      return;
+    }
     if (!FN_TYPES.has(node.type)) return;
     const named = nameFn(node, ancestors);
     if (!named) return;
@@ -139,7 +152,7 @@ function analyze(code) {
     units.push({ name: named.name, kind: named.kind, startLine: node.loc.start.line, endLine: node.loc.end.line });
   });
   units.sort((a, b) => a.startLine - b.startLine);
-  return { ok: true, units, loose: looseTopLevel(ast) };
+  return { ok: true, units, loose: looseTopLevel(ast), calls: [...calls] };
 }
 
 // The unit a Cell governs = the nearest unit starting just after the marker.

@@ -160,7 +160,7 @@ function calcPortfolioValue(holdings) {
 | `yay adopt [path] [--dry]` | insert draft (unsigned) spec blocks above un-tagged functions |
 | `yay sign [--all \| --cell C-040,C-041] [--name <you>]` | sign a change-set (append a seal to the lock) |
 | `yay verify [--strict] [-d] [--dir <path>]` | the gate; `--strict` exits non-zero if blocked (for CI); `-d`/`--details` prints each Cell's spec, code & checks |
-| `yay map [-o file.html]` | write the colored flowchart (defaults to `yay-layer-map.html`) |
+| `yay map [-o file.html]` | write the flowchart — Cells grouped into collapsible modules with roll-up health + module-flow arrows (defaults to `yay-layer-map.html`) |
 | `yay status` | one-line summary |
 
 ## Colors
@@ -205,7 +205,7 @@ Anything Red or Unsigned fails the check, so it can't be merged. The real enforc
 
 This is a **v0.1 reference implementation of the protocol's spine** — one small dependency (`acorn`), honest about scope.
 
-**Working today:** marker extraction · manifest + `sha256` spec hashing · **ed25519** keygen, encrypted keystore, sign & verify · the green/yellow/red/unsigned gate with static code⇔spec checks (unit exists, declared purity holds, undeclared-effect flags with the offending line pinpointed) · **AST-based coverage (`acorn`)** — every named unit (functions, methods, class methods, arrow-props, at any depth) with no spec shows **Pink** and blocks the gate · **AST-based `adopt`** that scaffolds specs over all of them · roll-up for container Cells · broken-edge detection · the interactive HTML map · guided `yay init` wizard · `--strict` CI exit code.
+**Working today:** marker extraction · manifest + `sha256` spec hashing · **ed25519** keygen, encrypted keystore, sign & verify · the green/yellow/red/unsigned gate with static code⇔spec checks (unit exists, declared purity holds, undeclared-effect flags with the offending line pinpointed) · **AST-based coverage (`acorn`)** — every named unit (functions, methods, class methods, arrow-props, at any depth) with no spec shows **Pink** and blocks the gate · **AST-based `adopt`** that scaffolds specs over all of them · roll-up for container Cells · broken-edge detection · the interactive HTML map — Cells grouped into **collapsible modules** (by file) with rolled-up health, zoom in/out, and **module-to-module flow arrows derived from the call graph** · guided `yay init` wizard · `--strict` CI exit code.
 
 **Roadmap** (designed in `docs/`, not yet built): the **phone signer + encrypted rendezvous channel** (the local keystore is today's stand-in) · 24-word **mnemonic** backup · **TypeScript** analyzer (JS is AST-based today; TS falls back to shallow detection) · property tests from `ensures`, real effect analysis, **mutation scoring** · the **Policy** engine · **freedom-mode** grants + ratification queue · **multi-sig / roles** · LLM-driven `adopt` intent derivation.
 
