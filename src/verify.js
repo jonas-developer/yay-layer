@@ -136,7 +136,7 @@ function verifyManifest(manifest, lock, config) {
       : `no formal specification (${u.kind || 'unit'}) — never described or signed (run \`yay adopt\`)`;
     results[id] = {
       id, state: 'PINK', trust: { signed: false }, untracked: true,
-      name: u.name, file: u.file, line: u.line, lang: u.lang,
+      name: u.name, file: u.file, line: u.line, lang: u.lang, module: u.module, group: u.group,
       notes: [{ level: 'red', text }],
       badLines: [],
     };
