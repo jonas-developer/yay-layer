@@ -25,10 +25,15 @@ function detailInner(cell, res) {
   if (cell.feeds && cell.feeds.length) meta.push(`feeds → ${esc(cell.feeds.join(', '))}`);
   meta.push(esc(`${cell.file}:${cell.line}`));
 
+  const bad = new Set((res.badLines || []).map((s) => s.trim()));
+  const codeHtml = (cell.unitBody || '').split('\n').map((l) => {
+    const t = l.trim();
+    return (t && bad.has(t)) ? `<span class="badline">${esc(l)}</span>` : esc(l);
+  }).join('\n');
   const body = isModule
     ? `<div class="dh">Contains</div><pre class="code">${esc(cell.contains.join('\n'))}</pre>`
     : (cell.unitBody
-        ? `<div class="dh">Code</div><pre class="code">${esc(cell.unitBody)}</pre>`
+        ? `<div class="dh">Code</div><pre class="code">${codeHtml}</pre>`
         : `<div class="dh">Code</div><div class="allok">no unit body found below the spec</div>`);
   const sym = { red: '✗', yellow: '⚠', info: '•' };
   const checks = (res.notes || []).length
@@ -119,6 +124,7 @@ h1{font-family:var(--mono);font-size:1.3rem;margin:0 0 4px}.sub{color:var(--mut)
 .dmeta{display:flex;gap:6px 12px;flex-wrap:wrap;font-family:var(--mono);font-size:.68rem;color:var(--mut);margin-bottom:6px}
 .dh{font-family:var(--mono);font-size:.62rem;text-transform:uppercase;letter-spacing:.07em;color:var(--accent);margin:14px 0 5px}
 pre.code{margin:0;background:var(--code);border:1px solid var(--rule);border-radius:6px;padding:11px 12px;overflow-x:auto;font-family:var(--mono);font-size:.78rem;line-height:1.6;white-space:pre;color:var(--ink)}
+.badline{display:block;background:color-mix(in srgb,var(--red) 20%,transparent);color:var(--red);font-weight:700;border-radius:3px;margin:0 -4px;padding:0 4px}
 .checks{margin:0;padding:0;list-style:none;font-size:.82rem}
 .checks li{margin:4px 0;line-height:1.45}
 .ck-red{color:var(--red);font-weight:600}

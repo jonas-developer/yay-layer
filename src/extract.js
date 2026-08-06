@@ -33,17 +33,19 @@ function grabUnitBody(lines, fromLine) {
     const m = lines[i].match(decl);
     if (!m) continue;
     const name = m[1] || m[2];
-    // find first "{" from here, then brace-match
-    let depth = 0, started = false, body = '';
+    // brace-match from the declaration line to the matching close; body includes
+    // the signature so line numbers line up with the file. `startLine` is 0-based.
+    let depth = 0, started = false, end = i;
     for (let j = i; j < lines.length; j++) {
       for (const ch of lines[j]) {
         if (ch === '{') { depth++; started = true; }
-        if (started) body += ch;
-        if (ch === '}') { depth--; if (depth === 0) return { name, body }; }
+        else if (ch === '}') { depth--; }
       }
-      if (started) body += '\n';
+      end = j;
+      if (started && depth <= 0) break;
+      if (!started && j >= i + 2) break; // no block body (e.g. arrow one-liner)
     }
-    return { name, body };
+    return { name, startLine: i, body: lines.slice(i, end + 1).join('\n') };
   }
   return null;
 }
@@ -77,6 +79,7 @@ function extractFile(file) {
       normalized, spec,
       unitName: spec.unit || (unit && unit.name) || null,
       unitBody: unit ? unit.body : null,
+      unitBodyStart: unit ? unit.startLine : null,
       unitFound: !!unit,
     });
     i = end;

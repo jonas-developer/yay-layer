@@ -158,8 +158,12 @@ function printReport(manifest, verified, details) {
         console.log('      ' + U.c.accent('spec'));
         for (const l of (cell.specBlock || '').split('\n')) console.log(ind + U.c.dim(l));
         if (cell.unitBody) {
+          const bad = new Set((r.badLines || []).map((s) => s.trim()));
           console.log('      ' + U.c.accent('code'));
-          for (const l of cell.unitBody.split('\n')) console.log(ind + U.c.dim(l));
+          for (const l of cell.unitBody.split('\n')) {
+            const isBad = l.trim() && bad.has(l.trim());
+            console.log(ind + (isBad ? U.c.red('▶ ' + l) : U.c.dim(l)));
+          }
         }
         const meta = [];
         meta.push(r.trust && r.trust.signed ? (r.trust.auto ? 'AUTO·' + (r.trust.grant || 'grant') : 'by ' + r.trust.signer) : 'unsigned');

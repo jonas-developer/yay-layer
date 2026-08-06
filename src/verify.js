@@ -51,14 +51,29 @@ function staticChecks(cell) {
 
   const declaredEffects = (spec.effects || '').toLowerCase();
   const pure = /^yes\b/i.test(spec.pure || '');
+  let badLines = [];
   if (cell.unitBody) {
-    const hits = EFFECT_SIGNALS.filter(([, re]) => re.test(cell.unitBody)).map(([n]) => n);
-    if (pure && hits.length) {
-      red = true; notes.push({ level: 'red', text: `purity violated: declared \`pure: yes\` but uses ${hits.join(', ')}` });
-    } else if (!pure && hits.length) {
-      const undeclared = hits.filter((h) => !declaredEffects.includes(h) && !declaredEffects.includes('any'));
-      if (declaredEffects && undeclared.length) { yellow = true; notes.push({ level: 'yellow', text: `undeclared effect(s): ${undeclared.join(', ')} — not in \`effects:\` (minimality)` }); }
-      else if (!declaredEffects) { yellow = true; notes.push({ level: 'yellow', text: `has effects (${hits.join(', ')}) but none declared in \`effects:\`` }); }
+    const base = cell.unitBodyStart || 0;
+    const found = []; // { signal, line, text } — the exact offending source lines
+    cell.unitBody.split('\n').forEach((ln, k) => {
+      for (const [sig, re] of EFFECT_SIGNALS) {
+        if (re.test(ln)) { found.push({ signal: sig, line: base + k + 1, text: ln.trim() }); break; }
+      }
+    });
+    const signals = [...new Set(found.map((f) => f.signal))];
+    if (pure && found.length) {
+      red = true;
+      badLines = found.map((f) => f.text);
+      for (const f of found) notes.push({ level: 'red', text: `purity violated (line ${f.line}): \`pure: yes\` but uses ${f.signal} → ${f.text}` });
+    } else if (!pure && found.length) {
+      const undeclared = found.filter((f) => !declaredEffects.includes(f.signal) && !declaredEffects.includes('any'));
+      if (declaredEffects && undeclared.length) {
+        yellow = true; badLines = undeclared.map((f) => f.text);
+        for (const f of undeclared) notes.push({ level: 'yellow', text: `undeclared effect (line ${f.line}): ${f.signal} → ${f.text}` });
+      } else if (!declaredEffects) {
+        yellow = true; badLines = found.map((f) => f.text);
+        notes.push({ level: 'yellow', text: `has effects (${signals.join(', ')}) but none declared in \`effects:\`` });
+      }
     }
   }
 
@@ -67,7 +82,7 @@ function staticChecks(cell) {
   if (!isModule && !machineFields) { yellow = true; notes.push({ level: 'yellow', text: 'prose-only spec (no in/out/ensures/pure/throws) — capped at Yellow' }); }
   if (!spec.intent) { yellow = true; notes.push({ level: 'yellow', text: 'no `intent:` line' }); }
 
-  return { red, yellow, notes };
+  return { red, yellow, notes, badLines };
 }
 
 function verifyManifest(manifest, lock, config) {
@@ -85,7 +100,7 @@ function verifyManifest(manifest, lock, config) {
     else if (sc.yellow) state = 'YELLOW';
     else state = 'GREEN';
 
-    results[id] = { id, state, trust, notes: sc.notes, file: cell.file, line: cell.line };
+    results[id] = { id, state, trust, notes: sc.notes, badLines: sc.badLines || [], file: cell.file, line: cell.line };
   }
 
   // Higher-order: broken feeds edges, and roll-up color for container Cells.

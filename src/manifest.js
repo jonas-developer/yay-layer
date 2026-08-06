@@ -34,6 +34,7 @@ function buildManifest(targetDir) {
         specHash: sha256(cell.normalized),
         unitName: cell.unitName,
         unitBody: cell.unitBody,
+        unitBodyStart: cell.unitBodyStart,
         unitFound: cell.unitFound,
         contains: parseList(cell.spec.contains),
         feeds: parseList(cell.spec.feeds),
