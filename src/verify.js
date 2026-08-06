@@ -46,7 +46,7 @@ function staticChecks(cell) {
   // A module (container Cell) governs composition, not a code unit — so it is not
   // expected to have a function body or the machine fields a leaf Cell needs.
   if (!isModule && cell.unitName && !cell.unitFound) {
-    red = true; notes.push(`code missing: no unit "${cell.unitName}" found below the spec`);
+    red = true; notes.push({ level: 'red', text: `code missing: no unit "${cell.unitName}" found below the spec` });
   }
 
   const declaredEffects = (spec.effects || '').toLowerCase();
@@ -54,18 +54,18 @@ function staticChecks(cell) {
   if (cell.unitBody) {
     const hits = EFFECT_SIGNALS.filter(([, re]) => re.test(cell.unitBody)).map(([n]) => n);
     if (pure && hits.length) {
-      red = true; notes.push(`purity violated: declared pure but uses ${hits.join(', ')}`);
+      red = true; notes.push({ level: 'red', text: `purity violated: declared \`pure: yes\` but uses ${hits.join(', ')}` });
     } else if (!pure && hits.length) {
       const undeclared = hits.filter((h) => !declaredEffects.includes(h) && !declaredEffects.includes('any'));
-      if (declaredEffects && undeclared.length) { yellow = true; notes.push(`undeclared effect(s): ${undeclared.join(', ')} (minimality)`); }
-      else if (!declaredEffects) { yellow = true; notes.push(`has effects (${hits.join(', ')}) but none declared`); }
+      if (declaredEffects && undeclared.length) { yellow = true; notes.push({ level: 'yellow', text: `undeclared effect(s): ${undeclared.join(', ')} — not in \`effects:\` (minimality)` }); }
+      else if (!declaredEffects) { yellow = true; notes.push({ level: 'yellow', text: `has effects (${hits.join(', ')}) but none declared in \`effects:\`` }); }
     }
   }
 
   // vague / prose-only spec caps at YELLOW: a leaf Cell needs at least one machine field.
   const machineFields = ['in', 'out', 'ensures', 'pure', 'throws'].some((k) => spec[k]);
-  if (!isModule && !machineFields) { yellow = true; notes.push('prose-only spec (no in/out/ensures/pure/throws) — capped at Yellow'); }
-  if (!spec.intent) { yellow = true; notes.push('no intent: line'); }
+  if (!isModule && !machineFields) { yellow = true; notes.push({ level: 'yellow', text: 'prose-only spec (no in/out/ensures/pure/throws) — capped at Yellow' }); }
+  if (!spec.intent) { yellow = true; notes.push({ level: 'yellow', text: 'no `intent:` line' }); }
 
   return { red, yellow, notes };
 }
@@ -93,7 +93,7 @@ function verifyManifest(manifest, lock, config) {
     const cell = manifest.cells[id];
     for (const t of cell.feeds || []) {
       if (!manifest.cells[t]) {
-        results[id].notes.push(`broken edge: feeds → ${t} (no such Cell)`);
+        results[id].notes.push({ level: 'yellow', text: `broken edge: feeds → ${t} (no such Cell)` });
         results[id].state = worst(results[id].state, 'YELLOW');
       }
     }
@@ -105,7 +105,7 @@ function verifyManifest(manifest, lock, config) {
       for (const child of cell.contains) {
         if (results[child]) rolled = worst(rolled, results[child].state);
       }
-      if (rolled !== results[id].state) results[id].notes.push('rolled up from contained Cells');
+      if (rolled !== results[id].state) results[id].notes.push({ level: 'info', text: `rolled up to ${rolled} from contained Cells` });
       results[id].state = rolled;
       results[id].isModule = true;
     }

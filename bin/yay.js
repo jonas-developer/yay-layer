@@ -146,8 +146,11 @@ function printReport(manifest, verified, details) {
     const who = r.trust && r.trust.signed ? (r.trust.auto ? 'auto' : r.trust.signer) : '';
     console.log('  ' + st.color(st.glyph) + ' ' + st.color(r.state.padEnd(8)) + ' ' +
       U.c.accent(id.padEnd(8)) + ' ' + U.c.dim(`${r.file}:${r.line}`) + (who ? U.c.dim('  · ' + who) : ''));
-    if (r.notes.length) for (const note of r.notes) console.log('      ' + U.c.dim('– ' + note));
-    else if (details) console.log('      ' + U.c.green('✓ all checks passed'));
+    if (r.notes.length) for (const note of r.notes) {
+      const paint = note.level === 'red' ? U.c.red : note.level === 'yellow' ? U.c.yellow : U.c.dim;
+      const sym = note.level === 'red' ? '✗' : note.level === 'yellow' ? '⚠' : '–';
+      console.log('      ' + paint(sym + ' ' + note.text));
+    } else if (details) console.log('      ' + U.c.green('✓ all checks passed'));
 
     if (details) {
       const cell = manifest.cells[id];

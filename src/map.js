@@ -30,8 +30,9 @@ function detailInner(cell, res) {
     : (cell.unitBody
         ? `<div class="dh">Code</div><pre class="code">${esc(cell.unitBody)}</pre>`
         : `<div class="dh">Code</div><div class="allok">no unit body found below the spec</div>`);
+  const sym = { red: '✗', yellow: '⚠', info: '•' };
   const checks = (res.notes || []).length
-    ? `<div class="dh">Checks</div><ul class="checks">${res.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>`
+    ? `<div class="dh">Checks</div><ul class="checks">${res.notes.map((n) => `<li class="ck-${n.level}">${sym[n.level] || '•'} ${esc(n.text)}</li>`).join('')}</ul>`
     : `<div class="dh">Checks</div><div class="allok" style="color:${col}">✓ all checks passed</div>`;
 
   return `<div class="mhead"><span class="mid">${esc(cell.id)}</span><span class="mname">${esc(cell.unitName || cell.spec.unit || cell.id)}</span><span class="mpill" style="color:${col}">${label}</span></div>
@@ -75,11 +76,11 @@ function renderMap(manifest, verified, project) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>YayLayer map · ${esc(project || 'project')}</title>
 <style>
-:root{--paper:#F4F1EA;--card:#FBFAF6;--ink:#1a1a21;--ink2:#4c4c58;--mut:#6f6f7a;--rule:#ddd8cd;--accent:#3d38a8;--code:#f3efe6;
+:root{--paper:#F4F1EA;--card:#FBFAF6;--ink:#1a1a21;--ink2:#4c4c58;--mut:#6f6f7a;--rule:#ddd8cd;--accent:#3d38a8;--code:#f3efe6;--red:#cf4436;--amber:#c9860f;
 --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;--sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;}
-@media(prefers-color-scheme:dark){:root{--paper:#131318;--card:#1b1b23;--ink:#ECEAE3;--ink2:#b6b4c0;--mut:#8a8a96;--rule:#2b2b36;--accent:#9b96f6;--code:#15151c;}}
-:root[data-theme="light"]{--paper:#F4F1EA;--card:#FBFAF6;--ink:#1a1a21;--ink2:#4c4c58;--mut:#6f6f7a;--rule:#ddd8cd;--accent:#3d38a8;--code:#f3efe6;}
-:root[data-theme="dark"]{--paper:#131318;--card:#1b1b23;--ink:#ECEAE3;--ink2:#b6b4c0;--mut:#8a8a96;--rule:#2b2b36;--accent:#9b96f6;--code:#15151c;}
+@media(prefers-color-scheme:dark){:root{--paper:#131318;--card:#1b1b23;--ink:#ECEAE3;--ink2:#b6b4c0;--mut:#8a8a96;--rule:#2b2b36;--accent:#9b96f6;--code:#15151c;--red:#e5695c;--amber:#e0a437;}}
+:root[data-theme="light"]{--paper:#F4F1EA;--card:#FBFAF6;--ink:#1a1a21;--ink2:#4c4c58;--mut:#6f6f7a;--rule:#ddd8cd;--accent:#3d38a8;--code:#f3efe6;--red:#cf4436;--amber:#c9860f;}
+:root[data-theme="dark"]{--paper:#131318;--card:#1b1b23;--ink:#ECEAE3;--ink2:#b6b4c0;--mut:#8a8a96;--rule:#2b2b36;--accent:#9b96f6;--code:#15151c;--red:#e5695c;--amber:#e0a437;}
 *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);line-height:1.55}
 .themebtn{position:fixed;top:14px;right:14px;font-family:var(--mono);font-size:.72rem;background:var(--card);color:var(--ink);border:1px solid var(--rule);border-radius:100px;padding:6px 12px;cursor:pointer;z-index:60}
 .themebtn:hover{border-color:var(--accent)}
@@ -118,7 +119,11 @@ h1{font-family:var(--mono);font-size:1.3rem;margin:0 0 4px}.sub{color:var(--mut)
 .dmeta{display:flex;gap:6px 12px;flex-wrap:wrap;font-family:var(--mono);font-size:.68rem;color:var(--mut);margin-bottom:6px}
 .dh{font-family:var(--mono);font-size:.62rem;text-transform:uppercase;letter-spacing:.07em;color:var(--accent);margin:14px 0 5px}
 pre.code{margin:0;background:var(--code);border:1px solid var(--rule);border-radius:6px;padding:11px 12px;overflow-x:auto;font-family:var(--mono);font-size:.78rem;line-height:1.6;white-space:pre;color:var(--ink)}
-.checks{margin:0;padding-left:16px;font-size:.82rem;color:var(--ink2)}
+.checks{margin:0;padding:0;list-style:none;font-size:.82rem}
+.checks li{margin:4px 0;line-height:1.45}
+.ck-red{color:var(--red);font-weight:600}
+.ck-yellow{color:var(--amber)}
+.ck-info{color:var(--mut)}
 .allok{font-size:.82rem;color:var(--mut)}
 </style></head><body>
 <button id="themebtn" class="themebtn" aria-label="Toggle light or dark theme">☾ Dark</button>
