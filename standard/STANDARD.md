@@ -69,14 +69,14 @@ State combines **VERIFY** (does code match spec?) and **TRUST** (who approved th
 - **YELLOW** — signed and matching, but flagged (prose-only spec, undeclared effect, unproven claim, broken edge).
 - **RED** — signed but code ≠ spec (missing unit, purity violated, mismatch), or a tampered signature.
 - **UNSIGNED** — no valid seal covers the current spec.
-- **PINK** — code with **no formal specification at all** (untracked, never described or signed). Total coverage is mandatory, so PINK is the most dangerous state and **blocks the gate** like Red/Unsigned. Untagged code is never silently ignored. *(MVP: detected for top-level JS/TS functions.)*
+- **PINK** — code with **no formal specification at all** (untracked, never described or signed). Total coverage is mandatory, so PINK is the most dangerous state and **blocks the gate** like Red/Unsigned. Untagged code is never silently ignored. *(Detected via an AST parser for JS — every named unit at any depth: functions, object/class methods, arrow-props — plus top-level imperative code. TypeScript falls back to shallow top-level detection until its adapter lands.)*
 - **AUTO** (trust overlay) — approved under a freedom-mode grant, not personally reviewed; green-on-verify is possible but marked, and sits in the ratification queue.
 
 A container Cell's color **rolls up** to the worst of its descendants.
 
 ## 6. Verification tiers
 
-1. **Static** — spec well-formed; `unit` exists; declared `pure`/`effects` hold. *(MVP: shallow signal-based analysis. Roadmap: real per-language AST.)*
+1. **Static** — spec well-formed; `unit` exists; declared `pure`/`effects` hold. *(JS uses a real AST parser (acorn) to discover units and extract exact bodies; effect analysis is still signal-based. Deeper analysis + a TS parser are roadmap.)*
 2. **Dynamic** — property tests generated from `ensures`, run with fresh seeds; graded by **mutation testing** (low score caps at Yellow). *(Roadmap.)*
 3. **Semantic** — AI judge of `intent`, downgrade-only.
 
@@ -108,7 +108,7 @@ Adapter order: **JS/TS first** (covers JS, TS, React, Node, Next) → **HTML/CSS
 
 ## 12. Adopt (retrofit)
 
-`yay adopt` derives *descriptive* draft specs from existing code → the human **prunes** them prescriptive → signs → code that overreaches the pruned spec goes Red → the AI refactors to match. Coverage is reported honestly (unmodeled = grey, never faked). *(MVP scaffolds draft blocks + a purity guess; deriving `intent` from behaviour needs an LLM — roadmap.)*
+`yay adopt` derives *descriptive* draft specs from existing code → the human **prunes** them prescriptive → signs → code that overreaches the pruned spec goes Red → the AI refactors to match. Coverage is reported honestly (uncovered = Pink, never faked). *(AST-based for JS: scaffolds a draft block over every named unit at any depth, with a purity guess. Deriving `intent` prose from behaviour needs an LLM — roadmap.)*
 
 ---
 

@@ -52,4 +52,14 @@ forged.items['C-041'] = 'deadbeef'.repeat(8);
 const { signature, ...rest } = forged;
 ok(!C.verify(canonical(rest), approval.signature, pubB64), 'tampered approval fails signature check');
 
+// 6) AST analyzer finds nested units, not just top-level functions
+const { analyze } = require('../src/analyze');
+const a = analyze('(function(){ function inner(){} const o = { m(){}, ar: () => 1 }; class K { go(){} } })();');
+ok(a.ok, 'analyzer parses an IIFE/object/class snippet');
+const names = a.units.map((u) => u.name);
+ok(names.includes('inner'), 'analyzer finds a function nested in an IIFE');
+ok(names.includes('m'), 'analyzer finds an object method');
+ok(names.includes('ar'), 'analyzer finds an arrow-property');
+ok(names.some((x) => x.endsWith('.go')), 'analyzer finds a class method');
+
 console.log(`\nAll ${n} checks passed.`);

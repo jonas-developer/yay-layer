@@ -31,5 +31,7 @@
     "CONSTITUTION.md",
     "README.md"
   ],
-  "dependencies": {}
+  "dependencies": {
+    "acorn": "^8.18.0"
+  }
 }

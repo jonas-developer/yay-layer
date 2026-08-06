@@ -130,11 +130,14 @@ function verifyManifest(manifest, lock, config) {
   // The most dangerous state, so it BLOCKS the gate: everything must be covered.
   for (const u of manifest.untracked || []) {
     let id = `«${u.name}»`;
-    if (results[id]) id += ` @${u.file}`;
+    if (results[id]) id += ` @${u.file}:${u.line}`;
+    const text = u.kind === 'loose'
+      ? `top-level code runs at load with no spec (${u.count || 1} statement${(u.count || 1) > 1 ? 's' : ''}) — wrap it in a Cell`
+      : `no formal specification (${u.kind || 'unit'}) — never described or signed (run \`yay adopt\`)`;
     results[id] = {
       id, state: 'PINK', trust: { signed: false }, untracked: true,
       name: u.name, file: u.file, line: u.line, lang: u.lang,
-      notes: [{ level: 'red', text: 'no formal specification — this code was never described or signed (run `yay adopt`)' }],
+      notes: [{ level: 'red', text }],
       badLines: [],
     };
   }

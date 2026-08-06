@@ -44,13 +44,14 @@ The Constitution's rules, in one breath: *spec before code; use the marker gramm
 
 ---
 
-## Try it in 30 seconds (no install)
+## Try it in under a minute
 
-Zero runtime dependencies — you only need **Node ≥ 18**. Clone the repo and run one command from inside it:
+You need **Node ≥ 18**. Clone, install one small dependency (the [`acorn`](https://github.com/acornjs/acorn) JS parser), and run:
 
 ```bash
 git clone https://github.com/jonas-developer/yay-layer.git
 cd yay-layer
+npm install
 node bin/yay.js verify --dir examples
 ```
 
@@ -164,7 +165,7 @@ function calcPortfolioValue(holdings) {
 
 **GREEN** code proven to match a signed spec · **YELLOW** matches but flagged (prose-only, undeclared effect, unproven) · **RED** code ≠ spec (or tampered signature) · **UNSIGNED** awaiting a signature · **PINK** code with **no formal specification at all** — untracked, never described or signed.
 
-**Total coverage is the whole point.** PINK is the most dangerous state — unknown territory where silent bugs hide — so it **blocks the gate just like Red and Unsigned.** YayLayer never silently ignores code it doesn't understand: a top-level function with no spec block above it shows up **Pink** (`«funcName»`) until you `yay adopt` it and sign it. That way "green gate" honestly means *the whole project is covered*, not just the parts someone happened to tag. (The signature covers the **spec**, so you can still refactor freely; only a changed promise re-prompts you. Pink detection is JS/TS in this MVP.)
+**Total coverage is the whole point.** PINK is the most dangerous state — unknown territory where silent bugs hide — so it **blocks the gate just like Red and Unsigned.** YayLayer never silently ignores code it doesn't understand: **any named unit** with no spec block — a function, object method, class method, or arrow-prop, *even nested inside an IIFE, object, or class* — shows up **Pink** (`«unitName»`) until you `yay adopt` it and sign it. Top-level imperative code that runs at load is flagged too. That way "green gate" honestly means *the whole project is covered*, not just the parts someone happened to tag. (The signature covers the **spec**, so you can still refactor freely; only a changed promise re-prompts you. Coverage uses a real JS parser — [`acorn`](https://github.com/acornjs/acorn); TypeScript currently falls back to shallow top-level detection until its adapter lands.)
 
 ## Higher-order: modules, flow & policies
 
@@ -200,11 +201,11 @@ Anything Red or Unsigned fails the check, so it can't be merged. The real enforc
 
 ## What's built vs planned
 
-This is a **v0.1 reference implementation of the protocol's spine**, deliberately zero-dependency and honest about scope.
+This is a **v0.1 reference implementation of the protocol's spine** — one small dependency (`acorn`), honest about scope.
 
-**Working today:** marker extraction · manifest + `sha256` spec hashing · **ed25519** keygen, encrypted keystore, sign & verify · the green/yellow/red/unsigned gate with static-lite code⇔spec checks (unit exists, declared purity holds, undeclared-effect flags) · roll-up for container Cells · broken-edge detection · the HTML map · the `adopt` scaffolder · `--strict` CI exit code.
+**Working today:** marker extraction · manifest + `sha256` spec hashing · **ed25519** keygen, encrypted keystore, sign & verify · the green/yellow/red/unsigned gate with static code⇔spec checks (unit exists, declared purity holds, undeclared-effect flags with the offending line pinpointed) · **AST-based coverage (`acorn`)** — every named unit (functions, methods, class methods, arrow-props, at any depth) with no spec shows **Pink** and blocks the gate · **AST-based `adopt`** that scaffolds specs over all of them · roll-up for container Cells · broken-edge detection · the interactive HTML map · guided `yay init` wizard · `--strict` CI exit code.
 
-**Roadmap** (designed in `docs/`, not yet built): the **phone signer + encrypted rendezvous channel** (the local keystore is today's stand-in) · 24-word **mnemonic** backup · full per-language **AST adapters** (property tests from `ensures`, real effect analysis, mutation scoring) · the **Policy** engine · **freedom-mode** grants + ratification queue · **multi-sig / roles** · LLM-driven `adopt` intent derivation.
+**Roadmap** (designed in `docs/`, not yet built): the **phone signer + encrypted rendezvous channel** (the local keystore is today's stand-in) · 24-word **mnemonic** backup · **TypeScript** analyzer (JS is AST-based today; TS falls back to shallow detection) · property tests from `ensures`, real effect analysis, **mutation scoring** · the **Policy** engine · **freedom-mode** grants + ratification queue · **multi-sig / roles** · LLM-driven `adopt` intent derivation.
 
 ## Security notes
 
