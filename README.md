@@ -26,9 +26,9 @@ YayLayer only works if the AI you build with follows the ritual — **write the 
 | Claude Code / Claude | `CLAUDE.md` at your repo root |
 | ChatGPT | a Project's instructions, or a Custom GPT's system prompt |
 | Cursor | save it as `.cursorrules` |
-| OpenClaw | the agent's system prompt / standing instructions |
-| Hermes | the agent's system prompt / standing instructions |
-| Anything else | wherever that agent reads its persistent instructions |
+| OpenClaw | `AGENTS.md` in the agent workspace |
+| Hermes | `AGENTS.md` at the repo root (loaded at session start) |
+| Most other agents | `AGENTS.md` — an emerging cross-tool convention many agents read |
 
 **Then the loop repeats for every feature:**
 
