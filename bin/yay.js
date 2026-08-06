@@ -6,7 +6,7 @@
 //   yay adopt [path]    scaffold draft specs over existing code
 //   yay sign [--all]    sign (approve) the current specs   [local stand-in for the phone signer]
 //   yay verify          the gate: paint every Cell green/yellow/red/unsigned
-//   yay map [-o file]   write the HTML flowchart
+//   yay map [-o file]   write the HTML flowchart (defaults to yay-layer-map.html)
 //   yay status          one-line summary
 
 const fs = require('fs');
@@ -321,7 +321,7 @@ function cmdMap(flags) {
   const manifest = buildManifest(flags.dir || p.root);
   const verified = verifyManifest(manifest, lock, config);
   const html = renderMap(manifest, verified, config && config.project);
-  const out = (flags.o && flags.o !== true) ? flags.o : (flags.out && flags.out !== true ? flags.out : 'yaylayer-map.html');
+  const out = (flags.o && flags.o !== true) ? flags.o : (flags.out && flags.out !== true ? flags.out : 'yay-layer-map.html');
   fs.writeFileSync(out, html);
   console.log(U.c.green('✓ map written → ') + out + U.c.dim(`  (${Object.keys(verified.results).length} items)`));
 }
@@ -355,7 +355,7 @@ const HELP = `yay — a protocol for provable, signed AI code
   yay adopt [path] [--dry]    scaffold draft specs over existing code
   yay sign [--all|--cell IDs] approve the current specs (local stand-in for the phone signer)
   yay verify [--strict] [-d]  the gate — paint every Cell; -d/--details prints each spec, code & checks
-  yay map [-o file.html]      write the HTML flowchart
+  yay map [-o file.html]      write the HTML flowchart (default: yay-layer-map.html)
   yay status                  one-line summary
 
   docs: standard/STANDARD.md · CONSTITUTION.md · README.md`;

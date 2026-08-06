@@ -65,7 +65,7 @@ You'll see the gate paint the example:
 `C-040` is clean; `C-041` is **deliberately broken** — it declares `pure: yes` but writes `localStorage`, so verify catches the undeclared side effect (the anti-bloat check). No signing or setup is needed to try this: the example is **already signed** — its seal ships in `.yaylayer/lock.json` and the signer's public key in `.yaylayer/config.json`, and `verify` only needs the *public* key. See the visual version:
 
 ```bash
-node bin/yay.js map --dir examples -o map.html   # then open map.html in a browser
+node bin/yay.js map --dir examples   # writes yay-layer-map.html — open it in a browser
 ```
 
 Prefer the terminal? Add `-d` to drill into each Cell's spec, code, and checks inline:
@@ -106,7 +106,7 @@ yay adopt src                 # optional: scaffold draft specs over existing cod
 #   … you + your AI write/prune spec blocks above each unit …
 yay sign --all                # approve the current specs (asks for your passphrase)
 yay verify                    # the gate: paint every Cell
-yay map -o map.html           # write the visual flowchart
+yay map                       # write the flowchart → yay-layer-map.html (override with -o file.html)
 ```
 
 **About the passphrase:** `yay keygen` prompts you to **set a passphrase** (typing is hidden — type it, then press Enter). It encrypts your local private key, and you re-enter it each time you `yay sign`. If the terminal seems to "hang" on `passphrase:`, it's just waiting for you to type it. To skip the prompt (scripts/CI, or if you prefer), pass it directly:
@@ -157,7 +157,7 @@ function calcPortfolioValue(holdings) {
 | `yay adopt [path] [--dry]` | insert draft (unsigned) spec blocks above un-tagged functions |
 | `yay sign [--all \| --cell C-040,C-041] [--name <you>]` | sign a change-set (append a seal to the lock) |
 | `yay verify [--strict] [-d] [--dir <path>]` | the gate; `--strict` exits non-zero if blocked (for CI); `-d`/`--details` prints each Cell's spec, code & checks |
-| `yay map [-o file.html]` | write the colored flowchart |
+| `yay map [-o file.html]` | write the colored flowchart (defaults to `yay-layer-map.html`) |
 | `yay status` | one-line summary |
 
 ## Colors
