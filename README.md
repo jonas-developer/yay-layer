@@ -150,7 +150,9 @@ function calcPortfolioValue(holdings) {
 
 ## Colors
 
-**GREEN** code proven to match a signed spec · **YELLOW** matches but flagged (prose-only, undeclared effect, unproven) · **RED** code ≠ spec (or tampered signature) · **UNSIGNED** awaiting a signature. The signature covers the **spec**, so you can refactor freely; only a changed promise re-prompts you.
+**GREEN** code proven to match a signed spec · **YELLOW** matches but flagged (prose-only, undeclared effect, unproven) · **RED** code ≠ spec (or tampered signature) · **UNSIGNED** awaiting a signature · **PINK** code with **no formal specification at all** — untracked, never described or signed.
+
+**Total coverage is the whole point.** PINK is the most dangerous state — unknown territory where silent bugs hide — so it **blocks the gate just like Red and Unsigned.** YayLayer never silently ignores code it doesn't understand: a top-level function with no spec block above it shows up **Pink** (`«funcName»`) until you `yay adopt` it and sign it. That way "green gate" honestly means *the whole project is covered*, not just the parts someone happened to tag. (The signature covers the **spec**, so you can still refactor freely; only a changed promise re-prompts you. Pink detection is JS/TS in this MVP.)
 
 ## Higher-order: modules, flow & policies
 

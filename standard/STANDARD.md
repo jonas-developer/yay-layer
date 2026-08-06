@@ -69,6 +69,7 @@ State combines **VERIFY** (does code match spec?) and **TRUST** (who approved th
 - **YELLOW** — signed and matching, but flagged (prose-only spec, undeclared effect, unproven claim, broken edge).
 - **RED** — signed but code ≠ spec (missing unit, purity violated, mismatch), or a tampered signature.
 - **UNSIGNED** — no valid seal covers the current spec.
+- **PINK** — code with **no formal specification at all** (untracked, never described or signed). Total coverage is mandatory, so PINK is the most dangerous state and **blocks the gate** like Red/Unsigned. Untagged code is never silently ignored. *(MVP: detected for top-level JS/TS functions.)*
 - **AUTO** (trust overlay) — approved under a freedom-mode grant, not personally reviewed; green-on-verify is possible but marked, and sits in the ratification queue.
 
 A container Cell's color **rolls up** to the worst of its descendants.
