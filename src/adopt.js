@@ -2,7 +2,7 @@
 // `yay adopt` — retrofit: insert DRAFT, unsigned spec blocks above every named
 // unit (function, method, arrow-prop, class method — at any nesting depth) that
 // doesn't have one yet, using the AST analyzer. Falls back to a shallow top-level
-// regex for files the parser can't handle (e.g. TypeScript).
+// regex for files the parser can't handle (rare — severe syntax errors only).
 //
 // Deriving real `intent` prose from behaviour needs an LLM (roadmap); this wires
 // up the structure, ids, indentation and a purity guess.
@@ -51,7 +51,7 @@ function adoptFile(file, ids, dry) {
   const code = fs.readFileSync(file, 'utf8');
   const lines = code.split(/\r?\n/);
   const ana = analyze(code);
-  if (!ana.ok) return adoptFileRegex(file, ids, dry, lines, lang); // TS / unparseable
+  if (!ana.ok) return adoptFileRegex(file, ids, dry, lines, lang); // unparseable (rare)
 
   // Units already governed by an existing Cell (skip those).
   const covered = new Set();
@@ -78,7 +78,7 @@ function adoptFile(file, ids, dry) {
   return inserts.length;
 }
 
-// Shallow fallback for files acorn can't parse.
+// Shallow fallback for files the parser cannot handle.
 function adoptFileRegex(file, ids, dry, lines, lang) {
   const out = [];
   let added = 0;

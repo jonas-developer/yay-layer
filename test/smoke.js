@@ -62,4 +62,12 @@ ok(names.includes('m'), 'analyzer finds an object method');
 ok(names.includes('ar'), 'analyzer finds an arrow-property');
 ok(names.some((x) => x.endsWith('.go')), 'analyzer finds a class method');
 
+// 7) TypeScript + JSX are parsed too (via @babel/parser)
+const ts = analyze('export class Svc { getV(): number { return 1; } } function u(x: string): string { return x; }');
+ok(ts.ok, 'analyzer parses TypeScript');
+ok(ts.units.some((u) => u.name.endsWith('.getV')) && ts.units.some((u) => u.name === 'u'), 'TS: finds class method + function');
+const jsx = analyze('export default function App(){ return <div className="x"/>; } const h = () => 1;');
+ok(jsx.ok, 'analyzer parses JSX');
+ok(jsx.units.some((u) => u.name === 'App') && jsx.units.some((u) => u.name === 'h'), 'JSX: finds component + arrow');
+
 console.log(`\nAll ${n} checks passed.`);

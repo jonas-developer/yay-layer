@@ -69,14 +69,14 @@ State combines **VERIFY** (does code match spec?) and **TRUST** (who approved th
 - **YELLOW** — signed and matching, but flagged (prose-only spec, undeclared effect, unproven claim, broken edge).
 - **RED** — signed but code ≠ spec (missing unit, purity violated, mismatch), or a tampered signature.
 - **UNSIGNED** — no valid seal covers the current spec.
-- **PINK** — code with **no formal specification at all** (untracked, never described or signed). Total coverage is mandatory, so PINK is the most dangerous state and **blocks the gate** like Red/Unsigned. Untagged code is never silently ignored. *(Detected via an AST parser for JS — every named unit at any depth: functions, object/class methods, arrow-props — plus top-level imperative code. TypeScript falls back to shallow top-level detection until its adapter lands.)*
+- **PINK** — code with **no formal specification at all** (untracked, never described or signed). Total coverage is mandatory, so PINK is the most dangerous state and **blocks the gate** like Red/Unsigned. Untagged code is never silently ignored. *(Detected via a real parser (`@babel/parser`) for **JS, TypeScript, JSX, TSX** — every named unit at any depth: functions, object/class methods, arrow-props — plus top-level imperative code. Unparseable files degrade to file-level grouping.)*
 - **AUTO** (trust overlay) — approved under a freedom-mode grant, not personally reviewed; green-on-verify is possible but marked, and sits in the ratification queue.
 
 A container Cell's color **rolls up** to the worst of its descendants.
 
 ## 6. Verification tiers
 
-1. **Static** — spec well-formed; `unit` exists; declared `pure`/`effects` hold. *(JS uses a real AST parser (acorn) to discover units and extract exact bodies; effect analysis is still signal-based. Deeper analysis + a TS parser are roadmap.)*
+1. **Static** — spec well-formed; `unit` exists; declared `pure`/`effects` hold. *(A real AST parser (`@babel/parser`, covering JS/TS/JSX/TSX) discovers units and extracts exact bodies; effect analysis is still signal-based. Deeper analysis is roadmap.)*
 2. **Dynamic** — property tests generated from `ensures`, run with fresh seeds; graded by **mutation testing** (low score caps at Yellow). *(Roadmap.)*
 3. **Semantic** — AI judge of `intent`, downgrade-only.
 

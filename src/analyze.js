@@ -1,5 +1,6 @@
 'use strict';
-// AST-based JS analyzer (acorn). Enumerates every NAMED executable unit —
+// AST-based analyzer for JS / TypeScript / JSX / TSX (@babel/parser with the
+// `estree` plugin). Enumerates every NAMED executable unit —
 // function declaration, function expression assigned to a name, arrow-prop,
 // object method, class method/getter/setter — at ANY nesting depth. This is
 // what lets YayLayer see units inside IIFEs, objects and classes (the old regex
@@ -9,20 +10,20 @@
 // (arr.map(x => …), event handlers) are considered part of their enclosing unit,
 // not separate units. Also flags top-level imperative code that runs at load.
 
-const acorn = require('acorn');
+const babel = require('@babel/parser');
 
-const PARSE_OPTS = {
-  ecmaVersion: 'latest', locations: true, allowHashBang: true,
-  allowReturnOutsideFunction: true, allowAwaitOutsideFunction: true,
-  allowImportExportEverywhere: true,
-};
-
+// One parser for JS, TypeScript, JSX and TSX. The `estree` plugin makes the AST
+// ESTree-shaped (Literal / Property / MethodDefinition) so the walker below is
+// standard. errorRecovery keeps a partial tree on odd syntax instead of failing.
+const PLUGINS = ['estree', 'typescript', 'jsx', 'decorators-legacy'];
 function parse(code) {
-  try { return acorn.parse(code, { ...PARSE_OPTS, sourceType: 'script' }); }
-  catch (_) {
-    try { return acorn.parse(code, { ...PARSE_OPTS, sourceType: 'module' }); }
-    catch (_2) { return null; } // e.g. TS syntax — caller falls back
-  }
+  try {
+    return babel.parse(code, {
+      sourceType: 'unambiguous', errorRecovery: true,
+      allowReturnOutsideFunction: true, allowImportExportEverywhere: true,
+      plugins: PLUGINS,
+    }).program;
+  } catch (_) { return null; }
 }
 
 function keyName(key) {

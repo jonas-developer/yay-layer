@@ -32,6 +32,6 @@
     "README.md"
   ],
   "dependencies": {
-    "acorn": "^8.18.0"
+    "@babel/parser": "^7.29.8"
   }
 }
