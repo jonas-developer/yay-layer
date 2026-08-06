@@ -39,6 +39,12 @@ You'll see the gate paint the example:
 node bin/yay.js map --dir examples -o map.html   # then open map.html in a browser
 ```
 
+Prefer the terminal? Add `-d` to drill into each Cell's spec, code, and checks inline:
+
+```bash
+node bin/yay.js verify --dir examples -d
+```
+
 ## Optional: put `yay` on your PATH
 
 So you can type `yay …` instead of `node bin/yay.js …`:
@@ -89,7 +95,7 @@ function calcPortfolioValue(holdings) {
 | `yay keygen --name <you>` | create your signing key; public key → roster, private key → encrypted keystore |
 | `yay adopt [path] [--dry]` | insert draft (unsigned) spec blocks above un-tagged functions |
 | `yay sign [--all \| --cell C-040,C-041] [--name <you>]` | sign a change-set (append a seal to the lock) |
-| `yay verify [--strict] [--dir <path>]` | the gate; `--strict` exits non-zero if blocked (for CI) |
+| `yay verify [--strict] [-d] [--dir <path>]` | the gate; `--strict` exits non-zero if blocked (for CI); `-d`/`--details` prints each Cell's spec, code & checks |
 | `yay map [-o file.html]` | write the colored flowchart |
 | `yay status` | one-line summary |
 
