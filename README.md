@@ -132,6 +132,8 @@ Each `yay keygen` adds you to the **roster** in `.yaylayer/config.json`. A name 
 
 The name you pick is what shows up as the signer on every seal (`signed by alice` / `signed by Alice Carlsen`) — so it's who gets the credit/blame for each approval. `signers` holds public keys only; private keys stay in `.yaylayer/keys/` (gitignored).
 
+> **`yay init` is once per project — tool upgrades just work.** The `.yaylayer/` data (roster + seals) is forward-compatible, so when `yay` itself is updated your projects pick up the new behaviour **automatically — you never re-init**, and existing signatures stay valid. For example, the AST-coverage upgrade instantly makes previously-invisible code show up **Pink** on an already-initialized project; just run `yay verify` again. You only `init` a brand-new project.
+
 ## A Cell looks like this
 
 ```js
