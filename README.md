@@ -26,6 +26,9 @@ YayLayer only works if the AI you build with follows the ritual — **write the 
 | Claude Code / Claude | `CLAUDE.md` at your repo root |
 | ChatGPT | a Project's instructions, or a Custom GPT's system prompt |
 | Cursor | save it as `.cursorrules` |
+| OpenClaw | the agent's system prompt / standing instructions |
+| Hermes | the agent's system prompt / standing instructions |
+| Anything else | wherever that agent reads its persistent instructions |
 
 **Then the loop repeats for every feature:**
 
@@ -35,7 +38,7 @@ YayLayer only works if the AI you build with follows the ritual — **write the 
 4. **The AI** writes code to satisfy the signed spec.
 5. **`yay verify`** → green ships; red the AI must fix. It can't add behaviour that isn't in an approved spec without coming back to ask you.
 
-The Constitution's rules, in one breath: *spec before code; use the marker grammar; fill the machine fields + one `intent` sentence; add nothing unrequested (minimality); stop and wait for the signature; never alter a sealed spec without re-approval; report colors honestly, never fake green.* The full text is in [`CONSTITUTION.md`](CONSTITUTION.md), and it's model-agnostic — the same prompt works for Claude, ChatGPT, Cursor, or anything else.
+The Constitution's rules, in one breath: *spec before code; use the marker grammar; fill the machine fields + one `intent` sentence; add nothing unrequested (minimality); stop and wait for the signature; never alter a sealed spec without re-approval; report colors honestly, never fake green.* The full text is in [`CONSTITUTION.md`](CONSTITUTION.md), and it's model-agnostic — the same prompt works for **any** AI agent (Claude, ChatGPT, Cursor, OpenClaw, Hermes, …). If your agent reads standing instructions from somewhere, that's where the Constitution goes.
 
 > Without the Constitution, the AI just writes code as usual and everything shows **Unsigned / Red**. With it, the AI produces the specs, you sign, and the gate keeps you both honest.
 
