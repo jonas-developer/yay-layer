@@ -87,10 +87,13 @@ Everything below uses `yay`; if you skipped `npm link`, just prefix commands wit
 
 ## Use it in your own project
 
-Run these **from inside your project** (`cd` there first) — `init` sets up whatever folder you're in. Or point it at a path from anywhere: `yay init path/to/project`. (Note: `--project` is only a display **name**, not a path.)
+Run these **from inside your project** (`cd` there first) — `init` sets up whatever folder you're in. Or point it at a path from anywhere: `yay init path/to/project`.
+
+> **About `--project`:** it's just a **free-form display name** — call it anything you like (e.g. `--project "My Fancy App"`). It defaults to the folder name, and only shows up as a label in `yay status` and the map header. It does **not** affect behaviour and it is **not** a path (avoid slashes, or `yay` will think you meant a directory).
 
 ```bash
-yay init                      # set up .yaylayer/ here (add --project <name> to label it)
+yay init                      # set up .yaylayer/ here; name defaults to the folder name
+yay init --project "My App"   # …or give it any display name you want
 yay keygen --name you         # create your signing key (encrypted keystore)
 yay adopt src                 # optional: scaffold draft specs over existing code
 #   … you + your AI write/prune spec blocks above each unit …
@@ -122,7 +125,7 @@ function calcPortfolioValue(holdings) {
 
 | Command | What it does |
 |---|---|
-| `yay init` | set up YayLayer in the repo (`.yaylayer/config.json` + `lock.json`) |
+| `yay init [dir] [--project <name>]` | set up YayLayer in `[dir]` (or the current folder); `--project` is a free-form display name (defaults to the folder name) |
 | `yay keygen --name <you>` | create your signing key; public key → roster, private key → encrypted keystore |
 | `yay adopt [path] [--dry]` | insert draft (unsigned) spec blocks above un-tagged functions |
 | `yay sign [--all \| --cell C-040,C-041] [--name <you>]` | sign a change-set (append a seal to the lock) |
