@@ -15,39 +15,54 @@ See the design in [`docs/`](docs/) · the spec in [`standard/STANDARD.md`](stand
 
 ---
 
-## Install
+## Try it in 30 seconds (no install)
 
-Zero runtime dependencies. Needs **Node ≥ 18**.
+Zero runtime dependencies — you only need **Node ≥ 18**. Clone the repo and run one command from inside it:
 
 ```bash
 git clone https://github.com/jonas-developer/yay-layer.git
 cd yay-layer
-npm link        # optional — puts `yay` on your PATH
+node bin/yay.js verify --dir examples
 ```
 
-No `npm link`? Just call it directly: `node bin/yay.js <command>` (examples below use `yay`).
+You'll see the gate paint the example:
 
-## Quickstart
+```
+● GREEN    C-040   examples/coinwatch/calcPortfolioValue.js:1   · jonas
+● RED      C-041   examples/coinwatch/calcGainLoss.js:1         · jonas
+    – purity violated: declared pure but uses localStorage
+```
+
+`C-040` is clean; `C-041` is **deliberately broken** — it declares `pure: yes` but writes `localStorage`, so verify catches the undeclared side effect (the anti-bloat check). No signing or setup is needed to try this: the example is **already signed** — its seal ships in `.yaylayer/lock.json` and the signer's public key in `.yaylayer/config.json`, and `verify` only needs the *public* key. See the visual version:
 
 ```bash
-yay init --project my-app          # set up .yaylayer/ (config + lock)
-yay keygen --name you              # create your signing key (encrypted keystore)
-yay adopt src                      # scaffold draft specs over existing code (optional)
+node bin/yay.js map --dir examples -o map.html   # then open map.html in a browser
+```
+
+## Optional: put `yay` on your PATH
+
+So you can type `yay …` instead of `node bin/yay.js …`:
+
+```bash
+npm link                    # from the repo root
+yay verify --dir examples   # now this works
+```
+
+Everything below uses `yay`; if you skipped `npm link`, just prefix commands with `node bin/yay.js` (e.g. `node bin/yay.js verify`).
+
+## Use it in your own project
+
+```bash
+yay init --project my-app     # set up .yaylayer/ (config + lock)
+yay keygen --name you         # create your signing key (encrypted keystore)
+yay adopt src                 # optional: scaffold draft specs over existing code
 #   … you + your AI write/prune spec blocks above each unit …
-yay sign --all                     # approve the current specs (asks for your passphrase)
-yay verify                         # the gate: paint every Cell
-yay map -o map.html                # write the visual flowchart
+yay sign --all                # approve the current specs (asks for your passphrase)
+yay verify                    # the gate: paint every Cell
+yay map -o map.html           # write the visual flowchart
 ```
 
-Pass the passphrase non-interactively with `YAY_PASSPHRASE=… ` for scripts/CI.
-
-## Try the example
-
-```bash
-yay verify --dir examples
-```
-
-`examples/coinwatch` ships two Cells: `C-040` is clean (**Green** once signed) and `C-041` is **deliberately Red** — it declares `pure: yes` but writes `localStorage`, so verify catches the undeclared side effect. That's the anti-bloat check in action.
+Pass the passphrase non-interactively with `YAY_PASSPHRASE=…` for scripts/CI.
 
 ## A Cell looks like this
 

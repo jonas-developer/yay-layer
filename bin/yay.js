@@ -24,9 +24,12 @@ function args(argv) {
   const flags = {}; const positional = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a.startsWith('--')) {
-      const key = a.slice(2);
-      if (i + 1 < argv.length && !argv[i + 1].startsWith('--')) { flags[key] = argv[++i]; }
+    let key = null;
+    if (a.startsWith('--')) key = a.slice(2);
+    else if (/^-[A-Za-z]$/.test(a)) key = a.slice(1); // short flags like -o
+    if (key !== null) {
+      const next = argv[i + 1];
+      if (next !== undefined && !next.startsWith('-')) flags[key] = argv[++i];
       else flags[key] = true;
     } else positional.push(a);
   }
