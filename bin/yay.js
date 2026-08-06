@@ -134,18 +134,39 @@ async function cmdSign(flags) {
   console.log('  ' + U.c.dim('seal appended to .yaylayer/lock.json (commit this)'));
 }
 
-function printReport(manifest, verified) {
+function printReport(manifest, verified, details) {
   for (const prob of manifest.problems) {
     console.log(U.c.red('  ✗ ') + `${prob.id || ''} ${prob.file || ''} — ${prob.error}`);
   }
   const ids = Object.keys(verified.results).sort();
+  const ind = '        ';
   for (const id of ids) {
     const r = verified.results[id];
     const st = U.STATE[r.state];
     const who = r.trust && r.trust.signed ? (r.trust.auto ? 'auto' : r.trust.signer) : '';
     console.log('  ' + st.color(st.glyph) + ' ' + st.color(r.state.padEnd(8)) + ' ' +
       U.c.accent(id.padEnd(8)) + ' ' + U.c.dim(`${r.file}:${r.line}`) + (who ? U.c.dim('  · ' + who) : ''));
-    for (const note of r.notes) console.log('      ' + U.c.dim('– ' + note));
+    if (r.notes.length) for (const note of r.notes) console.log('      ' + U.c.dim('– ' + note));
+    else if (details) console.log('      ' + U.c.green('✓ all checks passed'));
+
+    if (details) {
+      const cell = manifest.cells[id];
+      if (cell) {
+        console.log('      ' + U.c.accent('spec'));
+        for (const l of (cell.specBlock || '').split('\n')) console.log(ind + U.c.dim(l));
+        if (cell.unitBody) {
+          console.log('      ' + U.c.accent('code'));
+          for (const l of cell.unitBody.split('\n')) console.log(ind + U.c.dim(l));
+        }
+        const meta = [];
+        meta.push(r.trust && r.trust.signed ? (r.trust.auto ? 'AUTO·' + (r.trust.grant || 'grant') : 'by ' + r.trust.signer) : 'unsigned');
+        meta.push('spec ' + cell.specHash.slice(0, 12) + '…');
+        if (cell.feeds && cell.feeds.length) meta.push('feeds → ' + cell.feeds.join(', '));
+        if (cell.contains && cell.contains.length) meta.push('contains ' + cell.contains.join(', '));
+        console.log('      ' + U.c.accent('meta') + ' ' + U.c.dim(meta.join(' · ')));
+      }
+      console.log('');
+    }
   }
   const c = verified.counts;
   console.log('\n  ' + U.c.green(`${c.GREEN} green`) + '  ' + U.c.yellow(`${c.YELLOW} yellow`) + '  ' +
@@ -159,7 +180,7 @@ function cmdVerify(flags) {
     console.log(U.c.dim('no Cells found. Write a spec block (see README/STANDARD), or run `yay adopt`.')); return;
   }
   const verified = verifyManifest(manifest, lock, config);
-  printReport(manifest, verified);
+  printReport(manifest, verified, !!(flags.details || flags.d));
   const blocked = !verified.passed || manifest.problems.length;
   console.log('\n  ' + (blocked ? U.c.red('GATE: BLOCKED') + U.c.dim(' (red or unsigned Cells cannot reach main)')
     : U.c.green('GATE: PASS')));
@@ -204,7 +225,7 @@ const HELP = `yay — a protocol for provable, signed AI code
   yay keygen --name <you>     create your signing key
   yay adopt [path] [--dry]    scaffold draft specs over existing code
   yay sign [--all|--cell IDs] approve the current specs (local stand-in for the phone signer)
-  yay verify [--strict]       the gate — paint every Cell; --strict exits nonzero if blocked
+  yay verify [--strict] [-d]  the gate — paint every Cell; -d/--details prints each spec, code & checks
   yay map [-o file.html]      write the HTML flowchart
   yay status                  one-line summary
 
