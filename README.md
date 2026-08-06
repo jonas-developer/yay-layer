@@ -15,6 +15,32 @@ See the design in [`docs/`](docs/) · the spec in [`standard/STANDARD.md`](stand
 
 ---
 
+## The core idea: teach your AI to build spec-first
+
+YayLayer only works if the AI you build with follows the ritual — **write the spec, get it signed, then write code to match.** You teach it that *once* by handing it the **Constitution**, a short rule-prompt in **[`CONSTITUTION.md`](CONSTITUTION.md)**.
+
+**Set it up** — paste `CONSTITUTION.md` into wherever your AI reads standing instructions:
+
+| Tool | Where it goes |
+|---|---|
+| Claude Code / Claude | `CLAUDE.md` at your repo root |
+| ChatGPT | a Project's instructions, or a Custom GPT's system prompt |
+| Cursor | save it as `.cursorrules` |
+
+**Then the loop repeats for every feature:**
+
+1. **You** ask in plain English — *"add a checkout form with validation."*
+2. **The AI** writes YayLayer **spec blocks first — not code** — and presents them for review.
+3. **You** read the intent and run `yay sign` to approve (your signature).
+4. **The AI** writes code to satisfy the signed spec.
+5. **`yay verify`** → green ships; red the AI must fix. It can't add behaviour that isn't in an approved spec without coming back to ask you.
+
+The Constitution's rules, in one breath: *spec before code; use the marker grammar; fill the machine fields + one `intent` sentence; add nothing unrequested (minimality); stop and wait for the signature; never alter a sealed spec without re-approval; report colors honestly, never fake green.* The full text is in [`CONSTITUTION.md`](CONSTITUTION.md), and it's model-agnostic — the same prompt works for Claude, ChatGPT, Cursor, or anything else.
+
+> Without the Constitution, the AI just writes code as usual and everything shows **Unsigned / Red**. With it, the AI produces the specs, you sign, and the gate keeps you both honest.
+
+---
+
 ## Try it in 30 seconds (no install)
 
 Zero runtime dependencies — you only need **Node ≥ 18**. Clone the repo and run one command from inside it:
