@@ -104,6 +104,21 @@ yay map -o map.html           # write the visual flowchart
 
 Pass the passphrase non-interactively with `YAY_PASSPHRASE=…` for scripts/CI.
 
+Each `yay keygen` adds you to the **roster** in `.yaylayer/config.json`. A name can be a simple handle **or** a full name — just quote names with spaces (`--name "Alice Carlsen"`). Two examples of how they land in the JSON:
+
+```json
+{
+  "project": "My App",
+  "signers": {
+    "alice": "MCowBQYDK2VwAyEAyQptzSJTyB2Nh+MKQA6SVhiZ74M5Kk5qM83O2MGU9Q=",
+    "Alice Carlsen": "MCowBQYDK2VwAyEA0f3b9c1d2e4a6b8c0d2e4f6a8b0c2d4e6f8a0b2c4d6e8f0a1="
+  },
+  "owners": ["alice", "Alice Carlsen"]
+}
+```
+
+The name you pick is what shows up as the signer on every seal (`signed by alice` / `signed by Alice Carlsen`) — so it's who gets the credit/blame for each approval. `signers` holds public keys only; private keys stay in `.yaylayer/keys/` (gitignored).
+
 ## A Cell looks like this
 
 ```js
