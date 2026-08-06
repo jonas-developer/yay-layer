@@ -30,6 +30,7 @@ function buildManifest(targetDir) {
         line: cell.startLine,
         lang: (cell.spec.lang || path.extname(file).slice(1) || 'unknown').split(/[ ·]/)[0],
         spec: cell.spec,
+        specBlock: cell.normalized,
         specHash: sha256(cell.normalized),
         unitName: cell.unitName,
         unitBody: cell.unitBody,
