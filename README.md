@@ -89,6 +89,13 @@ Everything below uses `yay`; if you skipped `npm link`, just prefix commands wit
 
 Run these **from inside your project** (`cd` there first) — `init` sets up whatever folder you're in. Or point it at a path from anywhere: `yay init path/to/project`.
 
+**`yay init` is a guided setup.** After creating the files it walks you through, step by step:
+1. **Signing key** — choose **Local** (encrypted key on this machine) or **Mobile** (key stays on your phone — *under development*, so it's noted and skipped for now).
+2. If Local, it asks for your **name** and a **passphrase**, and creates the key.
+3. **Adopt** — asks whether the project already has code; if yes, it runs `adopt` to scaffold draft specs over it.
+
+Prefer to script it (or skip the prompts)? Pass flags: `yay init --key local --name you --adopt` (or `--no-adopt`, `--key mobile`). The manual equivalents of each step:
+
 > **About `--project`:** it's just a **free-form display name** — call it anything you like (e.g. `--project "My Fancy App"`). It defaults to the folder name, and only shows up as a label in `yay status` and the map header. It does **not** affect behaviour and it is **not** a path (avoid slashes, or `yay` will think you meant a directory).
 
 ```bash

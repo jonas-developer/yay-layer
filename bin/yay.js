@@ -64,18 +64,26 @@ function promptHidden(q) {
   });
 }
 
-// Read one plain line (for piped/non-interactive input).
+// Read one plain line (for piped input, and visible interactive prompts).
 function promptLine() {
   return new Promise((resolve) => {
+    const stdin = process.stdin;
     let data = '';
-    process.stdin.setEncoding('utf8');
-    process.stdin.resume();
-    process.stdin.on('data', (c) => {
+    stdin.setEncoding('utf8');
+    stdin.resume();
+    const onData = (c) => {
       data += c;
       const nl = data.indexOf('\n');
-      if (nl >= 0) { process.stdin.pause(); resolve(data.slice(0, nl).replace(/\r$/, '')); }
-    });
+      if (nl >= 0) { stdin.removeListener('data', onData); stdin.pause(); resolve(data.slice(0, nl).replace(/\r$/, '')); }
+    };
+    stdin.on('data', onData);
   });
+}
+
+// Ask a question on a TTY and read a visible line back.
+async function ask(prompt) {
+  process.stdout.write(prompt);
+  return (await promptLine()).trim();
 }
 
 async function getPassphrase(flags, purpose) {
@@ -97,34 +105,98 @@ function loadState() {
   return { root, p, config, lock };
 }
 
+// Create a local signing key: encrypted keystore on disk + public key into the roster.
+function createKey(p, config, name, pass) {
+  const { pubB64, privDer } = C.generateKeypair();
+  const ks = C.encryptKeystore(privDer, pass);
+  fs.mkdirSync(p.keys, { recursive: true });
+  const ksPath = path.join(p.keys, `${name}.keystore`);
+  fs.writeFileSync(ksPath, JSON.stringify(ks, null, 2) + '\n', { mode: 0o600 });
+  config.signers[name] = pubB64;
+  config.owners = config.owners || [];
+  if (!config.owners.includes(name)) config.owners.push(name);
+  U.writeJSON(p.config, config);
+  return ksPath;
+}
+
 // ── commands ──────────────────────────────────────────────
 async function cmdInit(flags, positional) {
-  // init sets up the folder you point it at — a directory argument, or the
-  // current directory if none. It does NOT walk up to a git root, so it's
-  // predictable: `.yaylayer/` lands exactly where you say.
+  // Guided setup: create files → choose a signing key (local/mobile) → optional adopt.
+  // Interactive on a TTY; fully scriptable via flags (--key, --name, --passphrase,
+  // --adopt/--no-adopt) and safe (never hangs) when non-interactive.
   const target = path.resolve(positional[0] || process.cwd());
   if (!fs.existsSync(target)) return fail(`no such directory: ${target}`);
-
   if (typeof flags.project === 'string' && flags.project.includes('/')) {
     console.log(U.c.yellow('note: ') + '`--project` is a display NAME, not a path. To set up another folder, pass it as a directory:');
     console.log('  ' + U.c.bold(`yay init ${flags.project}`) + '\n');
   }
 
   const p = U.paths(target);
-  if (fs.existsSync(p.config)) { console.log(U.c.dim('already initialized: ' + p.config)); return; }
-  const nameFlag = (flags.project && flags.project !== true && !String(flags.project).includes('/')) ? flags.project : null;
-  const project = nameFlag || path.basename(target);
-  U.writeJSON(p.config, { project, created: new Date().toISOString(), signers: {}, owners: [] });
-  U.writeJSON(p.lock, { project, approvals: [] });
-  fs.mkdirSync(p.keys, { recursive: true });
-
   const rel = path.relative(process.cwd(), target) || '.';
-  const where = rel === '.' ? '' : U.c.dim(` in ${rel}/`);
-  console.log(U.c.green('✓ initialized YayLayer') + ` for "${project}"` + where);
-  console.log('  ' + U.c.dim(`config → ${path.join(rel, '.yaylayer/config.json')} (commit this)`));
-  console.log('  ' + U.c.dim('keys   → .yaylayer/keys/ (gitignored — private)'));
+  const tty = !!process.stdin.isTTY;
+
+  // 1 ── files
+  let config = U.readJSON(p.config, null);
+  if (config) {
+    console.log(U.c.dim('• .yaylayer already exists here — continuing setup.'));
+  } else {
+    const nameFlag = (flags.project && flags.project !== true && !String(flags.project).includes('/')) ? flags.project : null;
+    const project = nameFlag || path.basename(target);
+    config = { project, created: new Date().toISOString(), signers: {}, owners: [] };
+    U.writeJSON(p.config, config);
+    U.writeJSON(p.lock, { project, approvals: [] });
+    fs.mkdirSync(p.keys, { recursive: true });
+    console.log(U.c.green('✓ initialized YayLayer') + ` for "${project}"` + (rel === '.' ? '' : U.c.dim(` in ${rel}/`)));
+    console.log('  ' + U.c.dim(`config + lock → ${path.join(rel, '.yaylayer')}/ (commit these) · keys → gitignored`));
+  }
+
+  // 2 ── signing key
+  let keyChoice = (typeof flags.key === 'string') ? flags.key.toLowerCase() : null;
+  if (!keyChoice) {
+    if (tty && !Object.keys(config.signers).length) {
+      console.log('\n' + U.c.bold('Signing key') + ' — you need one to approve (sign) specs.');
+      console.log('  ' + U.c.bold('1') + ') Local  ' + U.c.dim('— key stored on this machine, passphrase-encrypted (less safe)'));
+      console.log('  ' + U.c.bold('2') + ') Mobile ' + U.c.dim('— key lives only on your phone, never on this machine (safer)'));
+      const ans = await ask('  Choose 1 or 2 (Enter to skip): ');
+      keyChoice = ans === '1' ? 'local' : ans === '2' ? 'mobile' : 'none';
+    } else keyChoice = 'none';
+  }
+
+  if (keyChoice === 'mobile') {
+    console.log('\n' + U.c.yellow('⚠ Mobile signing is still under development.') + ' (Your key would live only on your phone — Face ID — never on this machine.)');
+    console.log('  No key created. Once it ships you can pair your phone; for now pick Local, or run `yay keygen` later.');
+  } else if (keyChoice === 'local') {
+    let name = (flags.name && flags.name !== true) ? flags.name : null;
+    if (!name && tty) name = await ask('  Your signer name (e.g. alice, or "Alice Carlsen"): ');
+    if (!name) name = 'you';
+    if (config.signers[name]) {
+      console.log(U.c.dim(`• key for "${name}" already exists — skipping.`));
+    } else {
+      const pass = await getPassphrase(flags, `Set a passphrase to encrypt ${name}'s key (you'll re-enter it each time you sign)`);
+      if (!pass || pass.length < 6) fail('passphrase must be at least 6 characters — key not created. Run `yay keygen` later.');
+      else {
+        const ksPath = createKey(p, config, name, pass);
+        console.log(U.c.green(`✓ local key created for "${name}"`) + U.c.dim(` → ${path.relative(process.cwd(), ksPath)} (encrypted, gitignored)`));
+      }
+    }
+  }
+
+  // 3 ── adopt existing code
+  let doAdopt = flags.adopt ? true : (flags['no-adopt'] ? false : null);
+  if (doAdopt === null) {
+    doAdopt = tty ? /^y/i.test(await ask('\nDoes this project already have code to bring under YayLayer? Run `adopt` now? (y/N): ')) : false;
+  }
+  if (doAdopt) {
+    const res = adopt(target, { dry: false });
+    if (!res.total) console.log(U.c.dim('• adopt: no un-tagged top-level functions found.'));
+    else {
+      console.log(U.c.green(`✓ adopt: scaffolded ${res.total} draft Cell(s) across ${res.report.length} file(s)`));
+      console.log(U.c.dim('  each is DERIVED + unsigned — prune them, then `yay sign`.'));
+    }
+  }
+
   const cd = rel === '.' ? '' : `cd ${rel} && `;
-  console.log('\nNext:  ' + U.c.bold(`${cd}yay keygen --name <you>`) + '   then write Cells or ' + U.c.bold('yay adopt') + '.');
+  console.log('\n' + U.c.bold('Done.') + ' Next: write/prune specs → ' + U.c.bold(`${cd}yay verify`) + ' → ' + U.c.bold('yay sign') + '.');
 }
 
 async function cmdKeygen(flags) {
@@ -132,16 +204,10 @@ async function cmdKeygen(flags) {
   if (!config) return fail('run `yay init` first');
   const name = (flags.name && flags.name !== true) ? flags.name : null;
   if (!name) return fail('give yourself a name:  yay keygen --name alice');
+  if (config.signers[name]) return fail(`a key for "${name}" already exists`);
   const pass = await getPassphrase(flags, `Set a passphrase to encrypt ${name}'s key (you'll re-enter it each time you sign)`);
   if (!pass || pass.length < 6) return fail('passphrase must be at least 6 characters');
-  const { pubB64, privDer } = C.generateKeypair();
-  const ks = C.encryptKeystore(privDer, pass);
-  fs.mkdirSync(p.keys, { recursive: true });
-  const ksPath = path.join(p.keys, `${name}.keystore`);
-  fs.writeFileSync(ksPath, JSON.stringify(ks, null, 2) + '\n', { mode: 0o600 });
-  config.signers[name] = pubB64;
-  if (!config.owners.includes(name)) config.owners.push(name);
-  U.writeJSON(p.config, config);
+  const ksPath = createKey(p, config, name, pass);
   console.log(U.c.green(`✓ key created for "${name}"`));
   console.log('  public key → roster in .yaylayer/config.json');
   console.log('  private key → ' + U.c.dim(path.relative(process.cwd(), ksPath)) + U.c.dim('  (gitignored, encrypted)'));
@@ -283,7 +349,8 @@ function fail(msg) { console.error(U.c.red('error: ') + msg); process.exitCode =
 
 const HELP = `yay — a protocol for provable, signed AI code
 
-  yay init [dir]              set up YayLayer in [dir] (or the current folder); --project sets its name
+  yay init [dir]              guided setup: files → signing key (Local/Mobile) → optional adopt
+                             flags: --project <name> --key local|mobile --name <you> --adopt|--no-adopt
   yay keygen --name <you>     create your signing key
   yay adopt [path] [--dry]    scaffold draft specs over existing code
   yay sign [--all|--cell IDs] approve the current specs (local stand-in for the phone signer)
