@@ -113,7 +113,7 @@ function renderMap(manifest, verified, project) {
         <div class="sub-body">${items.map(unitCard).join('')}</div>
       </div>`;
     }).join('');
-    return `<div class="module${openMods ? ' open' : ''}">
+    return `<div class="module${openMods ? ' open' : ''}" data-mod="${esc(m)}">
       <button class="mod-head" style="border-left-color:${mcol}">
         <span class="chev">▸</span>
         <span class="mod-name">${esc(m)}</span>
@@ -127,14 +127,15 @@ function renderMap(manifest, verified, project) {
   }).join('');
 
   const edges = (manifest.moduleEdges || []).filter(([a, b]) => tree[a] && tree[b]);
-  const flow = edges.length ? `
+  const nodeIndex = {}; modules.forEach((m, i) => { nodeIndex[m] = i; });
+  const graphNodes = modules.map((m) => ({ id: m, color: COLORS[modState[m]][0] }));
+  const graphEdges = edges.map(([a, b]) => ({ s: nodeIndex[a], t: nodeIndex[b] }));
+  const flow = modules.length >= 2 ? `
     <div class="flow">
-      <div class="flow-h">Module flow <span class="dim">— who calls whom (from the code)</span></div>
-      <div class="flow-rows">${edges.map(([a, b]) => {
-        const ca = COLORS[modState[a] || 'GREEN'][0], cb = COLORS[modState[b] || 'GREEN'][0];
-        return `<div class="edge"><span class="fl" style="border-color:${ca}">${esc(a)}</span><span class="arr">→</span><span class="fl" style="border-color:${cb}">${esc(b)}</span></div>`;
-      }).join('')}</div>
-    </div>` : '';
+      <div class="flow-h">Module map <span class="dim">— who calls whom · drag to rearrange · click a node to jump</span></div>
+      <svg id="graph" class="graph"></svg>
+    </div>
+    <script type="application/json" id="graph-data">${JSON.stringify({ nodes: graphNodes, edges: graphEdges }).replace(/</g, '\\u003c')}</script>` : '';
 
   const c = verified.counts;
   const legend = Object.entries(COLORS).map(([k, [col, label]]) => `<span class="lg" style="color:${col}">${label} ${c[k] || 0}</span>`).join('');
@@ -161,10 +162,12 @@ h1{font-family:var(--mono);font-size:1.3rem;margin:0 0 4px}.sub{color:var(--mut)
 .toolbar button:hover{border-color:var(--accent);color:var(--ink)}
 .flow{background:var(--card2);border:1px solid var(--rule);border-radius:8px;padding:14px 16px;margin-bottom:20px}
 .flow-h{font-family:var(--mono);font-size:.74rem;color:var(--ink);margin-bottom:10px}.flow-h .dim{color:var(--mut)}
-.flow-rows{display:flex;gap:8px 16px;flex-wrap:wrap}
-.edge{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:.74rem}
-.fl{border:1px solid var(--rule);border-left-width:3px;border-radius:5px;padding:3px 9px;background:var(--card)}
-.arr{color:var(--accent)}
+.graph{width:100%;height:380px;color:var(--mut);touch-action:none;display:block}
+.graph .gbox{fill:var(--card)}
+.graph .gnode{cursor:pointer}
+.graph .gnode:hover .gbox{filter:brightness(1.05)}
+.graph .glabel{font-family:var(--mono);font-size:12px;fill:var(--ink);font-weight:600;pointer-events:none}
+.graph .edges line{stroke:var(--mut);stroke-width:1.5;opacity:.65}
 .module{border:1px solid var(--rule);border-radius:8px;margin-bottom:10px;overflow:hidden;background:var(--card)}
 .mod-head{width:100%;display:flex;align-items:center;gap:10px;text-align:left;font:inherit;color:inherit;cursor:pointer;background:var(--card2);border:none;border-left:3px solid var(--mut);padding:12px 14px}
 .mod-head:hover{filter:brightness(1.03)}
@@ -227,6 +230,45 @@ ${moduleHtml}
   document.querySelectorAll('.sub-head').forEach(function(h){ h.addEventListener('click',function(){ h.parentNode.classList.toggle('open'); }); });
   document.getElementById('expandAll').addEventListener('click',function(){ document.querySelectorAll('.module,.subgroup').forEach(function(m){m.classList.add('open');}); });
   document.getElementById('collapseAll').addEventListener('click',function(){ document.querySelectorAll('.module').forEach(function(m){m.classList.remove('open');}); });
+})();
+(function(){
+  var el=document.getElementById('graph'); if(!el) return;
+  var dataEl=document.getElementById('graph-data'); if(!dataEl) return;
+  var data=JSON.parse(dataEl.textContent), N=data.nodes, E=data.edges;
+  var W=el.clientWidth||900, H=380, cx=W/2, cy=H/2, R=Math.min(W,H)/2-70;
+  el.setAttribute('viewBox','0 0 '+W+' '+H);
+  N.forEach(function(n,i){ var a=i/N.length*2*Math.PI; n.x=cx+Math.cos(a)*R; n.y=cy+Math.sin(a)*R; n.w=Math.max(74,n.id.length*7.2+22); n.h=28; });
+  for(var it=0; it<500; it++){
+    for(var i=0;i<N.length;i++) for(var j=i+1;j<N.length;j++){
+      var dx=N[i].x-N[j].x, dy=N[i].y-N[j].y, d2=dx*dx+dy*dy||0.01, d=Math.sqrt(d2), f=9000/d2, ux=dx/d, uy=dy/d;
+      N[i].x+=ux*f; N[i].y+=uy*f; N[j].x-=ux*f; N[j].y-=uy*f;
+    }
+    E.forEach(function(e){ var a=N[e.s], b=N[e.t]; if(!a||!b||a===b) return; var dx=b.x-a.x, dy=b.y-a.y, d=Math.sqrt(dx*dx+dy*dy)||0.01, f=(d-150)*0.02, ux=dx/d, uy=dy/d; a.x+=ux*f; a.y+=uy*f; b.x-=ux*f; b.y-=uy*f; });
+    N.forEach(function(n){ n.x+=(cx-n.x)*0.012; n.y+=(cy-n.y)*0.012; n.x=Math.max(46,Math.min(W-46,n.x)); n.y=Math.max(20,Math.min(H-20,n.y)); });
+  }
+  var NS='http://www.w3.org/2000/svg';
+  el.innerHTML='<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>';
+  var eG=document.createElementNS(NS,'g'); eG.setAttribute('class','edges'); el.appendChild(eG);
+  var nG=document.createElementNS(NS,'g'); el.appendChild(nG);
+  var lines=E.map(function(){ var l=document.createElementNS(NS,'line'); l.setAttribute('marker-end','url(#ah)'); eG.appendChild(l); return l; });
+  var gs=N.map(function(n){
+    var g=document.createElementNS(NS,'g'); g.setAttribute('class','gnode');
+    var r=document.createElementNS(NS,'rect'); r.setAttribute('class','gbox'); r.setAttribute('rx','7'); r.setAttribute('width',n.w); r.setAttribute('height',n.h); r.setAttribute('stroke',n.color); r.setAttribute('stroke-width','2');
+    var t=document.createElementNS(NS,'text'); t.setAttribute('class','glabel'); t.setAttribute('text-anchor','middle'); t.setAttribute('dominant-baseline','central'); t.textContent=n.id;
+    g.appendChild(r); g.appendChild(t); nG.appendChild(g); return {g:g,t:t};
+  });
+  function place(){
+    N.forEach(function(n,i){ gs[i].g.setAttribute('transform','translate('+(n.x-n.w/2)+','+(n.y-n.h/2)+')'); gs[i].t.setAttribute('x',n.w/2); gs[i].t.setAttribute('y',n.h/2); });
+    E.forEach(function(e,i){ var a=N[e.s], b=N[e.t]; if(!a||!b){ return; } var dx=b.x-a.x, dy=b.y-a.y, d=Math.sqrt(dx*dx+dy*dy)||1, ux=dx/d, uy=dy/d, pad=b.w/2+7; lines[i].setAttribute('x1',a.x); lines[i].setAttribute('y1',a.y); lines[i].setAttribute('x2',b.x-ux*pad); lines[i].setAttribute('y2',b.y-uy*pad); });
+  }
+  place();
+  var drag=null, moved=false;
+  gs.forEach(function(go,i){
+    go.g.addEventListener('mousedown',function(ev){ drag=i; moved=false; ev.preventDefault(); });
+    go.g.addEventListener('click',function(){ if(moved) return; var name=N[i].id, mods=document.querySelectorAll('.module'); for(var k=0;k<mods.length;k++){ if(mods[k].getAttribute('data-mod')===name){ mods[k].classList.add('open'); mods[k].scrollIntoView({behavior:'smooth',block:'center'}); break; } } });
+  });
+  el.addEventListener('mousemove',function(ev){ if(drag==null) return; moved=true; var b=el.getBoundingClientRect(); N[drag].x=(ev.clientX-b.left)/b.width*W; N[drag].y=(ev.clientY-b.top)/b.height*H; place(); });
+  window.addEventListener('mouseup',function(){ drag=null; });
 })();
 (function(){
   var modal=document.getElementById('modal'), body=modal.querySelector('.modal-body');
