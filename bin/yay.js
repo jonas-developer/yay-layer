@@ -59,18 +59,33 @@ function loadState() {
 }
 
 // ── commands ──────────────────────────────────────────────
-async function cmdInit(flags) {
-  const root = U.repoRoot();
-  const p = U.paths(root);
+async function cmdInit(flags, positional) {
+  // init sets up the folder you point it at — a directory argument, or the
+  // current directory if none. It does NOT walk up to a git root, so it's
+  // predictable: `.yaylayer/` lands exactly where you say.
+  const target = path.resolve(positional[0] || process.cwd());
+  if (!fs.existsSync(target)) return fail(`no such directory: ${target}`);
+
+  if (typeof flags.project === 'string' && flags.project.includes('/')) {
+    console.log(U.c.yellow('note: ') + '`--project` is a display NAME, not a path. To set up another folder, pass it as a directory:');
+    console.log('  ' + U.c.bold(`yay init ${flags.project}`) + '\n');
+  }
+
+  const p = U.paths(target);
   if (fs.existsSync(p.config)) { console.log(U.c.dim('already initialized: ' + p.config)); return; }
-  const project = (flags.project && flags.project !== true) ? flags.project : path.basename(root);
+  const nameFlag = (flags.project && flags.project !== true && !String(flags.project).includes('/')) ? flags.project : null;
+  const project = nameFlag || path.basename(target);
   U.writeJSON(p.config, { project, created: new Date().toISOString(), signers: {}, owners: [] });
   U.writeJSON(p.lock, { project, approvals: [] });
   fs.mkdirSync(p.keys, { recursive: true });
-  console.log(U.c.green('✓ initialized YayLayer') + ` for "${project}"`);
-  console.log('  ' + U.c.dim('config → .yaylayer/config.json (commit this)'));
+
+  const rel = path.relative(process.cwd(), target) || '.';
+  const where = rel === '.' ? '' : U.c.dim(` in ${rel}/`);
+  console.log(U.c.green('✓ initialized YayLayer') + ` for "${project}"` + where);
+  console.log('  ' + U.c.dim(`config → ${path.join(rel, '.yaylayer/config.json')} (commit this)`));
   console.log('  ' + U.c.dim('keys   → .yaylayer/keys/ (gitignored — private)'));
-  console.log('\nNext:  ' + U.c.bold('yay keygen --name <you>') + '   then   ' + U.c.bold('yay adopt') + '  or start writing Cells.');
+  const cd = rel === '.' ? '' : `cd ${rel} && `;
+  console.log('\nNext:  ' + U.c.bold(`${cd}yay keygen --name <you>`) + '   then write Cells or ' + U.c.bold('yay adopt') + '.');
 }
 
 async function cmdKeygen(flags) {
@@ -228,7 +243,7 @@ function fail(msg) { console.error(U.c.red('error: ') + msg); process.exitCode =
 
 const HELP = `yay — a protocol for provable, signed AI code
 
-  yay init                    set up YayLayer in this repo
+  yay init [dir]              set up YayLayer in [dir] (or the current folder); --project sets its name
   yay keygen --name <you>     create your signing key
   yay adopt [path] [--dry]    scaffold draft specs over existing code
   yay sign [--all|--cell IDs] approve the current specs (local stand-in for the phone signer)
@@ -242,7 +257,7 @@ async function main() {
   const [, , cmd, ...rest] = process.argv;
   const { flags, positional } = args(rest);
   switch (cmd) {
-    case 'init': return cmdInit(flags);
+    case 'init': return cmdInit(flags, positional);
     case 'keygen': return cmdKeygen(flags);
     case 'sign': return cmdSign(flags);
     case 'verify': case 'check': return cmdVerify(flags);

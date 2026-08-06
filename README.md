@@ -87,8 +87,10 @@ Everything below uses `yay`; if you skipped `npm link`, just prefix commands wit
 
 ## Use it in your own project
 
+Run these **from inside your project** (`cd` there first) — `init` sets up whatever folder you're in. Or point it at a path from anywhere: `yay init path/to/project`. (Note: `--project` is only a display **name**, not a path.)
+
 ```bash
-yay init --project my-app     # set up .yaylayer/ (config + lock)
+yay init                      # set up .yaylayer/ here (add --project <name> to label it)
 yay keygen --name you         # create your signing key (encrypted keystore)
 yay adopt src                 # optional: scaffold draft specs over existing code
 #   … you + your AI write/prune spec blocks above each unit …
