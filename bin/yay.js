@@ -286,7 +286,11 @@ function printReport(manifest, verified, details) {
           }
         }
         const meta = [];
-        meta.push(r.trust && r.trust.signed ? (r.trust.auto ? 'AUTO·' + (r.trust.grant || 'grant') : 'by ' + r.trust.signer) : 'unsigned');
+        const when = (v) => (v ? String(v).slice(0, 16).replace('T', ' ') : '');
+        if (r.trust && r.trust.signed) {
+          meta.push((r.trust.auto ? 'AUTO·' + (r.trust.grant || 'grant') : 'by ' + r.trust.signer) + (r.trust.at ? ' on ' + when(r.trust.at) : ''));
+        } else meta.push('unsigned');
+        if (r.trust && r.trust.firstAt && r.trust.firstAt !== r.trust.at) meta.push('first signed ' + when(r.trust.firstAt));
         meta.push('spec ' + cell.specHash.slice(0, 12) + '…');
         if (cell.feeds && cell.feeds.length) meta.push('feeds → ' + cell.feeds.join(', '));
         if (cell.contains && cell.contains.length) meta.push('contains ' + cell.contains.join(', '));
@@ -328,38 +332,48 @@ function cellChanges(root, lock, cells) {
     if (isNaN(t) || !ap.items) continue;
     for (const id of Object.keys(ap.items)) signedLast[id] = Math.max(signedLast[id] || 0, t);
   }
+  // git per-file, cached: last commit (%cI of -1) and first commit (%cI of --reverse head).
   const gitCache = Object.create(null);
-  const gitTime = (rel) => {
-    if (rel in gitCache) return gitCache[rel];
+  const git = (rel, first) => {
+    const key = (first ? 'A:' : 'Z:') + rel;
+    if (key in gitCache) return gitCache[key];
     let t = 0;
     try {
+      const a = first ? ['log', '--reverse', '--format=%cI', '--', rel] : ['log', '-1', '--format=%cI', '--', rel];
       const out = require('child_process')
-        .execFileSync('git', ['-C', root, 'log', '-1', '--format=%cI', '--', rel], { stdio: ['ignore', 'pipe', 'ignore'] })
-        .toString().trim();
+        .execFileSync('git', ['-C', root, ...a], { stdio: ['ignore', 'pipe', 'ignore'] })
+        .toString().split('\n')[0].trim();
       if (out) t = Date.parse(out) || 0;
     } catch (_) {}
-    return (gitCache[rel] = t);
+    return (gitCache[key] = t);
   };
+  const statMs = (rel, kind) => { try { const s = fs.statSync(path.join(root, rel)); return (kind === 'birth' ? s.birthtimeMs : s.mtimeMs) || 0; } catch (_) { return 0; } };
+
   const out = [];
+  const times = Object.create(null);
   for (const id of Object.keys(cells)) {
     const c = cells[id];
     if (c.contains && c.contains.length) continue; // leaf Cells (specs), not modules
     const s = signedLast[id] || 0;
-    const g = gitTime(c.file) || 0;
+    const g = git(c.file, false) || 0;
     let at = Math.max(s, g), source = s >= g ? 'signed' : 'code';
-    if (!at) { try { at = fs.statSync(path.join(root, c.file)).mtimeMs; } catch (_) {} source = 'file'; }
+    if (!at) { at = statMs(c.file, 'mtime'); source = 'file'; }
     if (at) out.push({ id: 'u:' + id, at, source });
+    times[id] = {
+      createdCode: git(c.file, true) || statMs(c.file, 'birth') || null,
+      changedCode: g || statMs(c.file, 'mtime') || null,
+    };
   }
   out.sort((a, b) => b.at - a.at);
-  return out;
+  return { changes: out, times };
 }
 
 function cmdMap(flags) {
   const { p, config, lock } = loadState();
   const manifest = buildManifest(flags.dir || p.root);
   const verified = verifyManifest(manifest, lock, config);
-  const changes = cellChanges(manifest.root, lock, manifest.cells);
-  const html = renderMap(manifest, verified, config && config.project, changes);
+  const { changes, times } = cellChanges(manifest.root, lock, manifest.cells);
+  const html = renderMap(manifest, verified, config && config.project, changes, times);
   const out = (flags.o && flags.o !== true) ? flags.o : (flags.out && flags.out !== true ? flags.out : 'yay-layer-map.html');
   fs.writeFileSync(out, html);
   console.log(U.c.green('✓ map written → ') + out + U.c.dim(`  (${Object.keys(verified.results).length} items)`));

@@ -25,16 +25,21 @@ const SEV = { GREEN: 0, YELLOW: 1, UNSIGNED: 2, RED: 3 };
 const worst = (a, b) => (SEV[a] >= SEV[b] ? a : b);
 
 function trustOf(cell, lock, roster) {
+  let match = null;
+  let firstAt = null; // earliest approval that ever covered this Cell → "created in the system"
   for (const ap of lock.approvals || []) {
-    if (!ap.items || ap.items[cell.id] !== cell.specHash) continue;
+    if (!ap.items || !(cell.id in ap.items)) continue;
+    if (ap.at && (!firstAt || Date.parse(ap.at) < Date.parse(firstAt))) firstAt = ap.at;
+    if (ap.items[cell.id] !== cell.specHash) continue;
     const pub = roster[ap.signer];
     if (!pub) continue;
     const { signature, ...rest } = ap;
     if (sigVerify(canonical(rest), signature, pub)) {
-      return { signed: true, signer: ap.signer, auto: !!ap.autoApproved, grant: ap.grant || null };
+      // Keep the most recent valid signature over the current spec as "signed at".
+      match = { signed: true, signer: ap.signer, auto: !!ap.autoApproved, grant: ap.grant || null, at: ap.at || null };
     }
   }
-  return { signed: false };
+  return match ? { ...match, firstAt } : { signed: false, firstAt };
 }
 
 function staticChecks(cell) {
