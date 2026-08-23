@@ -316,11 +316,50 @@ function cmdVerify(flags) {
   if (flags.strict) process.exit(blocked ? 1 : 0);
 }
 
+// Per-Cell "last changed" timeline, DERIVED (not stored in the spec):
+//   1. lock chain — the most recent signed approval that included the Cell
+//   2. git — last commit that touched the Cell's file
+//   3. filesystem mtime — last resort
+// Timestamps are epoch ms; `source` says which signal won.
+function cellChanges(root, lock, cells) {
+  const signedLast = Object.create(null);
+  for (const ap of (lock && lock.approvals) || []) {
+    const t = ap.at ? Date.parse(ap.at) : NaN;
+    if (isNaN(t) || !ap.items) continue;
+    for (const id of Object.keys(ap.items)) signedLast[id] = Math.max(signedLast[id] || 0, t);
+  }
+  const gitCache = Object.create(null);
+  const gitTime = (rel) => {
+    if (rel in gitCache) return gitCache[rel];
+    let t = 0;
+    try {
+      const out = require('child_process')
+        .execFileSync('git', ['-C', root, 'log', '-1', '--format=%cI', '--', rel], { stdio: ['ignore', 'pipe', 'ignore'] })
+        .toString().trim();
+      if (out) t = Date.parse(out) || 0;
+    } catch (_) {}
+    return (gitCache[rel] = t);
+  };
+  const out = [];
+  for (const id of Object.keys(cells)) {
+    const c = cells[id];
+    if (c.contains && c.contains.length) continue; // leaf Cells (specs), not modules
+    const s = signedLast[id] || 0;
+    const g = gitTime(c.file) || 0;
+    let at = Math.max(s, g), source = s >= g ? 'signed' : 'code';
+    if (!at) { try { at = fs.statSync(path.join(root, c.file)).mtimeMs; } catch (_) {} source = 'file'; }
+    if (at) out.push({ id: 'u:' + id, at, source });
+  }
+  out.sort((a, b) => b.at - a.at);
+  return out;
+}
+
 function cmdMap(flags) {
   const { p, config, lock } = loadState();
   const manifest = buildManifest(flags.dir || p.root);
   const verified = verifyManifest(manifest, lock, config);
-  const html = renderMap(manifest, verified, config && config.project);
+  const changes = cellChanges(manifest.root, lock, manifest.cells);
+  const html = renderMap(manifest, verified, config && config.project, changes);
   const out = (flags.o && flags.o !== true) ? flags.o : (flags.out && flags.out !== true ? flags.out : 'yay-layer-map.html');
   fs.writeFileSync(out, html);
   console.log(U.c.green('✓ map written → ') + out + U.c.dim(`  (${Object.keys(verified.results).length} items)`));
