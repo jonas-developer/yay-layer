@@ -209,6 +209,30 @@ This is a **v0.1 reference implementation of the protocol's spine** — one depe
 
 **Roadmap** (designed in `docs/`, not yet built): the **phone signer + encrypted rendezvous channel** (the local keystore is today's stand-in) · 24-word **mnemonic** backup · property tests from `ensures`, real effect analysis, **mutation scoring** · scope-aware flow resolution · the **Policy** engine · **freedom-mode** grants + ratification queue · **multi-sig / roles** · LLM-driven `adopt` intent derivation.
 
+## Mobile signing — the safety model *(roadmap)*
+
+Every color in YayLayer ultimately rests on one thing: a **human signature** over the spec. That makes the signing key the crown jewel — whoever holds it can approve code *as you*. If that key ever sat on the machine the AI runs on, the AI (or any malware there) could forge your approval and paint its own code Green. **Mobile signing removes the key from the AI's reach entirely.** *(Designed in [`standard/STANDARD.md`](standard/STANDARD.md) §8; not yet built — the local passphrase-encrypted keystore is today's stand-in.)*
+
+**Where the key lives.** Your private key is generated on your **phone** and never leaves it — held in the phone's secure hardware (Secure Enclave / Android Keystore) and released only by **Face ID / biometric**, per signature. The AI's machine only ever sees your **public** key (in the committed roster).
+
+**How you approve — the flow:**
+
+1. **Pair once.** Scan a QR code to enroll your phone's public key into the project roster. After that the phone and `yay` talk over an encrypted push channel.
+2. **Request.** When specs are ready, `yay` sends an **approval request** — the spec **hashes**, the plain-English `intent` of each Cell, and a per-request **nonce** — up to a **rendezvous server**.
+3. **Review on-device.** Your phone shows *exactly what you're signing* — the intents and hashes. You read them and confirm with Face ID.
+4. **Sign.** The phone signs the canonical approval bytes and returns only the **signature**; `yay` appends it to `.yaylayer/lock.json`.
+
+**Why it's safe — what each party can and can't do:**
+
+- **The rendezvous server is untrusted.** It relays hashes and timestamps only — it never sees your code and never holds your key. With no key it **cannot forge** a seal, and because you verify the hashes on-device and the signature covers them, it **cannot alter what you approved**. The worst it can do is drop or delay a request (annoying, not dangerous).
+- **The AI can't self-approve.** It never touches the private key, so it can produce specs and code but **never a valid signature** — its work stays Unsigned until *you* sign.
+- **Replays are dead on arrival.** The per-request **nonce** means a captured approval can't be re-submitted to bless different code.
+- **Tampering is caught.** The lock is an append-only **`prev`-chain** (tamper-evident history), and `verify` always **recomputes hashes from the real files** — so editing code after it was signed flips it Red even though the old seal still verifies.
+
+So *"can someone with a private key fake-sign?"* — only the holder of **your phone plus your face** can, which is the whole point: a green gate provably means **you** stood behind it.
+
+**If you lose the phone.** Your key backs up as a **24-word mnemonic + passphrase**, and you can enroll a **second key** — so a lost phone restores the *same* identity with nothing to re-sign. Re-issuing a fresh trust root is a rare, deliberate one-signature fallback.
+
 ## Security notes
 
 - **Never commit private keys or secrets.** `.yaylayer/keys/`, `*.keystore`, and `.env*` are gitignored. `config.json` (public keys) and `lock.json` (seals) *are* committed — that's the shared proof state.
