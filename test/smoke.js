@@ -70,4 +70,25 @@ const jsx = analyze('export default function App(){ return <div className="x"/>;
 ok(jsx.ok, 'analyzer parses JSX');
 ok(jsx.units.some((u) => u.name === 'App') && jsx.units.some((u) => u.name === 'h'), 'JSX: finds component + arrow');
 
+// 8) unit-level call graph: calls are attributed to the enclosing unit
+const cg = analyze('function a(){ return b() + 1; } function b(){ return 2; } function lonely(){ return 0; }');
+ok(cg.units.find((u) => u.name === 'a').callsOut.includes('b'), 'call graph: a() records calling b()');
+ok(!cg.units.find((u) => u.name === 'b').callsOut.includes('b'), "call graph: b() doesn't record calling itself");
+
+// 9) blast radius + bloat from the manifest influence pass
+const { computeInfluence } = require('../src/manifest');
+if (computeInfluence) {
+  const cells = {
+    'C-1': { unitName: 'a', module: 'm', group: 'Public API', callsOut: ['b'], contains: [] },
+    'C-2': { unitName: 'b', module: 'm', group: 'Internal', callsOut: ['c'], contains: [] },
+    'C-3': { unitName: 'c', module: 'm', group: 'Internal', callsOut: [], contains: [] },
+    'C-4': { unitName: 'orphan', module: 'm', group: 'Internal', callsOut: [], contains: [] },
+  };
+  computeInfluence(cells);
+  ok(cells['C-3'].blast === 2, 'blast: c is depended on transitively by a and b (blast=2)');
+  ok(cells['C-3'].directCallers === 1, 'blast: c has 1 direct caller (b)');
+  ok(cells['C-4'].bloat === true, 'bloat: orphan with no callers, not public → flagged');
+  ok(cells['C-1'].bloat === false, 'bloat: public-API entry with no callers → not flagged');
+}
+
 console.log(`\nAll ${n} checks passed.`);

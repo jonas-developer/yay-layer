@@ -192,10 +192,19 @@ function analyze(code) {
   const units = [];
   const seen = new Set();
   const calls = new Set(); // short callee names used anywhere in the file → for the call graph
+  const unitByNode = new Map(); // function AST node → its unit record (for unit-level calls)
   walk(ast, [], (node, ancestors) => {
     if (node.type === 'CallExpression') {
       const cn = calleeName(node.callee);
-      if (cn) calls.add(cn);
+      if (cn) {
+        calls.add(cn);
+        // Attribute this call to the innermost named unit that encloses it, so we
+        // get a UNIT-level call graph (who calls whom), not just a file-level one.
+        for (let i = ancestors.length - 1; i >= 0; i--) {
+          const rec = unitByNode.get(ancestors[i]);
+          if (rec) { rec.callsOut.add(cn); break; }
+        }
+      }
       return;
     }
     if (!FN_TYPES.has(node.type)) return;
@@ -204,9 +213,12 @@ function analyze(code) {
     const key = named.name + '@' + node.loc.start.line;
     if (seen.has(key)) return;
     seen.add(key);
-    units.push({ name: named.name, kind: named.kind, startLine: node.loc.start.line, endLine: node.loc.end.line, container: containerOf(ancestors) });
+    const rec = { name: named.name, kind: named.kind, startLine: node.loc.start.line, endLine: node.loc.end.line, container: containerOf(ancestors), callsOut: new Set() };
+    units.push(rec);
+    unitByNode.set(node, rec); // pre-order: a unit is recorded before we descend into its body
   });
   units.sort((a, b) => a.startLine - b.startLine);
+  for (const u of units) u.callsOut = [...u.callsOut];
   return { ok: true, units, loose: looseTopLevel(ast), calls: [...calls], namespace: namespaceOf(ast) };
 }
 

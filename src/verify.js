@@ -100,7 +100,17 @@ function verifyManifest(manifest, lock, config) {
     else if (sc.yellow) state = 'YELLOW';
     else state = 'GREEN';
 
-    results[id] = { id, state, trust, notes: sc.notes, badLines: sc.badLines || [], file: cell.file, line: cell.line };
+    const isModule = !!(cell.contains && cell.contains.length);
+    // Influence overlay (computed from the call graph, not asserted). It does not
+    // change color — it's an oversight signal — except the honest bloat *note*.
+    if (!isModule && cell.bloat) {
+      sc.notes.push({ level: 'info', text: 'no static callers found — possible dead code / bloat candidate (or an entry point called dynamically)' });
+    }
+
+    results[id] = {
+      id, state, trust, notes: sc.notes, badLines: sc.badLines || [], file: cell.file, line: cell.line,
+      blast: cell.blast || 0, dependents: cell.directCallers || 0, isEntry: !!cell.isEntry, bloat: !!cell.bloat,
+    };
   }
 
   // Higher-order: broken feeds edges, and roll-up color for container Cells.

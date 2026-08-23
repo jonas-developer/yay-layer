@@ -64,6 +64,7 @@ function buildManifest(targetDir) {
       let { unitName, unitBody, unitBodyStart, unitFound } = cell;
       let cellModule = moduleNameOf(ana, rel);
       let cellGroup = cell.spec.contains ? 'Modules' : 'Internal';
+      let callsOut = [];
       if (ana.ok && !cell.spec.contains) {
         const u = nearestUnitAfter(ana.units, cell.endLine);
         if (u) {
@@ -73,6 +74,7 @@ function buildManifest(targetDir) {
           unitFound = true;
           covered.add(u.startLine);
           cellGroup = groupOf(u, ana);
+          callsOut = u.callsOut || [];
         }
       }
       cells[cell.id] = {
@@ -80,7 +82,7 @@ function buildManifest(targetDir) {
         lang: (cell.spec.lang || path.extname(file).slice(1) || 'unknown').split(/[ ·]/)[0],
         spec: cell.spec, specBlock: cell.normalized, specHash: sha256(cell.normalized),
         unitName, unitBody, unitBodyStart, unitFound, module: cellModule, group: cellGroup,
-        contains: parseList(cell.spec.contains), feeds: parseList(cell.spec.feeds),
+        contains: parseList(cell.spec.contains), feeds: parseList(cell.spec.feeds), callsOut,
       };
     }
     perFile[rel] = { file, ana, covered };
@@ -125,7 +127,62 @@ function buildManifest(targetDir) {
   }
   const moduleEdges = [...edgeSet].map((s) => s.split(' >> '));
 
+  computeInfluence(cells);
   return { root, cells, problems, untracked, moduleEdges };
+}
+
+const shortName = (n) => String(n || '').split('.').pop();
+
+// Cell-level influence, from the unit call graph — no annotations required:
+//   directCallers — Cells that call this Cell's unit
+//   blast         — Cells that TRANSITIVELY depend on it (break if it's wrong)
+//   isEntry       — part of its module's Public API (external callers expected)
+//   bloat         — no callers found and not public → possible dead code
+// Name resolution prefers a definer in the caller's own module (most calls are
+// intra-module), falling back to definers elsewhere. Same-short-name collisions
+// across modules are inherently ambiguous — treated as a link, so blast may
+// slightly over-count; it's a signal, not a proof.
+function computeInfluence(cells) {
+  const ids = Object.keys(cells);
+  const isLeaf = (c) => !(c.contains && c.contains.length);
+  const leaves = ids.filter((id) => isLeaf(cells[id]));
+  // Null-prototype maps: unit names like "constructor"/"toString" must not collide
+  // with inherited Object.prototype members.
+  const byName = Object.create(null);
+  for (const id of leaves) {
+    const n = shortName(cells[id].unitName);
+    if (n) (byName[n] = byName[n] || []).push(id);
+  }
+  const callers = Object.create(null);
+  for (const id of ids) callers[id] = new Set();
+  for (const id of leaves) {
+    const c = cells[id];
+    for (const name of c.callsOut || []) {
+      const cands = byName[name];
+      if (!cands) continue;
+      let targets = cands.filter((t) => t !== id && cells[t].module === c.module);
+      if (!targets.length) targets = cands.filter((t) => t !== id);
+      for (const t of targets) callers[t].add(id);
+    }
+  }
+  for (const id of leaves) {
+    const c = cells[id];
+    const seen = new Set();
+    const stack = [...callers[id]];
+    while (stack.length) {
+      const x = stack.pop();
+      if (seen.has(x)) continue;
+      seen.add(x);
+      for (const y of callers[x] || []) if (!seen.has(y)) stack.push(y);
+    }
+    c.directCallers = callers[id].size;
+    c.blast = seen.size;
+    // Entry points get external callers the static graph can't see: a module's
+    // Public API, and DOM event handlers (onclick/onchange/…) invoked by the browser.
+    c.isEntry = c.group === 'Public API' || /^on[a-z]+$/.test(shortName(c.unitName));
+    c.bloat = callers[id].size === 0 && !c.isEntry;
+    c.callerIds = [...callers[id]];
+  }
 }
 
 function parseList(v) {
@@ -133,4 +190,4 @@ function parseList(v) {
   return v.replace(/[[\]]/g, '').split(/[,\s]+/).map((s) => s.trim()).filter(Boolean).filter((s) => s !== '—' && s !== '-');
 }
 
-module.exports = { buildManifest, parseList };
+module.exports = { buildManifest, parseList, computeInfluence };
