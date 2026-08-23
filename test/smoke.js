@@ -91,4 +91,22 @@ if (computeInfluence) {
   ok(cells['C-1'].bloat === false, 'bloat: public-API entry with no callers → not flagged');
 }
 
+// 10) constitution writer: creates harness files, is idempotent, preserves user text
+const os = require('os');
+const fs = require('fs');
+const { writeConstitution, resolveKeys } = require('../src/constitution');
+const tmp = fs.mkdtempSync(require('path').join(os.tmpdir(), 'yay-con-'));
+let rep = writeConstitution(tmp, resolveKeys('claude,copilot'));
+ok(rep.find((r) => r.key === 'claude').action === 'created', 'constitution: CLAUDE.md created');
+const claudeMd = fs.readFileSync(require('path').join(tmp, 'CLAUDE.md'), 'utf8');
+ok(/YayLayer Constitution/.test(claudeMd) && /YAYLAYER:BEGIN/.test(claudeMd), 'constitution: CLAUDE.md holds the Constitution + markers');
+ok(fs.existsSync(require('path').join(tmp, '.github/copilot-instructions.md')), 'constitution: nested copilot path created');
+rep = writeConstitution(tmp, resolveKeys('claude'));
+ok(rep[0].action === 'unchanged', 'constitution: re-run is idempotent (unchanged)');
+fs.writeFileSync(require('path').join(tmp, 'AGENTS.md'), '# My own notes\nkeep me\n');
+writeConstitution(tmp, resolveKeys('agents'));
+const agents = fs.readFileSync(require('path').join(tmp, 'AGENTS.md'), 'utf8');
+ok(/keep me/.test(agents) && /YAYLAYER:BEGIN/.test(agents), 'constitution: appends to an existing file without destroying user text');
+fs.rmSync(tmp, { recursive: true, force: true });
+
 console.log(`\nAll ${n} checks passed.`);

@@ -18,6 +18,7 @@ const { buildManifest } = require('../src/manifest');
 const { verifyManifest } = require('../src/verify');
 const { renderMap } = require('../src/map');
 const { adopt } = require('../src/adopt');
+const { HARNESSES, writeConstitution, resolveKeys } = require('../src/constitution');
 
 function args(argv) {
   const flags = {}; const positional = [];
@@ -195,8 +196,43 @@ async function cmdInit(flags, positional) {
     }
   }
 
+  // 4 ── instruct the AI harness(es) to follow YayLayer from the start
+  let conSpec = (typeof flags.constitution === 'string') ? flags.constitution : (flags.constitution === true ? 'all' : null);
+  if (conSpec === null && tty) {
+    console.log('\n' + U.c.bold('Instruct your AI to follow YayLayer') + ' — write the Constitution where the tool auto-reads it.');
+    for (const h of HARNESSES) console.log('  ' + U.c.accent(h.key.padEnd(9)) + U.c.dim(h.path.padEnd(34) + h.note));
+    const ans = await ask('  Which? comma-separated keys, "all", or Enter to skip: ');
+    conSpec = ans.trim() || 'none';
+  }
+  if (conSpec && conSpec !== 'none') {
+    for (const r of writeConstitution(target, resolveKeys(conSpec))) {
+      if (r.error) console.log(U.c.red('  ✗ ') + r.key + ' — ' + r.error);
+      else console.log('  ' + U.c.green('✓ ') + r.action.padEnd(9) + ' ' + r.path + U.c.dim(`  (${r.label})`));
+    }
+  }
+
   const cd = rel === '.' ? '' : `cd ${rel} && `;
   console.log('\n' + U.c.bold('Done.') + ' Next: write/prune specs → ' + U.c.bold(`${cd}yay verify`) + ' → ' + U.c.bold('yay sign') + '.');
+}
+
+function cmdConstitution(flags, positional) {
+  const target = path.resolve(positional[0] || process.cwd());
+  if (flags.list || flags.l) {
+    console.log(U.c.bold('YayLayer can instruct these AI harnesses:'));
+    for (const h of HARNESSES) console.log('  ' + U.c.accent(h.key.padEnd(9)) + h.path.padEnd(34) + U.c.dim(h.note));
+    console.log(U.c.dim('\nWrite one or more: ') + U.c.bold('yay constitution --for claude,agents,cursor') + U.c.dim('  (or --for all)'));
+    return;
+  }
+  const spec = (typeof flags.for === 'string') ? flags.for : (flags.for === true ? 'all' : null);
+  if (!spec) {
+    console.log('Pick harness(es): ' + U.c.bold('yay constitution --for claude,agents') + U.c.dim('  ·  list them with ') + U.c.bold('--list'));
+    return;
+  }
+  for (const r of writeConstitution(target, resolveKeys(spec))) {
+    if (r.error) console.log(U.c.red('  ✗ ') + r.key + ' — ' + r.error);
+    else console.log('  ' + U.c.green('✓ ') + r.action.padEnd(9) + ' ' + r.path + U.c.dim(`  (${r.label})`));
+  }
+  console.log(U.c.dim('\nThe text between the YAYLAYER markers is managed by yay; anything outside it is yours. Commit these files.'));
 }
 
 async function cmdKeygen(flags) {
@@ -402,8 +438,10 @@ function fail(msg) { console.error(U.c.red('error: ') + msg); process.exitCode =
 
 const HELP = `yay — a protocol for provable, signed AI code
 
-  yay init [dir]              guided setup: files → signing key (Local/Mobile) → optional adopt
-                             flags: --project <name> --key local|mobile --name <you> --adopt|--no-adopt
+  yay init [dir]              guided setup: files → signing key → adopt → instruct your AI
+                             flags: --project <name> --key local|mobile --name <you> --adopt|--no-adopt --constitution <keys|all>
+  yay constitution --for <k> write the Constitution where an AI harness auto-reads it
+                             (--for claude,agents,cursor,copilot,windsurf,cline,gemini,generic | all · --list)
   yay keygen --name <you>     create your signing key
   yay adopt [path] [--dry]    scaffold draft specs over existing code
   yay sign [--all|--cell IDs] approve the current specs (local stand-in for the phone signer)
@@ -423,6 +461,7 @@ async function main() {
     case 'verify': case 'check': return cmdVerify(flags);
     case 'map': return cmdMap(flags);
     case 'adopt': return cmdAdopt(flags, positional);
+    case 'constitution': case 'rules': return cmdConstitution(flags, positional);
     case 'status': return cmdStatus();
     case undefined: case 'help': case '--help': case '-h': return console.log(HELP);
     default: console.error(U.c.red(`unknown command: ${cmd}`)); console.log(HELP); process.exitCode = 1;
