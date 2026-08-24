@@ -195,6 +195,24 @@ ok(!R.deriveRoster({ events: [{ type: 'genesis', name: 'X', pub: kO.pubB64, prev
 ok(R.deriveRoster(logA, { root: dA.rootFp }).ok, 'roster: matching root pin passes');
 ok(!R.deriveRoster(logA, { root: 'DEAD-BEEF-DEAD-BEEF' }).ok && /MISMATCH/.test(R.deriveRoster(logA, { root: 'DEAD-BEEF-DEAD-BEEF' }).problems.join(' ')), 'roster: a wrong root pin is caught (swap detection)');
 
+// 13c) verify uses the signed roster authoritatively and blocks on tampering
+const vlog = { events: [] };
+mkEvent(vlog, 'genesis', 'tester', pubB64, 'owner', privDer); // `approval` (check 4) was signed by this key
+let rvA = verifyManifest(manifest, { approvals: [approval] }, {}, { mutate: false, roster: vlog });
+ok(rvA.signedRoster && rvA.results['C-040'].state === 'GREEN', 'verify: signed roster is authoritative — an enrolled owner\'s seal is GREEN');
+const vlogTampered = { events: vlog.events.concat() };
+mkEvent(vlogTampered, 'add-signer', 'EvilAI', kE.pubB64, 'owner', kE.privDer); // self-signed, not by an owner
+const rvB = verifyManifest(manifest, { approvals: [approval] }, {}, { mutate: false, roster: vlogTampered });
+ok(rvB.rosterOk === false && rvB.passed === false, 'verify: a tampered roster (unauthorized add) blocks the gate');
+const rvC = verifyManifest(manifest, { approvals: [approval] }, {}, { mutate: false, roster: vlog, root: 'DEAD-BEEF-DEAD-BEEF' });
+ok(rvC.passed === false && /MISMATCH/.test((rvC.rosterProblems || []).join(' ')), 'verify: a wrong trust-root pin blocks the gate');
+// an AI-injected key that isn't in the signed roster simply doesn't count
+const injected = { signers: { EvilAI: kE.pubB64 } }; // config edit only, no signed event
+const evilApproval = { ...approval, signer: 'EvilAI' };
+evilApproval.signature = C.sign(canonical({ id: approval.id, project: approval.project, prev: approval.prev, nonce: approval.nonce, at: approval.at, signer: 'EvilAI', items: approval.items }), kE.privDer);
+const rvD = verifyManifest(manifest, { approvals: [evilApproval] }, injected, { mutate: false, roster: vlog });
+ok(rvD.results['C-040'].state === 'UNSIGNED', 'verify: with a signed roster, a config-only injected signer is ignored');
+
 // 14) phone signing over LAN — simulate the phone with Node crypto (same wire
 // formats: SPKI-DER pubkey, raw ed25519 sig over canonical(approval)).
 (async function () {

@@ -12,6 +12,7 @@
 const { canonical, pubKeysOf } = require('./util');
 const { verify: sigVerify } = require('./crypto');
 const { proveManifest } = require('./prove');
+const { deriveRoster } = require('./roster');
 
 // Shallow side-effect signals used for the MVP purity / minimality checks.
 const EFFECT_SIGNALS = [
@@ -92,7 +93,17 @@ function staticChecks(cell) {
 }
 
 function verifyManifest(manifest, lock, config, opts) {
-  const roster = (config && config.signers) || {};
+  opts = opts || {};
+  // Trusted signers come from the SIGNED roster log when present (authoritative),
+  // not from the plain config file — so an unsigned edit to who-can-sign has no
+  // effect. Legacy projects with no signed log fall back to config.signers.
+  let roster, rosterProblems = [], rootFp = null, rosterOk = true, signedRoster = false;
+  if (opts.roster && opts.roster.events) {
+    const d = deriveRoster(opts.roster, { root: opts.root });
+    roster = d.roster; rosterProblems = d.problems; rootFp = d.rootFp; rosterOk = d.ok; signedRoster = true;
+  } else {
+    roster = (config && config.signers) || {};
+  }
   const results = {};
 
   for (const id of Object.keys(manifest.cells)) {
@@ -190,8 +201,10 @@ function verifyManifest(manifest, lock, config, opts) {
 
   const counts = { GREEN: 0, YELLOW: 0, RED: 0, UNSIGNED: 0, PINK: 0 };
   for (const r of Object.values(results)) counts[r.state]++;
-  const passed = counts.RED === 0 && counts.UNSIGNED === 0 && counts.PINK === 0;
-  return { results, counts, passed };
+  // A tampered / unauthorized / root-mismatched roster blocks the gate: if we can't
+  // trust WHO may sign, we can't trust any signature.
+  const passed = counts.RED === 0 && counts.UNSIGNED === 0 && counts.PINK === 0 && rosterOk;
+  return { results, counts, passed, rosterProblems, rootFp, rosterOk, signedRoster };
 }
 
 module.exports = { verifyManifest, worst };

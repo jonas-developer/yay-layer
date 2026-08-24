@@ -21,6 +21,11 @@ const { adopt } = require('../src/adopt');
 const { HARNESSES, writeConstitution, resolveKeys } = require('../src/constitution');
 const gate = require('../src/gate');
 const phone = require('../src/phone');
+const rosterMod = require('../src/roster');
+
+function rosterPath(p) { return path.join(path.dirname(p.config), 'roster.json'); }
+function loadRoster(p) { return U.readJSON(rosterPath(p), null); }
+function trustRootPin(flags) { return (flags.root && flags.root !== true) ? flags.root : (process.env.YAY_TRUST_ROOT || null); }
 
 function args(argv) {
   const flags = {}; const positional = [];
@@ -135,6 +140,14 @@ function createKey(p, config, name, pass) {
   fs.writeFileSync(ksPath, JSON.stringify(ks, null, 2) + '\n', { mode: 0o600 });
   addSignerKey(config, name, pubB64, 'local');
   U.writeJSON(p.config, config);
+  // Establish the signed trust root on the very first key (genesis, self-signed).
+  const rp = rosterPath(p);
+  if (!fs.existsSync(rp)) {
+    const ev = { id: 'R-0001', type: 'genesis', name, pub: pubB64, role: 'owner', by: name, prev: 'genesis', nonce: C.randomNonce(), at: new Date().toISOString() };
+    ev.signature = C.sign(rosterMod.eventBytes(ev), privDer);
+    U.writeJSON(rp, { project: config.project, events: [ev] });
+    console.log('  ' + U.c.dim('trust root established → ' + rosterMod.fingerprint(pubB64)) + U.c.dim(' (pin this in CI)'));
+  }
   return ksPath;
 }
 
@@ -241,7 +254,11 @@ function cmdGate(flags, positional) {
   if (!fs.existsSync(target)) return fail(`no such directory: ${target}`);
   const scope = (flags.scope && flags.scope !== true) ? flags.scope : '';
   const pkg = (flags.pkg && flags.pkg !== true) ? flags.pkg : 'yay-layer';
-  const opts = { force: !!flags.force, scope, pkg };
+  // Pin the trust root in CI so a swapped roster fails there too. Default to the
+  // current project's root fingerprint if we can read it.
+  let root = (flags.root && flags.root !== true) ? flags.root : '';
+  if (!root) { try { const d = rosterMod.deriveRoster(U.readJSON(path.join(target, '.yaylayer', 'roster.json'), null) || {}); if (d.rootFp) root = d.rootFp; } catch (_) {} }
+  const opts = { force: !!flags.force, scope, pkg, root };
 
   const w = gate.writeWorkflow(target, opts);
   const wmark = w.action === 'skipped' ? U.c.dim('• skipped (exists — use --force) ') : U.c.green('✓ ' + w.action + ' ');
@@ -383,6 +400,39 @@ async function cmdPair(flags) {
   if (ok) console.log('  ' + U.c.dim('now approve change-sets with ') + U.c.bold('yay sign --phone'));
 }
 
+// Enroll another signer — an OWNER-signed event, so the AI (which lacks an owner
+// key) can never add a signer by editing files. (Owner authorizes with their local
+// key here; phone-authorized enrollment is the next increment.)
+async function cmdEnroll(flags) {
+  const { p, config } = loadState();
+  if (!config) return fail('run `yay init` first');
+  const log = loadRoster(p);
+  if (!log) return fail('no signed roster yet — create the first key (`yay init` / `yay keygen`) to establish the trust root, then enroll others.');
+  const name = (flags.name && flags.name !== true) ? flags.name : null;
+  const pub = (flags.pubkey && flags.pubkey !== true) ? flags.pubkey : ((flags.pub && flags.pub !== true) ? flags.pub : null);
+  if (!name || !pub) return fail('usage: yay enroll --name "Alice Carlsen" --pubkey <base64> [--role owner|signer]');
+  const role = flags.role === 'owner' ? 'owner' : 'signer';
+  const derived = rosterMod.deriveRoster(log);
+  const owners = Object.keys(derived.roles).filter((n) => derived.roles[n] === 'owner');
+  const by = (flags.by && flags.by !== true) ? flags.by : owners[0];
+  if (!by || derived.roles[by] !== 'owner') return fail(`"${by || '?'}" is not an owner — only an owner can enroll signers`);
+  const ksPath = path.join(p.keys, `${by}.keystore`);
+  if (!fs.existsSync(ksPath)) return fail(`owner "${by}" has no local key on this machine to authorize with. Enroll from a machine holding an owner's key (phone-authorized enroll is coming).`);
+  const pass = await getPassphrase(flags, `Enter ${by}'s passphrase to authorize enrolling "${name}"`);
+  let privDer;
+  try { privDer = C.decryptKeystore(JSON.parse(fs.readFileSync(ksPath, 'utf8')), pass); }
+  catch (e) { return fail(e.message); }
+  const ev = { id: rosterMod.nextEventId(log), type: 'add-signer', name, pub, role, by, prev: log.events[log.events.length - 1].id, nonce: C.randomNonce(), at: new Date().toISOString() };
+  ev.signature = C.sign(rosterMod.eventBytes(ev), privDer);
+  const test = rosterMod.deriveRoster({ ...log, events: log.events.concat([ev]) });
+  if (test.problems.length) return fail('refusing to write — event would not authorize: ' + test.problems.join('; '));
+  log.events.push(ev);
+  U.writeJSON(rosterPath(p), log);
+  addSignerKey(config, name, pub, role === 'owner' ? 'owner' : 'signer'); // mirror for convenience
+  U.writeJSON(p.config, config);
+  console.log(U.c.green(`✓ enrolled "${name}" as ${role}`) + U.c.dim(` (authorized by ${by}) — commit .yaylayer/roster.json`));
+}
+
 function printReport(manifest, verified, details, problemsOnly) {
   for (const prob of manifest.problems) {
     console.log(U.c.red('  ✗ ') + `${prob.id || ''} ${prob.file || ''} — ${prob.error}`);
@@ -444,8 +494,11 @@ function cmdVerify(flags) {
   if (!Object.keys(manifest.cells).length && !manifest.problems.length && !(manifest.untracked || []).length) {
     console.log(U.c.dim('no code found. Write a spec block (see README/STANDARD), or run `yay adopt`.')); return;
   }
-  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'] });
+  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), root: trustRootPin(flags) });
   printReport(manifest, verified, !!(flags.details || flags.d), !!(flags.problems || flags.issues || flags.p));
+  if (verified.signedRoster) console.log('  ' + U.c.dim('trust root ' + verified.rootFp));
+  else console.log('  ' + U.c.yellow('⚠ roster is unsigned') + U.c.dim(' — no signed trust root; run `yay init`/`yay keygen` to establish one.'));
+  for (const pb of verified.rosterProblems || []) console.log('  ' + U.c.red('✗ roster: ') + pb);
   const blocked = !verified.passed || manifest.problems.length;
   console.log('\n  ' + (blocked ? U.c.red('GATE: BLOCKED') + U.c.dim(' (red, unsigned, or unspecified/pink code cannot reach main)')
     : U.c.green('GATE: PASS')));
@@ -504,7 +557,7 @@ function cellChanges(root, lock, cells) {
 function cmdMap(flags) {
   const { p, config, lock } = loadState();
   const manifest = buildManifest(flags.dir || p.root);
-  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'] });
+  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), root: trustRootPin(flags) });
   const { changes, times } = cellChanges(manifest.root, lock, manifest.cells);
   const html = renderMap(manifest, verified, config && config.project, changes, times);
   const out = (flags.o && flags.o !== true) ? flags.o : (flags.out && flags.out !== true ? flags.out : 'yay-layer-map.html');
@@ -521,11 +574,12 @@ function cmdAdopt(flags, positional) {
   console.log('\n  Next: prune each DERIVED spec, then ' + U.c.bold('yay sign') + '.');
 }
 
-function cmdStatus() {
+function cmdStatus(flags) {
+  flags = flags || {};
   const { p, config, lock } = loadState();
   if (!config) return console.log(U.c.dim('not initialized — run `yay init`'));
   const manifest = buildManifest(p.root);
-  const verified = verifyManifest(manifest, lock, config);
+  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: loadRoster(p), root: trustRootPin(flags) });
   const c = verified.counts;
   console.log(U.c.bold(config.project) + U.c.dim(`  · ${Object.keys(manifest.cells).length} Cells · ${Object.keys(config.signers).length} signer(s)`));
   console.log('  ' + U.c.green(`${c.GREEN}●`) + ' ' + U.c.yellow(`${c.YELLOW}●`) + ' ' + U.c.red(`${c.RED}●`) + ' ' + U.c.gray(`${c.UNSIGNED}○`) + '  ' + (verified.passed ? U.c.green('PASS') : U.c.red('BLOCKED')));
@@ -542,6 +596,7 @@ const HELP = `yay — a protocol for provable, signed AI code
   yay keygen --name <you>     create your signing key
   yay adopt [path] [--dry]    scaffold draft specs over existing code
   yay pair [--name you]      pair your phone as the signer (key stays on the phone, over LAN)
+  yay enroll --name X --pubkey <b64>  enroll another signer via an OWNER-signed event (--role owner|signer)
   yay sign [--all|--cell IDs] approve the current specs  ·  --phone signs on the paired phone
   yay verify [--strict] [-d]  the gate — paint every Cell; -d/--details prints each spec, code & checks
                              --problems shows only non-green Cells · --no-mutate skips prover mutation grading
@@ -560,12 +615,13 @@ async function main() {
     case 'keygen': return cmdKeygen(flags);
     case 'sign': return cmdSign(flags);
     case 'pair': return cmdPair(flags);
+    case 'enroll': return cmdEnroll(flags);
     case 'verify': case 'check': return cmdVerify(flags);
     case 'map': return cmdMap(flags);
     case 'adopt': return cmdAdopt(flags, positional);
     case 'constitution': case 'rules': return cmdConstitution(flags, positional);
     case 'gate': case 'ci': return cmdGate(flags, positional);
-    case 'status': return cmdStatus();
+    case 'status': return cmdStatus(flags);
     case undefined: case 'help': case '--help': case '-h': return console.log(HELP);
     default: console.error(U.c.red(`unknown command: ${cmd}`)); console.log(HELP); process.exitCode = 1;
   }
