@@ -32,6 +32,7 @@
     "README.md"
   ],
   "dependencies": {
-    "@babel/parser": "^7.29.8"
+    "@babel/parser": "^7.29.8",
+    "qrcode-terminal": "^0.12.0"
   }
 }

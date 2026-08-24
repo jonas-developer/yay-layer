@@ -51,12 +51,12 @@ function confirmCode(pubB64) {
 
 // Serve a session until `done` resolves (the phone completed the action).
 // Returns { url, port, done: Promise, close() }.
-function serve(mode, project, sessionData, onPost) {
+function serve(mode, project, sessionData, onPost, opts) {
   let resolveDone;
   const done = new Promise((r) => { resolveDone = r; });
   const html = signerHTML({ mode, project });
 
-  const server = http.createServer(async (req, res) => {
+  const handler = async (req, res) => {
     const url = req.url.split('?')[0];
     if (req.method === 'OPTIONS') return sendJSON(res, 200, {});
     if (req.method === 'GET' && (url === '/' || url === '/index.html')) return sendHTML(res, html);
@@ -70,19 +70,23 @@ function serve(mode, project, sessionData, onPost) {
       return;
     }
     sendJSON(res, 404, { error: 'not found' });
-  });
+  };
+  // Pure-JS signer works over plain http; opt-in TLS (self-signed) encrypts transport.
+  const tls = opts && opts.tls;
+  const server = tls ? require('https').createServer({ key: tls.key, cert: tls.cert }, handler) : http.createServer(handler);
+  const scheme = tls ? 'https' : 'http';
 
   return new Promise((resolve) => {
     server.listen(0, '0.0.0.0', () => {
       const port = server.address().port;
-      resolve({ url: `http://${lanIP()}:${port}`, local: `http://localhost:${port}`, port, done, close: () => server.close() });
+      resolve({ url: `${scheme}://${lanIP()}:${port}`, local: `${scheme}://localhost:${port}`, port, done, close: () => server.close() });
     });
   });
 }
 
 // Pairing: the phone creates its key and proves possession by signing our
 // challenge; we return its name + public key + the confirm code for the human.
-async function pairOverLan({ project }) {
+async function pairOverLan({ project, tls }) {
   const challenge = C.randomNonce() + C.randomNonce();
   const s = await serve('pair', project, { challenge }, (body) => {
     const { name, pubB64, proof } = body || {};
@@ -90,13 +94,13 @@ async function pairOverLan({ project }) {
     if (!C.verify(challenge, proof, pubB64)) return { error: 'key possession proof failed' };
     const code = confirmCode(pubB64);
     return { ok: true, code, done: { name: String(name), pubB64, code } };
-  });
+  }, { tls });
   return s; // { url, port, done, close }
 }
 
 // Signing: hand the phone the unsigned approval + a plain-language summary; it
 // signs canonical(approval) and posts the signature, which we verify.
-async function signOverLan({ project, approval, summary, expectPubB64 }) {
+async function signOverLan({ project, approval, summary, expectPubB64, tls }) {
   const canon = canonical(approval);
   const pubs = Array.isArray(expectPubB64) ? expectPubB64 : [expectPubB64]; // identity may hold several keys
   const s = await serve('approve', project, { approval, summary }, (body) => {
@@ -104,7 +108,7 @@ async function signOverLan({ project, approval, summary, expectPubB64 }) {
     if (!signature) return { error: 'missing signature' };
     if (!pubs.some((pub) => C.verify(canon, signature, pub))) return { error: 'signature did not verify against any enrolled key' };
     return { ok: true, done: { signature } };
-  });
+  }, { tls });
   return s;
 }
 

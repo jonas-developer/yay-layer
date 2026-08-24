@@ -225,6 +225,13 @@ evilApproval.signature = C.sign(canonical({ id: approval.id, project: approval.p
 const rvD = verifyManifest(manifest, { approvals: [evilApproval] }, injected, { mutate: false, roster: vlog });
 ok(rvD.results['C-040'].state === 'UNSIGNED', 'verify: with a signed roster, a config-only injected signer is ignored');
 
+// 13d) pure-JS signer interop: TweetNaCl sig with an SPKI-wrapped key verifies at the gate
+const nacl = require('../src/vendor/tweetnacl.min.js');
+const nkp = nacl.sign.keyPair();
+const npub = Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), Buffer.from(nkp.publicKey)]).toString('base64');
+const nsig = Buffer.from(nacl.sign.detached(new TextEncoder().encode('canonical-bytes'), nkp.secretKey)).toString('base64');
+ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature (SPKI-wrapped key) verifies with the gate');
+
 // 14) phone signing over LAN — simulate the phone with Node crypto (same wire
 // formats: SPKI-DER pubkey, raw ed25519 sig over canonical(approval)).
 (async function () {

@@ -58,6 +58,26 @@ function rosterPath(p) { return path.join(path.dirname(p.config), 'roster.json')
 function loadRoster(p) { return U.readJSON(rosterPath(p), null); }
 function trustRootPin(flags) { return (flags.root && flags.root !== true) ? flags.root : (process.env.YAY_TRUST_ROOT || null); }
 
+// Print a scannable QR of a URL to the terminal (graceful if the lib is absent).
+function printQR(url) {
+  try { require('qrcode-terminal').generate(url, { small: true }, (q) => console.log(q)); }
+  catch (_) { console.log(U.c.dim('   (install qrcode-terminal for a scannable QR)')); }
+}
+// Opt-in self-signed TLS for phone signing (--https). Cert cached in the gitignored
+// keys dir; generated with openssl. Returns { key, cert } or null (→ falls back to http).
+function tlsCert(p, flags) {
+  if (!flags.https) return null;
+  const keyP = path.join(p.keys, 'tls.key'), crtP = path.join(p.keys, 'tls.crt');
+  try {
+    fs.mkdirSync(p.keys, { recursive: true });
+    if (!fs.existsSync(keyP) || !fs.existsSync(crtP)) {
+      const ip = phone.lanIP();
+      require('child_process').execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', keyP, '-out', crtP, '-days', '825', '-subj', '/CN=yaylayer', '-addext', 'subjectAltName=IP:' + ip + ',DNS:localhost'], { stdio: 'ignore' });
+    }
+    return { key: fs.readFileSync(keyP, 'utf8'), cert: fs.readFileSync(crtP, 'utf8') };
+  } catch (_) { console.log(U.c.yellow('  ⚠ could not create an HTTPS cert (is openssl installed?) — falling back to http.')); return null; }
+}
+
 function args(argv) {
   const flags = {}; const positional = [];
   for (let i = 0; i < argv.length; i++) {
@@ -417,10 +437,12 @@ async function cmdSign(flags) {
       const c = manifest.cells[id]; const r = (verified.results[id] || {});
       return { id, unit: c.unitName || (c.spec && c.spec.unit) || '', intent: (c.spec && c.spec.intent) || '', state: r.state || 'UNSIGNED', color: SEALCOLORS[r.state] || '#7f8796' };
     });
-    const s = await phone.signOverLan({ project: config.project, approval, summary, expectPubB64: U.pubKeysOf(config.signers[name]) });
-    console.log('\n' + U.c.bold('Approve on your phone') + ' — on the same Wi-Fi, open:');
-    console.log('   ' + U.c.accent(s.url));
-    console.log(U.c.dim('   or on THIS computer: ') + U.c.accent(s.local));
+    const tls = tlsCert(p, flags);
+    const s = await phone.signOverLan({ project: config.project, approval, summary, expectPubB64: U.pubKeysOf(config.signers[name]), tls });
+    console.log('\n' + U.c.bold('Approve on your phone') + ' — scan with your phone camera (same Wi-Fi):');
+    console.log('   ' + U.c.accent(s.url) + U.c.dim('   (or ' + s.local + ' on this computer)'));
+    printQR(s.url);
+    if (tls) console.log(U.c.dim('   https: tap through the one-time "not private" warning (Advanced → visit).'));
     console.log(U.c.dim(`   reviewing ${summary.length} change(s) as "${name}" · Ctrl-C to cancel`));
     let r; try { r = await s.done; } finally { s.close(); }
     approval.signature = r.signature;
@@ -445,11 +467,13 @@ async function cmdSign(flags) {
 async function runPairing(p, config, flags) {
   flags = flags || {};
   const nameFlag = (flags.name && flags.name !== true) ? flags.name : null;
-  const s = await phone.pairOverLan({ project: config.project });
-  console.log('\n' + U.c.bold('Pair your phone') + ' — on the SAME Wi-Fi, open this on your phone:');
-  console.log('   ' + U.c.accent(s.url));
-  console.log(U.c.dim('   or, to try it on THIS computer: ') + U.c.accent(s.local) + U.c.dim('  (localhost works; a plain-http LAN address disables signing)'));
-  console.log(U.c.dim('   create your key there; it will show a 6-digit code. (Ctrl-C to cancel.)'));
+  const tls = tlsCert(p, flags);
+  const s = await phone.pairOverLan({ project: config.project, tls });
+  console.log('\n' + U.c.bold('Pair your phone') + ' — scan with your phone camera (same Wi-Fi):');
+  console.log('   ' + U.c.accent(s.url) + U.c.dim('   (or ' + s.local + ' on this computer)'));
+  printQR(s.url);
+  if (tls) console.log(U.c.dim('   https: tap through the one-time "not private" warning (Advanced → visit).'));
+  console.log(U.c.dim('   create your key there; it shows a 6-digit code. (Ctrl-C to cancel.)'));
   let r; try { r = await s.done; } finally { s.close(); }
   const name = nameFlag || r.name;
   console.log('\n  Your phone should show code: ' + U.c.bold(r.code));
@@ -758,9 +782,9 @@ const HELP = `yay — a protocol for provable, signed AI code
                              (--for claude,agents,cursor,copilot,windsurf,cline,gemini,generic | all · --list)
   yay keygen --name <you>     create your signing key
   yay adopt [path] [--dry]    scaffold draft specs over existing code
-  yay pair [--name you]      pair your phone as the signer (key stays on the phone, over LAN)
+  yay pair [--name you]      pair your phone as the signer (key stays on the phone; scan the QR) · --https for TLS
   yay enroll --name X --pubkey <b64>  enroll another signer via an OWNER-signed event (--role owner|signer)
-  yay sign [--all|--cell IDs] approve the current specs  ·  --phone signs on the paired phone
+  yay sign [--all|--cell IDs] approve the current specs  ·  --phone signs on the paired phone (--https for TLS)
   yay verify [--strict] [-d]  the gate — paint every Cell; -d/--details prints each spec, code & checks
                              --problems shows only non-green Cells · --no-mutate skips prover mutation grading
   yay plan [--provider anthropic|openai] [--model m] [--base-url url]
