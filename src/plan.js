@@ -73,7 +73,9 @@ async function callOpenAICompat(digest, { model, apiKey, baseUrl, maxTokens }, t
   const url = (baseUrl || 'https://api.openai.com/v1').replace(/\/$/, '') + '/chat/completions';
   const body = { model, messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: 'DIGEST:\n' + JSON.stringify(digest) }] };
   body[tokenField || 'max_tokens'] = maxTokens || 2000;
-  const res = await fetch(url, { method: 'POST', headers: { authorization: 'Bearer ' + apiKey, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const headers = { 'content-type': 'application/json' };
+  if (apiKey) headers.authorization = 'Bearer ' + apiKey; // local servers (Ollama/LM Studio) often need no key
+  const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
   if (!res.ok) {
     const errText = (await res.text().catch(() => '')).slice(0, 300);
     // some models reject max_tokens and want max_completion_tokens — retry once

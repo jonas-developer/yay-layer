@@ -45,12 +45,16 @@ function resolvePlanAuth(config, flags) {
   flags = flags || {};
   const pc = (config && config.plan) || {};
   let provider = (flags.provider && flags.provider !== true) ? String(flags.provider).toLowerCase()
-    : (pc.provider || (process.env.ANTHROPIC_API_KEY ? 'anthropic' : (process.env.OPENAI_API_KEY ? 'openai' : null)));
-  if (!provider) return { error: 'set ANTHROPIC_API_KEY or OPENAI_API_KEY in your .env (or pass --provider).' };
-  const apiKey = provider === 'anthropic' ? process.env.ANTHROPIC_API_KEY : process.env.OPENAI_API_KEY;
-  if (!apiKey) return { error: `provider "${provider}" selected but its key isn't set (${provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY'}).` };
-  const model = (flags.model && flags.model !== true) ? flags.model : (pc.model || (provider === 'anthropic' ? 'claude-sonnet-5' : 'gpt-4o'));
-  const baseUrl = (flags['base-url'] && flags['base-url'] !== true) ? flags['base-url'] : (process.env.OPENAI_BASE_URL || null);
+    : (pc.provider || (process.env.ANTHROPIC_API_KEY ? 'anthropic' : ((process.env.OPENAI_API_KEY || process.env.OPENAI_BASE_URL) ? 'openai' : null)));
+  if (!provider) return { error: 'set ANTHROPIC_API_KEY or OPENAI_API_KEY in your .env, or pass --provider (anthropic|openai|custom).' };
+  const baseUrl = (flags['base-url'] && flags['base-url'] !== true) ? flags['base-url'] : (pc.baseUrl || process.env.OPENAI_BASE_URL || null);
+  // custom = any OpenAI-compatible endpoint (Ollama, LM Studio, vLLM, a private gateway…). Key optional.
+  if (provider === 'custom' && !baseUrl) return { error: 'custom provider needs an endpoint — pass --base-url <url> (or set it during `yay init`).' };
+  const apiKey = provider === 'anthropic' ? process.env.ANTHROPIC_API_KEY : (process.env.OPENAI_API_KEY || process.env.YAY_PLAN_API_KEY || '');
+  if (provider === 'anthropic' && !apiKey) return { error: 'ANTHROPIC_API_KEY is not set in your .env.' };
+  if (provider === 'openai' && !apiKey) return { error: 'OPENAI_API_KEY is not set in your .env.' };
+  const model = (flags.model && flags.model !== true) ? flags.model : (pc.model || (provider === 'anthropic' ? 'claude-sonnet-5' : (provider === 'openai' ? 'gpt-4o' : null)));
+  if (provider === 'custom' && !model) return { error: 'custom provider needs a model — pass --model <id> (or set it during `yay init`).' };
   return { provider, apiKey, model, baseUrl };
 }
 
@@ -305,19 +309,35 @@ async function cmdInit(flags, positional) {
   }
   if (planAns === 'y') {
     let provider = (flags.provider && flags.provider !== true) ? String(flags.provider).toLowerCase() : null;
-    if (!provider && tty) provider = /^o/i.test((await ask('  Provider — [a]nthropic or [o]penai? (a/o): ')) || 'a') ? 'openai' : 'anthropic';
+    if (!provider && tty) {
+      const a = (await ask('  Provider — [a]nthropic, [o]penai, or [c]ustom (local / OpenAI-compatible)? (a/o/c): ')) || 'a';
+      provider = /^c/i.test(a) ? 'custom' : (/^o/i.test(a) ? 'openai' : 'anthropic');
+    }
     provider = provider || 'anthropic';
-    const envVar = provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY';
-    let key = (flags['api-key'] && flags['api-key'] !== true) ? flags['api-key'] : (process.env[envVar] || '');
-    if (!key && tty) key = (await promptHidden(`  Paste your ${envVar} (hidden, stored in .env): `)).trim();
-    config.plan = { enabled: true, provider, model: provider === 'anthropic' ? 'claude-sonnet-5' : 'gpt-4o' };
-    U.writeJSON(p.config, config);
-    if (key) {
-      writeEnvVar(target, envVar, key);
-      ensureGitignored(target, '.env');
-      console.log('  ' + U.c.green(`✓ ${envVar} saved to .env`) + U.c.dim(' (gitignored) · System Plan enabled — `yay map` will generate it.'));
+    const plan = { enabled: true, provider };
+    if (provider === 'custom') {
+      let baseUrl = (flags['base-url'] && flags['base-url'] !== true) ? flags['base-url'] : '';
+      if (!baseUrl && tty) baseUrl = (await ask('  Endpoint URL (e.g. http://localhost:11434/v1 for Ollama): ')).trim();
+      let model = (flags.model && flags.model !== true) ? flags.model : '';
+      if (!model && tty) model = (await ask('  Model id (e.g. llama3.1): ')).trim();
+      plan.baseUrl = baseUrl; plan.model = model || 'llama3.1';
+      let key = (flags['api-key'] && flags['api-key'] !== true) ? flags['api-key'] : '';
+      if (!key && tty) key = (await promptHidden('  API key if your endpoint needs one (blank for local): ')).trim();
+      config.plan = plan; U.writeJSON(p.config, config);
+      if (key) { writeEnvVar(target, 'OPENAI_API_KEY', key); ensureGitignored(target, '.env'); }
+      console.log('  ' + U.c.green('✓ custom provider set') + U.c.dim(` → ${baseUrl || '(no URL yet)'} · model ${plan.model} · \`yay map\` will use it.`));
     } else {
-      console.log('  ' + U.c.yellow('• no key provided') + U.c.dim(` — add ${envVar}=… to .env later; System Plan is enabled and will run once the key is present.`));
+      const envVar = provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY';
+      let key = (flags['api-key'] && flags['api-key'] !== true) ? flags['api-key'] : (process.env[envVar] || '');
+      if (!key && tty) key = (await promptHidden(`  Paste your ${envVar} (hidden, stored in .env): `)).trim();
+      plan.model = provider === 'anthropic' ? 'claude-sonnet-5' : 'gpt-4o';
+      config.plan = plan; U.writeJSON(p.config, config);
+      if (key) {
+        writeEnvVar(target, envVar, key); ensureGitignored(target, '.env');
+        console.log('  ' + U.c.green(`✓ ${envVar} saved to .env`) + U.c.dim(' (gitignored) · System Plan enabled — `yay map` will generate it.'));
+      } else {
+        console.log('  ' + U.c.yellow('• no key provided') + U.c.dim(` — add ${envVar}=… to .env later; System Plan is enabled and will run once the key is present.`));
+      }
     }
   }
 
@@ -777,7 +797,7 @@ const HELP = `yay — a protocol for provable, signed AI code
 
   yay init [dir]              guided setup: files → signing key → adopt → instruct your AI
                              flags: --project <name> --key local|mobile --name <you> --adopt|--no-adopt --constitution <keys|all>
-                             --plan|--no-plan --provider anthropic|openai --api-key <k>  (enable AI System Plan; key saved to .env)
+                             --plan|--no-plan --provider anthropic|openai|custom [--base-url url] [--model m] --api-key <k>
   yay constitution --for <k> write the Constitution where an AI harness auto-reads it
                              (--for claude,agents,cursor,copilot,windsurf,cline,gemini,generic | all · --list)
   yay keygen --name <you>     create your signing key
@@ -787,9 +807,10 @@ const HELP = `yay — a protocol for provable, signed AI code
   yay sign [--all|--cell IDs] approve the current specs  ·  --phone signs on the paired phone (--https for TLS)
   yay verify [--strict] [-d]  the gate — paint every Cell; -d/--details prints each spec, code & checks
                              --problems shows only non-green Cells · --no-mutate skips prover mutation grading
-  yay plan [--provider anthropic|openai] [--model m] [--base-url url]
+  yay plan [--provider anthropic|openai|custom] [--model m] [--base-url url]
                              AI-synthesize a high-level System Plan → .yaylayer/plan.json
-                             (key from .env: ANTHROPIC_API_KEY or OPENAI_API_KEY; openai+--base-url covers Groq/OpenRouter/Ollama/…)
+                             key from .env (ANTHROPIC_API_KEY / OPENAI_API_KEY); custom = any OpenAI-compatible
+                             endpoint via --base-url (Ollama/LM Studio/vLLM/local — key optional)
   yay map [-o file.html]      write the HTML flowchart (default: yay-layer-map.html)
                              if plan generation is enabled it regenerates the System Plan; --no-plan skips it, --replan forces it
   yay gate [dir]              write the CI gate workflow (+ --hook local pre-push) & print the
