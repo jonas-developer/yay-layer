@@ -109,15 +109,31 @@ function loadState() {
 }
 
 // Create a local signing key: encrypted keystore on disk + public key into the roster.
+// Add a public key to an identity (one identity may hold several keys: local +
+// phone …). Idempotent; migrates a legacy single-string entry to a list.
+function addSignerKey(config, name, pub, kind) {
+  config.signers = config.signers || {};
+  const cur = config.signers[name];
+  let list;
+  if (Array.isArray(cur)) list = cur.slice();
+  else if (typeof cur === 'string') list = [{ pub: cur, kind: 'local' }];
+  else if (cur && cur.pub) list = [cur];
+  else list = [];
+  const has = list.some((k) => (typeof k === 'string' ? k : k.pub) === pub);
+  if (!has) list.push({ pub, kind: kind || 'key', addedAt: new Date().toISOString() });
+  config.signers[name] = list;
+  config.owners = config.owners || [];
+  if (!config.owners.includes(name)) config.owners.push(name);
+  return has ? 'exists' : 'added';
+}
+
 function createKey(p, config, name, pass) {
   const { pubB64, privDer } = C.generateKeypair();
   const ks = C.encryptKeystore(privDer, pass);
   fs.mkdirSync(p.keys, { recursive: true });
   const ksPath = path.join(p.keys, `${name}.keystore`);
   fs.writeFileSync(ksPath, JSON.stringify(ks, null, 2) + '\n', { mode: 0o600 });
-  config.signers[name] = pubB64;
-  config.owners = config.owners || [];
-  if (!config.owners.includes(name)) config.owners.push(name);
+  addSignerKey(config, name, pubB64, 'local');
   U.writeJSON(p.config, config);
   return ksPath;
 }
@@ -175,8 +191,8 @@ async function cmdInit(flags, positional) {
     let name = (flags.name && flags.name !== true) ? flags.name : null;
     if (!name && tty) name = await ask('  Your signer name (e.g. alice, or "Alice Carlsen"): ');
     if (!name) name = 'you';
-    if (config.signers[name]) {
-      console.log(U.c.dim(`• key for "${name}" already exists — skipping.`));
+    if (fs.existsSync(path.join(p.keys, `${name}.keystore`))) {
+      console.log(U.c.dim(`• local key for "${name}" already exists — skipping.`));
     } else {
       const pass = await getPassphrase(flags, `Set a passphrase to encrypt ${name}'s key (you'll re-enter it each time you sign)`);
       if (!pass || pass.length < 6) fail('passphrase must be at least 6 characters — key not created. Run `yay keygen` later.');
@@ -268,7 +284,7 @@ async function cmdKeygen(flags) {
   if (!config) return fail('run `yay init` first');
   const name = (flags.name && flags.name !== true) ? flags.name : null;
   if (!name) return fail('give yourself a name:  yay keygen --name alice');
-  if (config.signers[name]) return fail(`a key for "${name}" already exists`);
+  if (fs.existsSync(path.join(p.keys, `${name}.keystore`))) return fail(`a local key for "${name}" already exists`);
   const pass = await getPassphrase(flags, `Set a passphrase to encrypt ${name}'s key (you'll re-enter it each time you sign)`);
   if (!pass || pass.length < 6) return fail('passphrase must be at least 6 characters');
   const ksPath = createKey(p, config, name, pass);
@@ -283,7 +299,7 @@ async function cmdSign(flags) {
   const { p, config, lock } = loadState();
   if (!config) return fail('run `yay init` first');
   const name = (flags.name && flags.name !== true) ? flags.name : config.owners[0];
-  if (!name || !config.signers[name]) return fail(`unknown signer "${name}" — run \`yay keygen --name ${name || '<you>'}\``);
+  if (!name || !U.pubKeysOf(config.signers[name]).length) return fail(`unknown signer "${name}" — run \`yay keygen --name ${name || '<you>'}\` or \`yay pair\``);
   const manifest = buildManifest(flags.dir || p.root);
   let ids = Object.keys(manifest.cells);
   if (flags.cell && flags.cell !== true) ids = String(flags.cell).split(',').map((s) => s.trim());
@@ -312,7 +328,7 @@ async function cmdSign(flags) {
       const c = manifest.cells[id]; const r = (verified.results[id] || {});
       return { id, unit: c.unitName || (c.spec && c.spec.unit) || '', intent: (c.spec && c.spec.intent) || '', state: r.state || 'UNSIGNED', color: SEALCOLORS[r.state] || '#7f8796' };
     });
-    const s = await phone.signOverLan({ project: config.project, approval, summary, expectPubB64: config.signers[name] });
+    const s = await phone.signOverLan({ project: config.project, approval, summary, expectPubB64: U.pubKeysOf(config.signers[name]) });
     console.log('\n' + U.c.bold('Approve on your phone') + ' — on the same Wi-Fi, open:');
     console.log('   ' + U.c.accent(s.url));
     console.log(U.c.dim('   or on THIS computer: ') + U.c.accent(s.local));
@@ -348,15 +364,14 @@ async function runPairing(p, config, nameFlag) {
   console.log('\n  Your phone should show code: ' + U.c.bold(r.code));
   const ans = await ask('  Does it match exactly? (y/N): ');
   if (!/^y/i.test(ans)) { console.log(U.c.red('  pairing aborted — code did not match (possible wrong device)')); return false; }
-  config.signers = config.signers || {};
-  if (config.signers[name]) console.log(U.c.yellow(`  note: replacing the existing key for "${name}"`));
-  config.signers[name] = r.pubB64;
-  config.owners = config.owners || [];
-  if (!config.owners.includes(name)) config.owners.push(name);
+  const outcome = addSignerKey(config, name, r.pubB64, 'phone');
   config.devices = config.devices || {};
-  config.devices[name] = { type: 'phone', pairedAt: new Date().toISOString() };
+  config.devices[name] = config.devices[name] || {};
+  config.devices[name].phonePairedAt = new Date().toISOString();
   U.writeJSON(p.config, config);
-  console.log(U.c.green(`✓ paired "${name}"`) + U.c.dim(' — public key added to the roster (commit .yaylayer/config.json).'));
+  if (outcome === 'exists') { console.log(U.c.dim(`  this phone key is already enrolled for "${name}" — nothing to add.`)); return true; }
+  const total = U.pubKeysOf(config.signers[name]).length;
+  console.log(U.c.green(`✓ paired "${name}"`) + U.c.dim(` — phone key added (this identity now has ${total} key${total > 1 ? 's' : ''}; commit .yaylayer/config.json).`));
   return true;
 }
 

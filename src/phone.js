@@ -98,10 +98,11 @@ async function pairOverLan({ project }) {
 // signs canonical(approval) and posts the signature, which we verify.
 async function signOverLan({ project, approval, summary, expectPubB64 }) {
   const canon = canonical(approval);
+  const pubs = Array.isArray(expectPubB64) ? expectPubB64 : [expectPubB64]; // identity may hold several keys
   const s = await serve('approve', project, { approval, summary }, (body) => {
     const { signature } = body || {};
     if (!signature) return { error: 'missing signature' };
-    if (!C.verify(canon, signature, expectPubB64)) return { error: 'signature did not verify against the paired key' };
+    if (!pubs.some((pub) => C.verify(canon, signature, pub))) return { error: 'signature did not verify against any enrolled key' };
     return { ok: true, done: { signature } };
   });
   return s;

@@ -150,6 +150,18 @@ ok(G.writeWorkflow(gtmp).action === 'skipped', 'gate: re-run is idempotent (skip
 ok(G.writeWorkflow(gtmp, { force: true }).action === 'overwritten', 'gate: --force overwrites');
 fs.rmSync(gtmp, { recursive: true, force: true });
 
+// 13) multi-key identity: one name may hold several keys; a seal by ANY of them verifies
+const { pubKeysOf } = require('../src/util');
+ok(pubKeysOf('x').length === 1 && pubKeysOf([{ pub: 'a' }, { pub: 'b' }]).length === 2 && pubKeysOf(['a', 'b']).length === 2, 'roster: pubKeysOf normalizes string / [str] / [{pub}]');
+const decoy = C.generateKeypair();
+// `approval` (from check 4) was signed by the tester key; enroll it as the SECOND key of the identity
+const multiRoster = { signers: { tester: [{ pub: decoy.pubB64, kind: 'phone' }, { pub: pubB64, kind: 'local' }] } };
+let mv = verifyManifest(manifest, { approvals: [approval] }, multiRoster, { mutate: false });
+ok(mv.results['C-040'].state === 'GREEN', 'multi-key: a seal by the identity\'s second key still verifies GREEN');
+const wrongOnly = { signers: { tester: [{ pub: decoy.pubB64, kind: 'phone' }] } };
+mv = verifyManifest(manifest, { approvals: [approval] }, wrongOnly, { mutate: false });
+ok(mv.results['C-040'].state === 'UNSIGNED', 'multi-key: if none of the enrolled keys match, it is UNSIGNED');
+
 // 14) phone signing over LAN — simulate the phone with Node crypto (same wire
 // formats: SPKI-DER pubkey, raw ed25519 sig over canonical(approval)).
 (async function () {

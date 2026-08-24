@@ -9,7 +9,7 @@
 // from `ensures`, real AST effect analysis, mutation scoring — is the per-language
 // adapter milestone on the roadmap (see standard/STANDARD.md §Verification tiers).
 
-const { canonical } = require('./util');
+const { canonical, pubKeysOf } = require('./util');
 const { verify: sigVerify } = require('./crypto');
 const { proveManifest } = require('./prove');
 
@@ -32,10 +32,10 @@ function trustOf(cell, lock, roster) {
     if (!ap.items || !(cell.id in ap.items)) continue;
     if (ap.at && (!firstAt || Date.parse(ap.at) < Date.parse(firstAt))) firstAt = ap.at;
     if (ap.items[cell.id] !== cell.specHash) continue;
-    const pub = roster[ap.signer];
-    if (!pub) continue;
+    const pubs = pubKeysOf(roster[ap.signer]); // an identity may hold several keys
+    if (!pubs.length) continue;
     const { signature, ...rest } = ap;
-    if (sigVerify(canonical(rest), signature, pub)) {
+    if (pubs.some((pub) => sigVerify(canonical(rest), signature, pub))) {
       // Keep the most recent valid signature over the current spec as "signed at".
       match = { signed: true, signer: ap.signer, auto: !!ap.autoApproved, grant: ap.grant || null, at: ap.at || null };
     }

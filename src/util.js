@@ -50,6 +50,19 @@ function canonical(obj) {
   return '{' + keys.map((k) => JSON.stringify(k) + ':' + canonical(obj[k])).join(',') + '}';
 }
 
+// A roster entry is one identity that may hold several keys (local + phone …).
+// Normalize any stored shape to a flat list of base64 public keys.
+//   legacy string  → ["pub"]
+//   ["pub", …]     → as-is
+//   [{pub,kind,…}] → [pub, …]
+function pubKeysOf(entry) {
+  if (!entry) return [];
+  if (typeof entry === 'string') return [entry];
+  if (Array.isArray(entry)) return entry.map((k) => (typeof k === 'string' ? k : k && k.pub)).filter(Boolean);
+  if (entry.pub) return [entry.pub];
+  return [];
+}
+
 const SKIP_DIRS = new Set(['node_modules', '.git', '.yaylayer', 'docs', 'dist', 'build', 'coverage']);
 const CODE_EXT = new Set(['.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx', '.css', '.html', '.py']);
 
@@ -90,5 +103,5 @@ const STATE = {
 
 module.exports = {
   MARK_BEGIN, MARK_END, YAY_DIR,
-  repoRoot, paths, readJSON, writeJSON, canonical, walk, c, STATE,
+  repoRoot, paths, readJSON, writeJSON, canonical, pubKeysOf, walk, c, STATE,
 };
