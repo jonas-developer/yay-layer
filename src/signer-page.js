@@ -67,7 +67,7 @@ textarea.inp{min-height:96px;resize:vertical;font-family:var(--mono);font-size:.
 var MODE=${M}, PROJECT=${P};
 var app=document.getElementById('app'), statusEl=document.getElementById('status');
 document.getElementById('proj').textContent=PROJECT;
-document.getElementById('ttl').textContent=(MODE==='pair'?'Pair this phone':'Approve changes');
+document.getElementById('ttl').textContent=(MODE==='pair'?'Pair this phone':MODE==='authorize'?'Authorize change':'Approve changes');
 function setStatus(t,cls){statusEl.textContent=t;statusEl.className=cls||'';}
 function h(html){app.innerHTML=html;}
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
@@ -93,6 +93,7 @@ async function main(){
     var sess=await api('/api/session');
     if(sess.mode==='pair') return pairFlow(sess);
     if(sess.mode==='approve') return approveFlow(sess);
+    if(sess.mode==='authorize') return authorizeFlow(sess);
     h('<div class="msg">Nothing to do right now.</div>');
   }catch(e){ setStatus('Could not reach the laptop — still waiting? '+e,'err'); }
 }
@@ -182,6 +183,25 @@ function approveFlow(sess){
       if(res.error){ setStatus('Rejected: '+res.error,'err'); return; }
       h('<div class="ok-big">✓ Signed</div><div class="msg">Done — you can close this. The laptop has the seal.</div>');
       setStatus('Signed','ok');
+    }catch(e){ setStatus('Signing failed: '+e,'err'); }
+  };
+}
+// Owner authorizes a roster/governance change (enroll, revoke, reroot) from the phone.
+function authorizeFlow(sess){
+  var key=loadKey();
+  if(!key){ h('<div class="msg">This phone has no key — only an existing owner can authorize this. Run <b>yay pair</b> or restore your key first.</div>'); return; }
+  var s=sess.summary||{};
+  var rows=(s.rows||[]).map(function(r){return '<div class="cell"><div><div class="cid">'+esc(r.k||'')+'</div><div class="cin">'+esc(r.v||'')+'</div></div></div>';}).join('');
+  var warn=s.warn?'<div class="warn">'+esc(s.warn)+'</div>':'';
+  h('<div class="msg">'+esc(s.title||'Authorize this change')+'</div>'+rows+warn+'<button id="go" class="btn" style="margin-top:16px">Authorize &amp; sign</button>');
+  document.getElementById('go').onclick=async function(){
+    setStatus('Signing…');
+    try{
+      var sig=signStr(key.sec,canonical(sess.event));
+      var res=await api('/api/submit',{signature:sig});
+      if(res.error){ setStatus('Rejected: '+res.error,'err'); return; }
+      h('<div class="ok-big">✓ Authorized</div><div class="msg">Done — you can close this. The laptop has the signed event.</div>');
+      setStatus('Authorized','ok');
     }catch(e){ setStatus('Signing failed: '+e,'err'); }
   };
 }

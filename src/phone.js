@@ -125,4 +125,19 @@ async function signOverLan({ project, approval, summary, expectPubB64, tls }) {
   return s;
 }
 
-module.exports = { pairOverLan, signOverLan, lanIP, confirmCode };
+// Roster authorization: an OWNER's phone signs a governance event (enroll / revoke
+// / reroot) so a phone-only owner can manage the roster with no key on the laptop.
+// The phone signs canonical(event) == eventBytes, verified against current owner keys.
+async function authorizeOverLan({ project, event, summary, ownerPubs, tls }) {
+  const canon = canonical(event);
+  const pubs = Array.isArray(ownerPubs) ? ownerPubs : [ownerPubs];
+  const s = await serve('authorize', project, { event, summary }, (body) => {
+    const { signature } = body || {};
+    if (!signature) return { error: 'missing signature' };
+    if (!pubs.some((pub) => pub && C.verify(canon, signature, pub))) return { error: 'not signed by a current owner key on this phone' };
+    return { ok: true, done: { signature } };
+  }, { tls });
+  return s;
+}
+
+module.exports = { pairOverLan, signOverLan, authorizeOverLan, lanIP, confirmCode };

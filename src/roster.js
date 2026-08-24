@@ -68,10 +68,22 @@ function deriveRoster(log, opts) {
     } else if (e.type === 'add-key') {
       if (!roster[e.name]) { problems.push(`event ${e.id || i}: add-key for unknown identity "${e.name}"`); return; }
       addKey(e.name, e.pub);
+    } else if (e.type === 'revoke-key') {
+      // Remove one compromised/rotated key; the identity survives if it has others.
+      // (Past seals stay attributed — this only governs who can sign going forward.)
+      if (!e.name || !e.pub) { problems.push(`event ${e.id || i}: revoke-key missing name/pub`); return; }
+      if (roster[e.name]) { roster[e.name] = roster[e.name].filter((k) => k !== e.pub); if (!roster[e.name].length) { delete roster[e.name]; delete roles[e.name]; } }
+    } else if (e.type === 'remove-signer') {
+      // Remove an identity entirely (all its keys). History remains attributed.
+      if (!e.name) { problems.push(`event ${e.id || i}: remove-signer missing name`); return; }
+      delete roster[e.name]; delete roles[e.name];
     } else {
       problems.push(`event ${e.id || i}: unknown type "${e.type}"`);
     }
   });
+
+  // Safety: never let a revocation leave the project with no owner (governance lockout).
+  if (rootFp && !ownerKeys().length) problems.push('roster would have NO owner key left — governance locked out (revocation refused)');
 
   const pinned = opts && opts.root ? String(opts.root).toUpperCase() : null;
   if (pinned && rootFp && pinned !== rootFp) problems.push(`TRUST-ROOT MISMATCH: expected ${pinned}, found ${rootFp} — the roster may have been swapped`);

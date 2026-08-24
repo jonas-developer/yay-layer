@@ -203,6 +203,34 @@ const dK = R.deriveRoster(logK);
 ok(dK.ok && dK.roster['L.J Bergman'].length === 2, 'roster: an owner can add a second key to their own identity (local → mobile)');
 // tampered genesis → no trust root
 ok(!R.deriveRoster({ events: [{ type: 'genesis', name: 'X', pub: kO.pubB64, prev: 'genesis', nonce: 'n', at: 't', signature: C.sign('wrong', kO.privDer) }] }).ok, 'roster: invalid genesis signature → no trust root established');
+
+// revocation: an owner-signed revoke-key removes a compromised key going forward
+const kX = C.generateKeypair();
+const logR = { events: [] };
+mkEvent(logR, 'genesis', 'Owner', kO.pubB64, 'owner', kO.privDer);
+mkEvent(logR, 'add-signer', 'Alice', kA.pubB64, 'signer', kO.privDer);
+mkEvent(logR, 'add-key', 'Alice', kX.pubB64, 'signer', kO.privDer);
+mkEvent(logR, 'revoke-key', 'Alice', kA.pubB64, 'signer', kO.privDer);
+const dR = R.deriveRoster(logR);
+ok(dR.ok && dR.roster['Alice'] && dR.roster['Alice'].length === 1 && dR.roster['Alice'][0] === kX.pubB64, 'roster: revoke-key removes just the named key, identity keeps its other key');
+// remove-signer drops the whole identity; past attribution is unaffected (history stays in the log)
+const logRS = { events: [] };
+mkEvent(logRS, 'genesis', 'Owner', kO.pubB64, 'owner', kO.privDer);
+mkEvent(logRS, 'add-signer', 'Bob', kA.pubB64, 'signer', kO.privDer);
+mkEvent(logRS, 'remove-signer', 'Bob', undefined, undefined, kO.privDer);
+const dRS = R.deriveRoster(logRS);
+ok(dRS.ok && !dRS.roster['Bob'], 'roster: remove-signer drops the identity entirely');
+// a non-owner cannot revoke
+const logRB = { events: [] };
+mkEvent(logRB, 'genesis', 'Owner', kO.pubB64, 'owner', kO.privDer);
+mkEvent(logRB, 'add-signer', 'Alice', kA.pubB64, 'signer', kO.privDer);
+mkEvent(logRB, 'revoke-key', 'Owner', kO.pubB64, 'owner', kA.privDer); // signed by the non-owner Alice
+ok(!R.deriveRoster(logRB).ok && /not signed by an owner/.test(R.deriveRoster(logRB).problems.join(' ')), 'roster: a non-owner cannot revoke');
+// lockout guard: revoking the sole owner key leaves no owner → rejected
+const logLock = { events: [] };
+mkEvent(logLock, 'genesis', 'Owner', kO.pubB64, 'owner', kO.privDer);
+mkEvent(logLock, 'revoke-key', 'Owner', kO.pubB64, 'owner', kO.privDer);
+ok(!R.deriveRoster(logLock).ok && /no owner/i.test(R.deriveRoster(logLock).problems.join(' ')), 'roster: revoking the last owner key is refused (no governance lockout)');
 // root pinning
 ok(R.deriveRoster(logA, { root: dA.rootFp }).ok, 'roster: matching root pin passes');
 ok(!R.deriveRoster(logA, { root: 'DEAD-BEEF-DEAD-BEEF' }).ok && /MISMATCH/.test(R.deriveRoster(logA, { root: 'DEAD-BEEF-DEAD-BEEF' }).problems.join(' ')), 'roster: a wrong root pin is caught (swap detection)');
@@ -292,6 +320,23 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
   const tampered = { ...gpart, nonce: 'ATTACKER', name: 'Mallory', pub: gk.pubB64, by: 'Mallory' };
   const tres = await post('http://127.0.0.1:' + ts.port, { name: 'Mallory', pubB64: gk.pubB64, proof: C.sign(canonical(tampered), gk.privDer) });
   ok(!!tres.error, 'phone-genesis: a genesis signed over tampered fields is rejected'); ts.close();
+
+  // phone-authorized governance: an OWNER's phone signs a roster event (enroll/revoke)
+  // so a phone-only owner can manage the roster with no key on the laptop.
+  const { authorizeOverLan } = require('../src/phone');
+  const ownerKp = C.generateKeypair();      // the owner (their key is enrolled)
+  const strangerKp = C.generateKeypair();   // not an owner
+  const rev = { id: 'R-0002', type: 'add-signer', name: 'Carol', pub: kp.pubB64, role: 'signer', by: 'Owner', prev: 'R-0001', nonce: 'z1', at: '2026-01-01T00:00:00.000Z' };
+  const as = await authorizeOverLan({ project: 'demo', event: rev, summary: { title: 'Add Carol?' }, ownerPubs: [ownerKp.pubB64] });
+  const abase = 'http://127.0.0.1:' + as.port;
+  const asess = await get(abase);
+  ok(asess.mode === 'authorize' && asess.event && asess.event.name === 'Carol', 'phone-authorize: session serves the governance event to sign');
+  const bad = await post(abase, { signature: C.sign(canonical(rev), strangerKp.privDer) });
+  ok(!!bad.error, 'phone-authorize: a non-owner signature is rejected');
+  const good = await post(abase, { signature: C.sign(canonical(rev), ownerKp.privDer) });
+  ok(!!good.ok, 'phone-authorize: a current owner signature is accepted');
+  const adone = await as.done; as.close();
+  ok(C.verify(canonical(rev), adone.signature, ownerKp.pubB64), 'phone-authorize: the returned signature is a valid roster event signature');
 
   // recovery: BIP39 mnemonic → ed25519 key (the phone's key-backup layer), roster-compatible.
   const R = require('../src/vendor/recovery');

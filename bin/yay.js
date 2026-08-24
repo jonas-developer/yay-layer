@@ -558,6 +558,43 @@ async function runPairing(p, config, flags) {
   return true;
 }
 
+// Get an OWNER to sign a governance event `ev` (enroll / revoke / reroot).
+// Uses a local owner keystore when present, else authorizes on an owner's PHONE
+// (so a phone-only owner can manage the roster with no key on this machine).
+// Returns the signed `ev`, or null if it couldn't be authorized. `ev.by` is set
+// before signing so it's covered by the signature.
+async function authorizeRosterEvent(p, config, log, ev, flags, summary) {
+  const drv = rosterMod.deriveRoster(log);
+  const owners = Object.keys(drv.roles).filter((n) => drv.roles[n] === 'owner');
+  if (!owners.length) { console.log(U.c.red('  no owner in the roster to authorize with.')); return null; }
+  const byFlag = (flags.by && flags.by !== true) ? flags.by : null;
+  if (byFlag && drv.roles[byFlag] !== 'owner') { console.log(U.c.red(`  "${byFlag}" is not an owner.`)); return null; }
+  const wantPhone = !!flags.phone;
+  const localOwner = wantPhone ? null
+    : ((byFlag && fs.existsSync(path.join(p.keys, `${byFlag}.keystore`))) ? byFlag
+      : owners.find((n) => fs.existsSync(path.join(p.keys, `${n}.keystore`))));
+  if (localOwner) {
+    ev.by = localOwner;
+    const pass = await getPassphrase(flags, `Enter ${localOwner}'s passphrase to authorize`);
+    try { ev.signature = C.sign(rosterMod.eventBytes(ev), C.decryptKeystore(JSON.parse(fs.readFileSync(path.join(p.keys, `${localOwner}.keystore`), 'utf8')), pass)); }
+    catch (e) { console.log(U.c.red('  ' + e.message)); return null; }
+    return ev;
+  }
+  // Phone authorization: any current owner's phone can sign the event bytes.
+  ev.by = byFlag || owners[0];
+  const ownerPubs = owners.reduce((a, n) => a.concat(drv.roster[n] || []), []);
+  const tls = tlsCert(p, flags);
+  const s = await phone.authorizeOverLan({ project: config.project, event: ev, summary, ownerPubs, tls });
+  console.log('\n' + U.c.bold('Authorize on an owner’s phone') + ' — scan (same Wi-Fi):');
+  console.log('   ' + U.c.accent(s.url) + U.c.dim('   (or ' + s.local + ' on this computer)'));
+  printQR(s.url);
+  if (tls) console.log(U.c.dim('   https: tap through the one-time "not private" warning.'));
+  console.log(U.c.dim('   review the change on the phone and approve. (Ctrl-C to cancel.)'));
+  let r; try { r = await s.done; } finally { s.close(); }
+  ev.signature = r.signature;
+  return ev;
+}
+
 async function cmdPair(flags) {
   const { p, config } = loadState();
   if (!config) return fail('run `yay init` first');
@@ -575,27 +612,98 @@ async function cmdEnroll(flags) {
   if (!log) return fail('no signed roster yet — create the first key (`yay init` / `yay keygen`) to establish the trust root, then enroll others.');
   const name = (flags.name && flags.name !== true) ? flags.name : null;
   const pub = (flags.pubkey && flags.pubkey !== true) ? flags.pubkey : ((flags.pub && flags.pub !== true) ? flags.pub : null);
-  if (!name || !pub) return fail('usage: yay enroll --name "Alice Carlsen" --pubkey <base64> [--role owner|signer]');
+  if (!name || !pub) return fail('usage: yay enroll --name "Alice Carlsen" --pubkey <base64> [--role owner|signer] [--phone]');
   const role = flags.role === 'owner' ? 'owner' : 'signer';
-  const derived = rosterMod.deriveRoster(log);
-  const owners = Object.keys(derived.roles).filter((n) => derived.roles[n] === 'owner');
-  const by = (flags.by && flags.by !== true) ? flags.by : owners[0];
-  if (!by || derived.roles[by] !== 'owner') return fail(`"${by || '?'}" is not an owner — only an owner can enroll signers`);
-  const ksPath = path.join(p.keys, `${by}.keystore`);
-  if (!fs.existsSync(ksPath)) return fail(`owner "${by}" has no local key on this machine to authorize with. Enroll from a machine holding an owner's key (phone-authorized enroll is coming).`);
-  const pass = await getPassphrase(flags, `Enter ${by}'s passphrase to authorize enrolling "${name}"`);
-  let privDer;
-  try { privDer = C.decryptKeystore(JSON.parse(fs.readFileSync(ksPath, 'utf8')), pass); }
-  catch (e) { return fail(e.message); }
-  const ev = { id: rosterMod.nextEventId(log), type: 'add-signer', name, pub, role, by, prev: log.events[log.events.length - 1].id, nonce: C.randomNonce(), at: new Date().toISOString() };
-  ev.signature = C.sign(rosterMod.eventBytes(ev), privDer);
-  const test = rosterMod.deriveRoster({ ...log, events: log.events.concat([ev]) });
+  const drv = rosterMod.deriveRoster(log);
+  const type = drv.roster[name] ? 'add-key' : 'add-signer';
+  const ev = { id: rosterMod.nextEventId(log), type, name, pub, role, by: null, prev: log.events[log.events.length - 1].id, nonce: C.randomNonce(), at: new Date().toISOString() };
+  const summary = {
+    title: (type === 'add-key' ? `Add another key for "${name}" in ` : `Add ${role} "${name}" to `) + config.project + '?',
+    rows: [{ k: name + ' · ' + role, v: 'key ' + rosterMod.fingerprint(pub) }],
+    warn: role === 'owner' ? 'Owner rights: they can enroll and revoke signers.' : '',
+  };
+  const signed = await authorizeRosterEvent(p, config, log, ev, flags, summary);
+  if (!signed) return;
+  const test = rosterMod.deriveRoster({ ...log, events: log.events.concat([signed]) });
   if (test.problems.length) return fail('refusing to write — event would not authorize: ' + test.problems.join('; '));
-  log.events.push(ev);
+  log.events.push(signed);
   U.writeJSON(rosterPath(p), log);
   addSignerKey(config, name, pub, role === 'owner' ? 'owner' : 'signer'); // mirror for convenience
   U.writeJSON(p.config, config);
-  console.log(U.c.green(`✓ enrolled "${name}" as ${role}`) + U.c.dim(` (authorized by ${by}) — commit .yaylayer/roster.json`));
+  console.log(U.c.green(`✓ enrolled "${name}" as ${role}`) + U.c.dim(` (authorized by ${signed.by}) — commit .yaylayer/roster.json`));
+}
+
+async function cmdRevoke(flags) {
+  const { p, config } = loadState();
+  if (!config) return fail('run `yay init` first');
+  const log = loadRoster(p);
+  if (!log || !log.events || !log.events.length) return fail('no signed roster to revoke from');
+  const name = (flags.name && flags.name !== true) ? flags.name : null;
+  if (!name) return fail('usage: yay revoke --name "Alice" [--pubkey <base64>] [--phone]   (omit --pubkey to remove the whole identity)');
+  const drv = rosterMod.deriveRoster(log);
+  if (!drv.roster[name]) return fail(`"${name}" is not in the roster`);
+  const pub = (flags.pubkey && flags.pubkey !== true) ? flags.pubkey : ((flags.pub && flags.pub !== true) ? flags.pub : null);
+  if (pub && !drv.roster[name].includes(pub)) return fail(`that key is not one of ${name}'s keys`);
+
+  // Early lockout check: never leave the project with zero owner keys.
+  const simRoster = {}, simRoles = {};
+  for (const nm of Object.keys(drv.roster)) simRoster[nm] = drv.roster[nm].slice();
+  Object.assign(simRoles, drv.roles);
+  if (pub) { simRoster[name] = simRoster[name].filter((k) => k !== pub); if (!simRoster[name].length) { delete simRoster[name]; delete simRoles[name]; } }
+  else { delete simRoster[name]; delete simRoles[name]; }
+  const ownerKeysLeft = Object.keys(simRoles).filter((nm) => simRoles[nm] === 'owner').reduce((a, nm) => a + (simRoster[nm] || []).length, 0);
+  if (!ownerKeysLeft) return fail('refusing — that would leave the roster with NO owner key (governance lockout). Enroll another owner first, then revoke.');
+
+  const ev = pub
+    ? { id: rosterMod.nextEventId(log), type: 'revoke-key', name, pub, by: null, prev: log.events[log.events.length - 1].id, nonce: C.randomNonce(), at: new Date().toISOString() }
+    : { id: rosterMod.nextEventId(log), type: 'remove-signer', name, by: null, prev: log.events[log.events.length - 1].id, nonce: C.randomNonce(), at: new Date().toISOString() };
+  const summary = pub
+    ? { title: `Revoke a key of "${name}" in ${config.project}?`, rows: [{ k: name, v: 'key ' + rosterMod.fingerprint(pub) }], warn: 'That key can no longer sign after this. Past approvals stay attributed.' }
+    : { title: `Remove signer "${name}" from ${config.project}?`, rows: [{ k: name, v: drv.roster[name].length + ' key(s)' }], warn: 'All of their keys lose signing rights. Past approvals stay attributed.' };
+  const signed = await authorizeRosterEvent(p, config, log, ev, flags, summary);
+  if (!signed) return;
+  const test = rosterMod.deriveRoster({ ...log, events: log.events.concat([signed]) });
+  if (test.problems.length) return fail('refusing to write — ' + test.problems.join('; '));
+  log.events.push(signed);
+  U.writeJSON(rosterPath(p), log);
+  // Mirror into config for display (best-effort).
+  if (config.signers && config.signers[name]) {
+    if (pub) { config.signers[name] = U.pubKeysOf(config.signers[name]).filter((k) => k !== pub).map((k) => ({ pub: k })); if (!config.signers[name].length) { delete config.signers[name]; if (config.owners) config.owners = config.owners.filter((o) => o !== name); } }
+    else { delete config.signers[name]; if (config.owners) config.owners = config.owners.filter((o) => o !== name); }
+    U.writeJSON(p.config, config);
+  }
+  console.log(U.c.green(`✓ ${pub ? 'revoked a key of' : 'removed'} "${name}"`) + U.c.dim(` (authorized by ${signed.by}) — commit .yaylayer/roster.json. Update CI if you pinned this key.`));
+}
+
+async function cmdReroot(flags) {
+  const { p, config } = loadState();
+  if (!config) return fail('run `yay init` first');
+  const log = loadRoster(p);
+  const oldFp = (log && log.events && log.events.length) ? rosterMod.deriveRoster(log).rootFp : null;
+  console.log(U.c.yellow('⚠ Re-root') + ' establishes a BRAND-NEW trust root and retires the current one.');
+  console.log(U.c.dim('  This is a trust DISCONTINUITY: signers under the old root are dropped, the CI'));
+  console.log(U.c.dim('  --root pin must be repointed, and existing specs must be re-signed under the new'));
+  console.log(U.c.dim('  key. Use it only when the old root key is lost or compromised.'));
+  if (oldFp) console.log(U.c.dim('  current root → ') + U.c.bold(oldFp));
+  if (!flags.force) {
+    const ans = await ask('  Type "reroot" to confirm: ');
+    if ((ans || '').trim() !== 'reroot') return console.log('  aborted — nothing changed.');
+  }
+  // Archive the old roster + reset the config mirror; the new genesis re-populates it.
+  if (log) { U.writeJSON(rosterPath(p).replace(/\.json$/, `.${oldFp || 'old'}.json`), log); fs.unlinkSync(rosterPath(p)); }
+  config.signers = {}; config.owners = []; U.writeJSON(p.config, config);
+  console.log('\n' + U.c.bold('Establish the new trust root:'));
+  if (flags.phone || flags.key === 'mobile') {
+    await runPairing(p, config, flags); // no roster now → phone-as-genesis
+  } else {
+    const name = (flags.name && flags.name !== true) ? flags.name : (process.stdin.isTTY ? await ask('  New owner name: ') : 'you');
+    const pass = await getPassphrase(flags, `Set a passphrase for the new owner key "${name}"`);
+    if (!pass || pass.length < 6) return fail('passphrase must be at least 6 characters — no new root created (old one archived).');
+    createKey(p, config, name, pass);
+    console.log(U.c.green(`✓ new local owner key for "${name}"`));
+  }
+  console.log('\n' + U.c.bold('Next:') + U.c.dim(' re-sign specs under the new root ') + U.c.bold('yay sign --all') + U.c.dim(', then repoint CI ') + U.c.bold('yay gate') + U.c.dim(' (new fingerprint above).'));
+  if (oldFp) console.log(U.c.dim('  old roster archived → .yaylayer/roster.' + oldFp + '.json'));
 }
 
 function printReport(manifest, verified, details, problemsOnly) {
@@ -821,6 +929,9 @@ const HELP = `yay — a protocol for provable, signed AI code
   yay pair [--name you]      pair your phone as the signer (key stays on the phone; scan the QR) · --https for TLS
                              the FIRST pairing makes the phone the trust root — no local key needed
   yay enroll --name X --pubkey <b64>  enroll another signer via an OWNER-signed event (--role owner|signer)
+                             authorize with a local owner key, or --phone to approve on an owner's phone
+  yay revoke --name X [--pubkey <b64>]  revoke one key (or the whole identity) via an owner-signed event (--phone)
+  yay reroot [--phone]        retire the current trust root and establish a new one (key lost/compromised)
   yay sign [--all|--cell IDs] approve the current specs  ·  --phone signs on the paired phone (--https for TLS)
   yay verify [--strict] [-d]  the gate — paint every Cell; -d/--details prints each spec, code & checks
                              --problems shows only non-green Cells · --no-mutate skips prover mutation grading
@@ -846,6 +957,8 @@ async function main() {
     case 'sign': return cmdSign(flags);
     case 'pair': return cmdPair(flags);
     case 'enroll': return cmdEnroll(flags);
+    case 'revoke': return cmdRevoke(flags);
+    case 'reroot': return cmdReroot(flags);
     case 'verify': case 'check': return cmdVerify(flags);
     case 'map': return cmdMap(flags);
     case 'plan': return cmdPlan(flags);
