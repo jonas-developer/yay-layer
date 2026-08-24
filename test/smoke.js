@@ -270,5 +270,28 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
   const wres = await post('http://127.0.0.1:' + ws.port, { signature: C.sign('not the approval', kp.privDer) });
   ok(!!wres.error, 'phone: a signature over the wrong bytes is rejected'); ws.close();
 
+  // phone-as-genesis: the phone self-signs the genesis event → becomes the trust root, no local key.
+  const roster = require('../src/roster');
+  const gk = C.generateKeypair();
+  const gpart = { id: 'R-0001', type: 'genesis', role: 'owner', prev: 'genesis', nonce: 'n0', at: '2026-01-01T00:00:00.000Z' };
+  const gs = await pairOverLan({ project: 'demo', genesis: gpart });
+  const gbase = 'http://127.0.0.1:' + gs.port;
+  const gsess = await get(gbase);
+  ok(gsess.genesis && gsess.genesis.id === 'R-0001', 'phone-genesis: session advertises the genesis event to self-sign');
+  const gev = { ...gpart, name: 'Ada', pub: gk.pubB64, by: 'Ada' };
+  const gproof = C.sign(canonical(gev), gk.privDer);
+  const gres = await post(gbase, { name: 'Ada', pubB64: gk.pubB64, proof: gproof });
+  ok(gres.ok && gres.code === confirmCode(gk.pubB64), 'phone-genesis: self-signed genesis accepted, confirm code bound to key');
+  const gdone = await gs.done; gs.close();
+  const drvG = roster.deriveRoster({ project: 'demo', events: [gdone.genesisEvent] });
+  ok(drvG.ok && drvG.roles['Ada'] === 'owner' && drvG.rootFp === roster.fingerprint(gk.pubB64),
+    'phone-genesis: resulting roster is a valid, owner-rooted trust root');
+
+  // a phone that signs a TAMPERED genesis (self-promoting nonce) can't get past the laptop's authoritative rebuild
+  const ts = await pairOverLan({ project: 'demo', genesis: gpart });
+  const tampered = { ...gpart, nonce: 'ATTACKER', name: 'Mallory', pub: gk.pubB64, by: 'Mallory' };
+  const tres = await post('http://127.0.0.1:' + ts.port, { name: 'Mallory', pubB64: gk.pubB64, proof: C.sign(canonical(tampered), gk.privDer) });
+  ok(!!tres.error, 'phone-genesis: a genesis signed over tampered fields is rejected'); ts.close();
+
   console.log(`\nAll ${n} checks passed.`);
 })().catch((e) => { console.error('smoke failed:', e); process.exit(1); });

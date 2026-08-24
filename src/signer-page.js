@@ -83,8 +83,9 @@ async function main(){
 }
 function pairFlow(sess){
   var key=loadKey();
-  if(key){ h('<div class="msg">Key ready for <b>'+esc(key.name)+'</b> on this device.</div><button id="go" class="btn">Pair this device</button>'); document.getElementById('go').onclick=function(){doPair(sess,key);}; return; }
-  h('<label class="lbl">Your name (shown on every signature)</label><input id="nm" class="inp" placeholder="e.g. Alex Doe" autocapitalize="words"><button id="go" class="btn">Create key &amp; pair</button>');
+  var note=sess.genesis?'<div class="msg" style="color:var(--accent)">This phone will become the project’s <b>trust root</b> — no key is stored on the computer.</div>':'';
+  if(key){ h(note+'<div class="msg">Key ready for <b>'+esc(key.name)+'</b> on this device.</div><button id="go" class="btn">'+(sess.genesis?'Become trust root &amp; pair':'Pair this device')+'</button>'); document.getElementById('go').onclick=function(){doPair(sess,key);}; return; }
+  h(note+'<label class="lbl">Your name (shown on every signature)</label><input id="nm" class="inp" placeholder="e.g. Alex Doe" autocapitalize="words"><button id="go" class="btn">Create key &amp; pair</button>');
   document.getElementById('go').onclick=async function(){
     var name=(document.getElementById('nm').value||'').trim(); if(!name){setStatus('Enter a name','err');return;}
     setStatus('Generating your key…');
@@ -94,7 +95,16 @@ function pairFlow(sess){
 async function doPair(sess,key){
   setStatus('Pairing…');
   try{
-    var proof=signStr(key.sec,sess.challenge);
+    var proof;
+    if(sess.genesis){
+      // No trust root yet → this phone BECOMES it. Self-sign the genesis event
+      // (canonical() here matches the laptop's eventBytes exactly).
+      var g=sess.genesis;
+      var ev={id:g.id,type:g.type,name:key.name,pub:key.pub,role:g.role,by:key.name,prev:g.prev,nonce:g.nonce,at:g.at};
+      proof=signStr(key.sec,canonical(ev));
+    }else{
+      proof=signStr(key.sec,sess.challenge);
+    }
     var res=await api('/api/submit',{name:key.name,pubB64:key.pub,proof:proof});
     if(res.error){ setStatus('Rejected: '+res.error,'err'); return; }
     h('<div class="msg">Confirm this code matches the one on your laptop:</div><div class="code">'+esc(res.code)+'</div><div class="msg">Then approve it on the laptop.</div>');

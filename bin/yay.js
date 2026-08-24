@@ -488,7 +488,14 @@ async function runPairing(p, config, flags) {
   flags = flags || {};
   const nameFlag = (flags.name && flags.name !== true) ? flags.name : null;
   const tls = tlsCert(p, flags);
-  const s = await phone.pairOverLan({ project: config.project, tls });
+  // No signed trust root yet? Run PHONE-AS-GENESIS: the phone self-signs the
+  // genesis event and becomes the owner/root — no local key is ever created.
+  const rlogPre = loadRoster(p);
+  const isGenesis = !(rlogPre && rlogPre.events && rlogPre.events.length);
+  const genesis = isGenesis
+    ? { id: 'R-0001', type: 'genesis', role: 'owner', prev: 'genesis', nonce: C.randomNonce(), at: new Date().toISOString() }
+    : null;
+  const s = await phone.pairOverLan({ project: config.project, tls, genesis });
   console.log('\n' + U.c.bold('Pair your phone') + ' — scan with your phone camera (same Wi-Fi):');
   console.log('   ' + U.c.accent(s.url) + U.c.dim('   (or ' + s.local + ' on this computer)'));
   printQR(s.url);
@@ -500,8 +507,8 @@ async function runPairing(p, config, flags) {
   const ans = await ask('  Does it match exactly? (y/N): ');
   if (!/^y/i.test(ans)) { console.log(U.c.red('  pairing aborted — code did not match (possible wrong device)')); return false; }
 
-  const rlog = loadRoster(p);
-  if (rlog && rlog.events && rlog.events.length) {
+  if (!isGenesis) {
+    const rlog = loadRoster(p);
     // A signed trust root exists → the phone key must be authorized by an existing
     // OWNER (signed roster event), or the gate won't trust it. Sign with an owner
     // key held on this machine.
@@ -534,11 +541,19 @@ async function runPairing(p, config, flags) {
     return true;
   }
 
-  // No trust root yet — the phone can't self-authorize into a signed roster here.
+  // Phone-as-genesis: the phone self-signed the genesis event. Its signature is
+  // the trust root; the private key never leaves the phone, and no local key exists.
+  const g = r.genesisEvent;
+  if (!g || g.pub !== r.pubB64) { console.log(U.c.red('  pairing failed — no valid genesis signature from the phone.')); return false; }
+  const check = rosterMod.deriveRoster({ project: config.project, events: [g] });
+  if (!check.ok) { console.log(U.c.red('  refusing to establish trust root — ' + check.problems.join('; '))); return false; }
+  U.writeJSON(rosterPath(p), { project: config.project, events: [g] });
   addSignerKey(config, name, r.pubB64, 'phone');
   config.devices = config.devices || {}; config.devices[name] = config.devices[name] || {}; config.devices[name].phonePairedAt = new Date().toISOString();
   U.writeJSON(p.config, config);
-  console.log(U.c.yellow('  ⚠ no signed trust root yet') + U.c.dim(' — phone saved to config, but not a signed root. Create one first with ') + U.c.bold('yay keygen') + U.c.dim(' (phone-as-genesis is a later increment).'));
+  console.log('\n' + U.c.green(`✓ trust root established on your phone for "${name}"`) + U.c.dim(' — no local key needed.'));
+  console.log('  ' + U.c.dim('root fingerprint → ') + U.c.bold(rosterMod.fingerprint(r.pubB64)) + U.c.dim('  (pin this in CI)'));
+  console.log('  ' + U.c.dim('commit ') + U.c.bold('.yaylayer/') + U.c.dim(', then approve change-sets with ') + U.c.bold('yay sign --phone'));
   return true;
 }
 
@@ -803,6 +818,7 @@ const HELP = `yay — a protocol for provable, signed AI code
   yay keygen --name <you>     create your signing key
   yay adopt [path] [--dry]    scaffold draft specs over existing code
   yay pair [--name you]      pair your phone as the signer (key stays on the phone; scan the QR) · --https for TLS
+                             the FIRST pairing makes the phone the trust root — no local key needed
   yay enroll --name X --pubkey <b64>  enroll another signer via an OWNER-signed event (--role owner|signer)
   yay sign [--all|--cell IDs] approve the current specs  ·  --phone signs on the paired phone (--https for TLS)
   yay verify [--strict] [-d]  the gate — paint every Cell; -d/--details prints each spec, code & checks

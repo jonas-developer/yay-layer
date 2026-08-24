@@ -86,11 +86,24 @@ function serve(mode, project, sessionData, onPost, opts) {
 
 // Pairing: the phone creates its key and proves possession by signing our
 // challenge; we return its name + public key + the confirm code for the human.
-async function pairOverLan({ project, tls }) {
+//
+// When `genesis` is supplied (no signed trust root exists yet), we run
+// PHONE-AS-GENESIS: the phone self-signs the genesis roster event, so its
+// signature IS the trust root. The laptop never holds a key. We rebuild the
+// event authoritatively from our own fields + the phone's name/pub, so a
+// tampered phone cannot smuggle a different role/nonce past us.
+async function pairOverLan({ project, tls, genesis }) {
   const challenge = C.randomNonce() + C.randomNonce();
-  const s = await serve('pair', project, { challenge }, (body) => {
+  const session = genesis ? { challenge, genesis } : { challenge };
+  const s = await serve('pair', project, session, (body) => {
     const { name, pubB64, proof } = body || {};
     if (!name || !pubB64 || !proof) return { error: 'missing name/pubB64/proof' };
+    if (genesis) {
+      const ev = { ...genesis, name: String(name), pub: pubB64, by: String(name) };
+      if (!C.verify(canonical(ev), proof, pubB64)) return { error: 'genesis self-signature failed' };
+      const code = confirmCode(pubB64);
+      return { ok: true, code, done: { name: String(name), pubB64, code, genesisEvent: { ...ev, signature: proof } } };
+    }
     if (!C.verify(challenge, proof, pubB64)) return { error: 'key possession proof failed' };
     const code = confirmCode(pubB64);
     return { ok: true, code, done: { name: String(name), pubB64, code } };
