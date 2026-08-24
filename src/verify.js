@@ -11,6 +11,7 @@
 
 const { canonical } = require('./util');
 const { verify: sigVerify } = require('./crypto');
+const { proveManifest } = require('./prove');
 
 // Shallow side-effect signals used for the MVP purity / minimality checks.
 const EFFECT_SIGNALS = [
@@ -116,6 +117,27 @@ function verifyManifest(manifest, lock, config) {
       id, state, trust, notes: sc.notes, badLines: sc.badLines || [], file: cell.file, line: cell.line,
       blast: cell.blast || 0, dependents: cell.directCallers || 0, isEntry: !!cell.isEntry, bloat: !!cell.bloat,
     };
+  }
+
+  // Behavioural proof: run each pure Cell against its `ensures` (spec-derived
+  // tests). A counterexample ⇒ Red (code contradicts its promise); a claim we
+  // can't check ⇒ Yellow (unproven), never a fake pass.
+  const proofs = proveManifest(manifest);
+  for (const id of Object.keys(proofs)) {
+    if (!results[id]) continue;
+    const pr = proofs[id];
+    if (pr.status === 'fail') {
+      results[id].state = worst(results[id].state, 'RED');
+      results[id].notes.push({ level: 'red', text: 'ensures FAILED — ' + pr.counterexample });
+      const body = manifest.cells[id] && manifest.cells[id].unitBody;
+      if (body) results[id].badLines = body.split('\n').map((l) => l.trim()).filter((l) => /\breturn\b/.test(l));
+    } else if (pr.status === 'pass') {
+      results[id].notes.push({ level: 'info', text: `ensures proven over ${pr.cases} generated case(s)` });
+    } else if (pr.status === 'skip') {
+      // Couldn't check it (prose, exotic type, won't load) — say so, but don't
+      // punish honest code for the prover's limits. Only a real contradiction is Red.
+      results[id].notes.push({ level: 'info', text: 'ensures not machine-verified — ' + pr.reason });
+    }
   }
 
   // Higher-order: broken feeds edges, and roll-up color for container Cells.

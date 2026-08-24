@@ -109,4 +109,20 @@ const agents = fs.readFileSync(require('path').join(tmp, 'AGENTS.md'), 'utf8');
 ok(/keep me/.test(agents) && /YAYLAYER:BEGIN/.test(agents), 'constitution: appends to an existing file without destroying user text');
 fs.rmSync(tmp, { recursive: true, force: true });
 
+// 11) behavioural prover: satisfied ensures → pass, violated → fail, prose → skip
+const { proveManifest } = require('../src/prove');
+const P = require('path');
+const ptmp = fs.mkdtempSync(P.join(os.tmpdir(), 'yay-prove-'));
+fs.writeFileSync(P.join(ptmp, 'p.js'), 'function good(id){return `/pfps/${id}.png`;}\nfunction bad(id){return `/x/${id}.png`;}\n');
+const mkcell = (id, unit, ens) => ({ id, file: 'p.js', unitName: unit, unitFound: true, contains: [], spec: { pure: 'yes', in: 'id:number', out: 'string', ensures: ens } });
+const pm = proveManifest({ root: ptmp, cells: {
+  'C-1': mkcell('C-1', 'good', 'out == `/pfps/${id}.png`'),
+  'C-2': mkcell('C-2', 'bad', 'out == `/pfps/${id}.png`'),
+  'C-3': mkcell('C-3', 'good', 'the url should be nice'),
+} });
+ok(pm['C-1'].status === 'pass', 'prover: satisfied ensures → pass');
+ok(pm['C-2'].status === 'fail' && /bad\(/.test(pm['C-2'].counterexample), 'prover: violated ensures → fail with counterexample');
+ok(pm['C-3'].status === 'skip', 'prover: prose ensures → skip (not machine-checkable, not a false pass)');
+fs.rmSync(ptmp, { recursive: true, force: true });
+
 console.log(`\nAll ${n} checks passed.`);
