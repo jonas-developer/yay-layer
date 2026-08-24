@@ -293,5 +293,21 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
   const tres = await post('http://127.0.0.1:' + ts.port, { name: 'Mallory', pubB64: gk.pubB64, proof: C.sign(canonical(tampered), gk.privDer) });
   ok(!!tres.error, 'phone-genesis: a genesis signed over tampered fields is rejected'); ts.close();
 
+  // recovery: BIP39 mnemonic → ed25519 key (the phone's key-backup layer), roster-compatible.
+  const R = require('../src/vendor/recovery');
+  const hx = (b) => Buffer.from(b).toString('hex');
+  const z16 = new Uint8Array(16);
+  ok(R.entropyToMnemonic(z16) === 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about', 'recovery: entropyToMnemonic matches the official BIP39 vector');
+  ok(hx(R.mnemonicToSeed(R.entropyToMnemonic(z16), 'TREZOR')) === 'c55257c360c07c72029aebc1b53c05ed0362ada38ead3e3e9efa3708e53495531f09a6987599d18264c1e1c92f2cf141630c7a3c4ab7c81b2f001698e7463b04', 'recovery: PBKDF2-HMAC-SHA512 seed matches the official vector');
+  const ent = new Uint8Array(32); for (let i = 0; i < 32; i++) ent[i] = (i * 37 + 11) & 0xff;
+  const phrase = R.entropyToMnemonic(ent);
+  ok(hx(R.mnemonicToEntropy(phrase)) === hx(ent), 'recovery: a 24-word phrase round-trips its entropy (checksum ok)');
+  let mtamper = false; try { const w = phrase.split(' '); w[3] = 'zoo'; R.mnemonicToEntropy(w.join(' ')); } catch (_) { mtamper = true; }
+  ok(mtamper, 'recovery: a wrong word fails the checksum');
+  const rk1 = R.mnemonicToKeypair(phrase), rk2 = R.mnemonicToKeypair(phrase);
+  ok(rk1.pub === rk2.pub && rk1.sec === rk2.sec, 'recovery: same phrase restores the identical keypair (device loss → same identity)');
+  const rsig = require('../src/vendor/tweetnacl.min.js').sign.detached(new TextEncoder().encode('m'), Buffer.from(rk1.sec, 'base64'));
+  ok(C.verify('m', Buffer.from(rsig).toString('base64'), rk1.pub), 'recovery: a mnemonic-derived signature verifies via crypto.js (enrollable in the roster)');
+
   console.log(`\nAll ${n} checks passed.`);
 })().catch((e) => { console.error('smoke failed:', e); process.exit(1); });

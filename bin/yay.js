@@ -420,8 +420,9 @@ async function cmdKeygen(flags) {
   console.log(U.c.green(`✓ key created for "${name}"`));
   console.log('  public key → roster in .yaylayer/config.json');
   console.log('  private key → ' + U.c.dim(path.relative(process.cwd(), ksPath)) + U.c.dim('  (gitignored, encrypted)'));
-  console.log(U.c.yellow('\n  ⚠ MVP local keystore.') + ' In production the private key lives only on your phone (Face ID),');
-  console.log('    backed up as a 24-word mnemonic. Never commit .yaylayer/keys/. See README.');
+  console.log(U.c.yellow('\n  ⚠ Local keystore') + U.c.dim(' — this key is a file on THIS machine (passphrase-encrypted). It has no'));
+  console.log(U.c.dim('    recovery phrase; if you lose it, keep a 2nd owner key. For a phone key with a'));
+  console.log(U.c.dim('    24-word recovery backup that never touches this machine, use ') + U.c.bold('yay pair') + U.c.dim('. Never commit .yaylayer/keys/.'));
 }
 
 async function cmdSign(flags) {

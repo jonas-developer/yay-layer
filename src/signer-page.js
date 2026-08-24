@@ -13,6 +13,7 @@
 const fs = require('fs');
 const path = require('path');
 const NACL = fs.readFileSync(path.join(__dirname, 'vendor', 'tweetnacl.min.js'), 'utf8');
+const RECOVERY = fs.readFileSync(path.join(__dirname, 'vendor', 'recovery.js'), 'utf8');
 
 function signerHTML({ mode, project }) {
   const M = JSON.stringify(mode || 'pair');
@@ -46,11 +47,21 @@ h1{font-size:1.3rem;margin:4px 0 0}.sub{color:var(--mut);font-size:.85rem;font-f
 .col{margin-left:auto;font-family:var(--mono);font-size:.62rem;text-transform:uppercase;color:var(--mut)}
 #status{width:100%;max-width:460px;margin-top:14px;font-family:var(--mono);font-size:.8rem;color:var(--mut);text-align:center;min-height:1.2em}
 #status.ok{color:var(--green)}#status.err{color:var(--red)}
+.btn.alt{background:transparent;color:var(--accent);border:1px solid var(--rule);margin-top:10px}
+.link{display:inline-block;margin-top:14px;color:var(--accent);text-decoration:underline;cursor:pointer;font-size:.9rem}
+.words{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin:12px 0}
+.word{font-family:var(--mono);font-size:.95rem;padding:9px 11px;background:var(--card2);border:1px solid var(--rule);border-radius:9px}
+.word i{color:var(--mut);font-style:normal;margin-right:8px;display:inline-block;min-width:1.4em;text-align:right}
+.warn{color:var(--red);font-size:.85rem;line-height:1.45;margin:10px 0}
+.chk{display:flex;align-items:flex-start;gap:9px;font-size:.9rem;margin:12px 0}
+.chk input{margin-top:3px;width:18px;height:18px;flex:none}
+textarea.inp{min-height:96px;resize:vertical;font-family:var(--mono);font-size:.98rem}
 </style></head><body>
 <div class="top"><div class="brandrow"><span class="logo"><svg width="24" height="24" viewBox="0 0 26 26" aria-hidden="true"><rect width="26" height="26" rx="7" fill="#3ecf8e"/><path d="M6.5 13.5l4 4L20 7.5" fill="none" stroke="#04231a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="brand">YayLayer Signer</span></div><h1 id="ttl">Sign</h1><div class="sub" id="proj"></div></div>
 <div id="app"><div class="msg">Loading…</div></div>
 <div id="status"></div>
 <script>${NACL}</script>
+<script>${RECOVERY}</script>
 <script>
 (function(){
 var MODE=${M}, PROJECT=${P};
@@ -65,10 +76,14 @@ function b64(buf){var b=new Uint8Array(buf),s='';for(var i=0;i<b.length;i++)s+=S
 function unb64(s){var bin=atob(s),a=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)a[i]=bin.charCodeAt(i);return a;}
 function ebytes(str){return new TextEncoder().encode(str);}
 function canonical(o){if(o===null||typeof o!=='object')return JSON.stringify(o);if(Array.isArray(o))return '['+o.map(canonical).join(',')+']';var k=Object.keys(o).sort(),p=[];for(var i=0;i<k.length;i++)p.push(JSON.stringify(k[i])+':'+canonical(o[k[i]]));return '{'+p.join(',')+'}';}
-function hasCrypto(){return typeof nacl!=='undefined' && window.crypto && typeof window.crypto.getRandomValues==='function';}
+function hasCrypto(){return typeof nacl!=='undefined' && typeof YayRecovery!=='undefined' && window.crypto && typeof window.crypto.getRandomValues==='function';}
 function loadKey(){try{return JSON.parse(localStorage.getItem('yay.key')||'null');}catch(e){return null;}}
 function saveKey(o){localStorage.setItem('yay.key',JSON.stringify(o));}
-function genKeypair(){var kp=nacl.sign.keyPair();var spki=new Uint8Array(SPKI.length+kp.publicKey.length);spki.set(SPKI);spki.set(kp.publicKey,SPKI.length);return {pub:b64(spki),sec:b64(kp.secretKey)};}
+// New identity from a fresh 24-word recovery phrase (the phrase is shown once,
+// never stored — only the derived keypair is kept on the device).
+function newIdentity(name){var ent=new Uint8Array(32);window.crypto.getRandomValues(ent);var mnemonic=YayRecovery.newMnemonic(ent);var kp=YayRecovery.mnemonicToKeypair(mnemonic);return {name:name,sec:kp.sec,pub:kp.pub,mnemonic:mnemonic};}
+// Re-derive the SAME keypair from a written-down phrase (device loss / new phone).
+function restoreIdentity(name,phrase){var kp=YayRecovery.mnemonicToKeypair(phrase);return {name:name,sec:kp.sec,pub:kp.pub};}
 function signStr(secB64,str){return b64(nacl.sign.detached(ebytes(str),unb64(secB64)));}
 async function api(path,body){var r=await fetch(path,{method:body?'POST':'GET',headers:body?{'content-type':'application/json'}:{},body:body?JSON.stringify(body):undefined});return r.json();}
 
@@ -85,12 +100,55 @@ function pairFlow(sess){
   var key=loadKey();
   var note=sess.genesis?'<div class="msg" style="color:var(--accent)">This phone will become the project’s <b>trust root</b> — no key is stored on the computer.</div>':'';
   if(key){ h(note+'<div class="msg">Key ready for <b>'+esc(key.name)+'</b> on this device.</div><button id="go" class="btn">'+(sess.genesis?'Become trust root &amp; pair':'Pair this device')+'</button>'); document.getElementById('go').onclick=function(){doPair(sess,key);}; return; }
-  h(note+'<label class="lbl">Your name (shown on every signature)</label><input id="nm" class="inp" placeholder="e.g. Alex Doe" autocapitalize="words"><button id="go" class="btn">Create key &amp; pair</button>');
-  document.getElementById('go').onclick=async function(){
+  h(note+'<label class="lbl">Your name (shown on every signature)</label><input id="nm" class="inp" placeholder="e.g. Alex Doe" autocapitalize="words"><button id="go" class="btn">Create key &amp; pair</button><span id="rst" class="link">Restore from recovery phrase</span>');
+  document.getElementById('go').onclick=function(){
     var name=(document.getElementById('nm').value||'').trim(); if(!name){setStatus('Enter a name','err');return;}
     setStatus('Generating your key…');
-    try{ var k=genKeypair(); k.name=name; saveKey(k); await doPair(sess,k); }catch(e){ setStatus('Key generation failed: '+e,'err'); }
+    try{ var k=newIdentity(name); showBackup(sess,k); setStatus(''); }catch(e){ setStatus('Key generation failed: '+e,'err'); }
   };
+  document.getElementById('rst').onclick=function(){restoreFlow(sess);};
+}
+// Show the 24-word recovery phrase ONCE. It is the only backup and is never
+// stored on the device or sent to the laptop; only the derived key is kept.
+function showBackup(sess,k){
+  var words=k.mnemonic.split(' ');
+  var grid=words.map(function(w,i){return '<div class="word"><i>'+(i+1)+'</i>'+esc(w)+'</div>';}).join('');
+  h('<div class="msg"><b>Your recovery phrase</b> — write these 24 words down on paper, in order.</div>'
+    +'<div class="words">'+grid+'</div>'
+    +'<div class="warn">This is the ONLY way to restore your key if you lose this phone. Anyone who has it can sign as you. Never photograph it, type it into a website, or store it online.</div>'
+    +'<label class="chk"><input type="checkbox" id="ack"><span>I have written down my recovery phrase and stored it safely.</span></label>'
+    +'<button id="go" class="btn">Continue</button>');
+  document.getElementById('go').onclick=function(){
+    if(!document.getElementById('ack').checked){setStatus('Confirm you saved your phrase','err');return;}
+    verifyBackup(sess,k,words);
+  };
+}
+// Lightweight proof they actually recorded it: re-enter one random word.
+function verifyBackup(sess,k,words){
+  var pos=(window.crypto.getRandomValues(new Uint32Array(1))[0])%words.length;
+  h('<div class="msg">Quick check — type word <b>#'+(pos+1)+'</b> of your recovery phrase.</div>'
+    +'<input id="wv" class="inp" autocapitalize="none" autocomplete="off" placeholder="word #'+(pos+1)+'"><button id="go" class="btn">Confirm &amp; pair</button><span id="sk" class="link">Show my phrase again</span>');
+  document.getElementById('go').onclick=async function(){
+    var v=(document.getElementById('wv').value||'').trim().toLowerCase();
+    if(v!==words[pos]){setStatus('That word doesn’t match #'+(pos+1)+' — check your written copy','err');return;}
+    setStatus(''); delete k.mnemonic; saveKey({name:k.name,sec:k.sec,pub:k.pub}); await doPair(sess,{name:k.name,sec:k.sec,pub:k.pub});
+  };
+  document.getElementById('sk').onclick=function(){showBackup(sess,k);};
+}
+// Restore an existing identity by pasting its written-down phrase.
+function restoreFlow(sess){
+  h('<div class="msg"><b>Restore your key</b> — paste your 24-word recovery phrase.</div>'
+    +'<label class="lbl">Your name (as shown on your signatures)</label><input id="nm" class="inp" placeholder="e.g. Alex Doe" autocapitalize="words">'
+    +'<label class="lbl">Recovery phrase</label><textarea id="ph" class="inp" autocapitalize="none" autocomplete="off" placeholder="word1 word2 … word24"></textarea>'
+    +'<button id="go" class="btn">Restore &amp; pair</button><span id="bk" class="link">Back</span>');
+  document.getElementById('go').onclick=async function(){
+    var name=(document.getElementById('nm').value||'').trim(); if(!name){setStatus('Enter your name','err');return;}
+    var phrase=(document.getElementById('ph').value||'').trim(); if(!phrase){setStatus('Paste your phrase','err');return;}
+    setStatus('Restoring your key…');
+    try{ var k=restoreIdentity(name,phrase); saveKey(k); setStatus(''); await doPair(sess,k); }
+    catch(e){ setStatus(String(e&&e.message||e).replace(/^Error:\\s*/,''),'err'); }
+  };
+  document.getElementById('bk').onclick=function(){pairFlow(sess);};
 }
 async function doPair(sess,key){
   setStatus('Pairing…');
