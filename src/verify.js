@@ -91,7 +91,7 @@ function staticChecks(cell) {
   return { red, yellow, notes, badLines };
 }
 
-function verifyManifest(manifest, lock, config) {
+function verifyManifest(manifest, lock, config, opts) {
   const roster = (config && config.signers) || {};
   const results = {};
 
@@ -122,7 +122,7 @@ function verifyManifest(manifest, lock, config) {
   // Behavioural proof: run each pure Cell against its `ensures` (spec-derived
   // tests). A counterexample ⇒ Red (code contradicts its promise); a claim we
   // can't check ⇒ Yellow (unproven), never a fake pass.
-  const proofs = proveManifest(manifest);
+  const proofs = proveManifest(manifest, opts);
   for (const id of Object.keys(proofs)) {
     if (!results[id]) continue;
     const pr = proofs[id];
@@ -132,7 +132,16 @@ function verifyManifest(manifest, lock, config) {
       const body = manifest.cells[id] && manifest.cells[id].unitBody;
       if (body) results[id].badLines = body.split('\n').map((l) => l.trim()).filter((l) => /\breturn\b/.test(l));
     } else if (pr.status === 'pass') {
-      results[id].notes.push({ level: 'info', text: `ensures proven over ${pr.cases} generated case(s)` });
+      const mu = pr.mutation;
+      let text = `ensures proven over ${pr.cases} generated case(s)`;
+      if (mu && mu.total) {
+        text += `; mutation score ${Math.round(mu.score * 100)}% (${mu.killed}/${mu.total} killed)`;
+        if (mu.score < 0.5) {
+          results[id].state = worst(results[id].state, 'YELLOW');
+          results[id].notes.push({ level: 'yellow', text: `weak ensures — ${mu.survived} mutant(s) survived (e.g. ${mu.survivor || 'a code change'}); the promise passes even when the code is broken` });
+        }
+      }
+      results[id].notes.push({ level: 'info', text });
     } else if (pr.status === 'skip') {
       // Couldn't check it (prose, exotic type, won't load) — say so, but don't
       // punish honest code for the prover's limits. Only a real contradiction is Red.

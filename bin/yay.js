@@ -347,7 +347,7 @@ function cmdVerify(flags) {
   if (!Object.keys(manifest.cells).length && !manifest.problems.length && !(manifest.untracked || []).length) {
     console.log(U.c.dim('no code found. Write a spec block (see README/STANDARD), or run `yay adopt`.')); return;
   }
-  const verified = verifyManifest(manifest, lock, config);
+  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'] });
   printReport(manifest, verified, !!(flags.details || flags.d));
   const blocked = !verified.passed || manifest.problems.length;
   console.log('\n  ' + (blocked ? U.c.red('GATE: BLOCKED') + U.c.dim(' (red, unsigned, or unspecified/pink code cannot reach main)')
@@ -407,7 +407,7 @@ function cellChanges(root, lock, cells) {
 function cmdMap(flags) {
   const { p, config, lock } = loadState();
   const manifest = buildManifest(flags.dir || p.root);
-  const verified = verifyManifest(manifest, lock, config);
+  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'] });
   const { changes, times } = cellChanges(manifest.root, lock, manifest.cells);
   const html = renderMap(manifest, verified, config && config.project, changes, times);
   const out = (flags.o && flags.o !== true) ? flags.o : (flags.out && flags.out !== true ? flags.out : 'yay-layer-map.html');
@@ -446,6 +446,7 @@ const HELP = `yay — a protocol for provable, signed AI code
   yay adopt [path] [--dry]    scaffold draft specs over existing code
   yay sign [--all|--cell IDs] approve the current specs (local stand-in for the phone signer)
   yay verify [--strict] [-d]  the gate — paint every Cell; -d/--details prints each spec, code & checks
+                             runs the behavioural prover + mutation grading on pure Cells (--no-mutate to skip)
   yay map [-o file.html]      write the HTML flowchart (default: yay-layer-map.html)
   yay status                  one-line summary
 

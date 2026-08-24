@@ -16,6 +16,7 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('node:vm');
+const { mutants } = require('./mutate');
 
 function stripTS(code) {
   let m; try { m = require('node:module'); } catch (_) { return code; }
@@ -60,10 +61,9 @@ function makeSandbox(names, registry) {
   return vm.createContext(sandbox);
 }
 
-// Load a file once; return { fns } mapping requested names → captured functions.
-function loadFile(absPath, names) {
-  let src; try { src = fs.readFileSync(absPath, 'utf8'); } catch (_) { return { error: 'unreadable' }; }
-  const stripped = stripTS(src);
+// Run a source string in a fresh sandbox; return { fns, ctx } capturing `names`.
+function runSource(source, names) {
+  const stripped = stripTS(source);
   if (stripped == null) return { error: 'typescript-strip-failed' };
   const code = neutralizeModules(stripped);
   const registry = {};
@@ -148,8 +148,43 @@ function proveCell(cell, ctx, fn) {
   return { status: 'pass', level: 'info', cases: cases - threw };
 }
 
-// Prove every eligible Cell. Returns { [cellId]: result }.
-function proveManifest(manifest) {
+// Mutation testing: corrupt the code one edit at a time, re-run the SAME ensures
+// tests, and see how many mutants the ensures kills. A low score means the ensures
+// is too weak to be trusted — it passes even when the code is broken.
+function runMutation(source, cell) {
+  const params = parseIn(cell.spec);
+  const ensures = String(cell.spec.ensures || '');
+  const muts = mutants(cell.unitBody || '', 30);
+  if (!muts.length) return { total: 0, killed: 0, survived: 0, score: null };
+  const tuples = cartesian(params.map((p) => valuesFor(p.type)), 40);
+  const inputs = tuples.length ? tuples : [[]];
+  const srcLines = source.split(/\r?\n/);
+  const start = cell.unitBodyStart || 0;
+  const len = (cell.unitBody || '').split('\n').length;
+  let killed = 0, survived = 0, survivor = null;
+  for (const m of muts) {
+    const lines = srcLines.slice();
+    lines.splice(start, len, ...m.code.split('\n'));
+    const r = runSource(lines.join('\n'), [cell.unitName]);
+    if (r.error || typeof r.fns[cell.unitName] !== 'function') { killed++; continue; } // mutant broke → detected
+    let checker;
+    try { checker = buildChecker(r.ctx, params.map((p) => p.name), ensures); }
+    catch (_) { killed++; continue; }
+    let dead = false;
+    for (const A of inputs) {
+      let rr; try { rr = checker(r.fns[cell.unitName], A); } catch (_) { dead = true; break; }
+      if (!rr.ok) { dead = true; break; }
+    }
+    if (dead) killed++; else { survived++; if (!survivor) survivor = m.op; }
+  }
+  const total = killed + survived;
+  return { total, killed, survived, score: total ? killed / total : null, survivor };
+}
+
+// Prove every eligible Cell. opts.mutate (default true) also grades each passing
+// Cell's ensures by mutation. Returns { [cellId]: result }.
+function proveManifest(manifest, opts) {
+  const mutate = !opts || opts.mutate !== false;
   const out = {};
   const byFile = {};
   for (const id of Object.keys(manifest.cells)) {
@@ -162,13 +197,18 @@ function proveManifest(manifest) {
   }
   for (const file of Object.keys(byFile)) {
     const cells = byFile[file];
-    const loaded = loadFile(path.join(manifest.root, file), cells.map((c) => c.unitName));
-    if (loaded.error) { for (const c of cells) out[c.id] = { status: 'skip', level: 'info', reason: 'could not run file (' + loaded.error + ')' }; continue; }
+    let source; try { source = fs.readFileSync(path.join(manifest.root, file), 'utf8'); }
+    catch (_) { for (const c of cells) out[c.id] = { status: 'skip', level: 'info', reason: 'file unreadable' }; continue; }
+    const base = runSource(source, cells.map((c) => c.unitName));
+    if (base.error) { for (const c of cells) out[c.id] = { status: 'skip', level: 'info', reason: 'could not run file (' + base.error + ')' }; continue; }
     for (const c of cells) {
-      const fn = loaded.fns[c.unitName];
+      const fn = base.fns[c.unitName];
       if (typeof fn !== 'function') { out[c.id] = { status: 'skip', level: 'info', reason: 'unit not callable in isolation' }; continue; }
-      try { out[c.id] = proveCell(c, loaded.ctx, fn); }
-      catch (e) { out[c.id] = { status: 'skip', level: 'info', reason: 'prover error: ' + (e && e.message) }; }
+      try {
+        const res = proveCell(c, base.ctx, fn);
+        if (res.status === 'pass' && mutate) res.mutation = runMutation(source, c);
+        out[c.id] = res;
+      } catch (e) { out[c.id] = { status: 'skip', level: 'info', reason: 'prover error: ' + (e && e.message) }; }
     }
   }
   return out;

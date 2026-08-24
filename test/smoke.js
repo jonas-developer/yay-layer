@@ -125,4 +125,16 @@ ok(pm['C-2'].status === 'fail' && /bad\(/.test(pm['C-2'].counterexample), 'prove
 ok(pm['C-3'].status === 'skip', 'prover: prose ensures → skip (not machine-checkable, not a false pass)');
 fs.rmSync(ptmp, { recursive: true, force: true });
 
+// 12) mutation testing: a tight ensures kills mutants; a loose one lets them survive
+const mtmp = fs.mkdtempSync(P.join(os.tmpdir(), 'yay-mut-'));
+fs.writeFileSync(P.join(mtmp, 'm.js'), 'function url(id){ return `/pfps/${id}.png`; }\n');
+const mkc = (unit, ens, body, start) => ({ id: unit, file: 'm.js', unitName: unit, unitFound: true, unitBody: body, unitBodyStart: start, contains: [], spec: { pure: 'yes', in: 'id:number', out: 'string', ensures: ens } });
+const bodyLine = 'function url(id){ return `/pfps/${id}.png`; }';
+const strong = proveManifest({ root: mtmp, cells: { url: mkc('url', 'out == `/pfps/${id}.png`', bodyLine, 0) } }, { mutate: true }).url;
+ok(strong.status === 'pass' && strong.mutation && strong.mutation.total > 0, 'mutation: mutants were generated and run');
+ok(strong.mutation.score >= 0.8, 'mutation: a tight ensures kills most mutants (high score)');
+const weak = proveManifest({ root: mtmp, cells: { url: mkc('url', 'out.length > 0', bodyLine, 0) } }, { mutate: true }).url;
+ok(weak.mutation.survived > 0 && weak.mutation.score < 0.5, 'mutation: a loose ensures (out.length>0) lets mutants survive (low score)');
+fs.rmSync(mtmp, { recursive: true, force: true });
+
 console.log(`\nAll ${n} checks passed.`);
