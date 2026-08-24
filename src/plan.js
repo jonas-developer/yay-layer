@@ -55,24 +55,47 @@ function stripToJSON(text) {
   return JSON.parse(t);
 }
 
-async function synthesize(digest, { model, apiKey, maxTokens }) {
-  if (typeof fetch !== 'function') throw new Error('global fetch unavailable — needs Node 18+');
+async function callAnthropic(digest, { model, apiKey, maxTokens }) {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model: model || 'claude-sonnet-5',
-      max_tokens: maxTokens || 2000,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: 'DIGEST:\n' + JSON.stringify(digest) }],
-    }),
+    body: JSON.stringify({ model, max_tokens: maxTokens || 2000, system: SYSTEM_PROMPT, messages: [{ role: 'user', content: 'DIGEST:\n' + JSON.stringify(digest) }] }),
   });
   if (!res.ok) throw new Error('Anthropic API ' + res.status + ': ' + (await res.text().catch(() => '')).slice(0, 240));
   const data = await res.json();
-  const text = (data && data.content && data.content[0] && data.content[0].text) || '';
+  return (data && data.content && data.content[0] && data.content[0].text) || '';
+}
+
+// OpenAI Chat Completions — also covers OpenAI-COMPATIBLE providers (Groq, Together,
+// OpenRouter, Ollama, LM Studio, …) via baseUrl. `tokenField` handles newer OpenAI
+// models that require max_completion_tokens instead of max_tokens.
+async function callOpenAICompat(digest, { model, apiKey, baseUrl, maxTokens }, tokenField) {
+  const url = (baseUrl || 'https://api.openai.com/v1').replace(/\/$/, '') + '/chat/completions';
+  const body = { model, messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: 'DIGEST:\n' + JSON.stringify(digest) }] };
+  body[tokenField || 'max_tokens'] = maxTokens || 2000;
+  const res = await fetch(url, { method: 'POST', headers: { authorization: 'Bearer ' + apiKey, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  if (!res.ok) {
+    const errText = (await res.text().catch(() => '')).slice(0, 300);
+    // some models reject max_tokens and want max_completion_tokens — retry once
+    if (res.status === 400 && /max_completion_tokens/.test(errText) && (tokenField || 'max_tokens') === 'max_tokens') {
+      return callOpenAICompat(digest, { model, apiKey, baseUrl, maxTokens }, 'max_completion_tokens');
+    }
+    throw new Error('OpenAI-compatible API ' + res.status + ': ' + errText);
+  }
+  const data = await res.json();
+  return (data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+}
+
+// provider: 'anthropic' | 'openai' (openai also = any OpenAI-compatible baseUrl).
+async function synthesize(digest, opts) {
+  if (typeof fetch !== 'function') throw new Error('global fetch unavailable — needs Node 18+');
+  const provider = opts.provider || 'anthropic';
+  const model = opts.model || (provider === 'anthropic' ? 'claude-sonnet-5' : 'gpt-4o');
+  const text = provider === 'anthropic'
+    ? await callAnthropic(digest, { ...opts, model })
+    : await callOpenAICompat(digest, { ...opts, model });
   let plan;
   try { plan = stripToJSON(text); } catch (e) { throw new Error('model did not return valid JSON'); }
-  // minimal shape guard
   plan.system = trim(plan.system, 1200) || 'No overview produced.';
   plan.subsystems = Array.isArray(plan.subsystems) ? plan.subsystems : [];
   plan.flows = Array.isArray(plan.flows) ? plan.flows : [];

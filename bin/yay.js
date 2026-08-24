@@ -573,18 +573,25 @@ function cellChanges(root, lock, cells) {
 async function cmdPlan(flags) {
   const { p, config, lock } = loadState();
   if (!config) return fail('run `yay init` first');
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) return fail('set ANTHROPIC_API_KEY in your .env (or .env.local) to synthesize a plan — each user brings their own key.');
+  // Pick the provider: --provider, else whichever key is present. 'openai' also
+  // covers OpenAI-compatible providers (Groq, OpenRouter, Together, Ollama…) via
+  // --base-url / OPENAI_BASE_URL, with the key in OPENAI_API_KEY.
+  let provider = (flags.provider && flags.provider !== true) ? String(flags.provider).toLowerCase() : null;
+  if (!provider) provider = process.env.ANTHROPIC_API_KEY ? 'anthropic' : (process.env.OPENAI_API_KEY ? 'openai' : null);
+  if (!provider) return fail('set ANTHROPIC_API_KEY or OPENAI_API_KEY in your .env (or pass --provider) — each user brings their own key.');
+  const apiKey = provider === 'anthropic' ? process.env.ANTHROPIC_API_KEY : process.env.OPENAI_API_KEY;
+  if (!apiKey) return fail(`provider "${provider}" selected but its key isn't set (${provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY'}).`);
+  const baseUrl = (flags['base-url'] && flags['base-url'] !== true) ? flags['base-url'] : (process.env.OPENAI_BASE_URL || null);
+  const model = (flags.model && flags.model !== true) ? flags.model : (provider === 'anthropic' ? 'claude-sonnet-5' : 'gpt-4o');
   const manifest = buildManifest(flags.dir || p.root);
   if (!Object.keys(manifest.cells).length) return fail('no Cells to plan — write/adopt some specs first.');
   const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: loadRoster(p), root: trustRootPin(flags) });
-  const model = (flags.model && flags.model !== true) ? flags.model : 'claude-sonnet-5';
   const digest = plan.buildDigest(manifest, config.project);
-  console.log(U.c.dim(`synthesizing system plan with ${model} … (${digest.modules.length} module(s), ${Object.keys(manifest.cells).length} Cell(s))`));
+  console.log(U.c.dim(`synthesizing system plan with ${provider}/${model}${baseUrl ? ' @ ' + baseUrl : ''} … (${digest.modules.length} module(s), ${Object.keys(manifest.cells).length} Cell(s))`));
   let result;
-  try { result = await plan.synthesize(digest, { model, apiKey: key }); }
+  try { result = await plan.synthesize(digest, { provider, model, apiKey, baseUrl }); }
   catch (e) { return fail('plan synthesis failed: ' + e.message); }
-  const out = { model, at: new Date().toISOString(), counts: verified.counts, ...result };
+  const out = { provider, model, at: new Date().toISOString(), counts: verified.counts, ...result };
   U.writeJSON(path.join(path.dirname(p.config), 'plan.json'), out);
   console.log(U.c.green('✓ system plan written → .yaylayer/plan.json') + U.c.dim(`  (${result.subsystems.length} subsystem(s))`));
   console.log('  ' + U.c.dim('view it in ') + U.c.bold('yay map') + U.c.dim(' → the "System Plan" toggle. Re-run `yay plan` to refresh.'));
@@ -637,7 +644,9 @@ const HELP = `yay — a protocol for provable, signed AI code
   yay sign [--all|--cell IDs] approve the current specs  ·  --phone signs on the paired phone
   yay verify [--strict] [-d]  the gate — paint every Cell; -d/--details prints each spec, code & checks
                              --problems shows only non-green Cells · --no-mutate skips prover mutation grading
-  yay plan [--model m]       AI-synthesize a high-level System Plan → .yaylayer/plan.json (needs ANTHROPIC_API_KEY)
+  yay plan [--provider anthropic|openai] [--model m] [--base-url url]
+                             AI-synthesize a high-level System Plan → .yaylayer/plan.json
+                             (key from .env: ANTHROPIC_API_KEY or OPENAI_API_KEY; openai+--base-url covers Groq/OpenRouter/Ollama/…)
   yay map [-o file.html]      write the HTML flowchart (default: yay-layer-map.html) — includes the System Plan toggle if planned
   yay gate [dir]              write the CI gate workflow (+ --hook local pre-push) & print the
                              branch-protection steps · flags: --scope <dir> --pkg <spec> --hook --force
