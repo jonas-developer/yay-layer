@@ -150,6 +150,12 @@ ok(G.writeWorkflow(gtmp).action === 'skipped', 'gate: re-run is idempotent (skip
 ok(G.writeWorkflow(gtmp, { force: true }).action === 'overwritten', 'gate: --force overwrites');
 fs.rmSync(gtmp, { recursive: true, force: true });
 
+// 12b) plan digest — compact, structured input for the LLM synthesis
+const { buildDigest } = require('../src/plan');
+const dig = buildDigest(manifest, 'CoinWatch');
+ok(dig.project === 'CoinWatch' && Array.isArray(dig.modules) && Array.isArray(dig.moduleFlows), 'plan: buildDigest returns modules + moduleFlows');
+ok(dig.modules.every((m) => typeof m.name === 'string' && Array.isArray(m.units) && m.units.length <= 40), 'plan: digest modules carry a capped, structured unit list');
+
 // 13) multi-key identity: one name may hold several keys; a seal by ANY of them verifies
 const { pubKeysOf } = require('../src/util');
 ok(pubKeysOf('x').length === 1 && pubKeysOf([{ pub: 'a' }, { pub: 'b' }]).length === 2 && pubKeysOf(['a', 'b']).length === 2, 'roster: pubKeysOf normalizes string / [str] / [{pub}]');

@@ -22,6 +22,22 @@ const { HARNESSES, writeConstitution, resolveKeys } = require('../src/constituti
 const gate = require('../src/gate');
 const phone = require('../src/phone');
 const rosterMod = require('../src/roster');
+const plan = require('../src/plan');
+
+// Load .env / .env.local into process.env (without overriding what's already set).
+// Lets users keep their own ANTHROPIC_API_KEY in a gitignored .env file.
+function loadDotenv() {
+  for (const f of ['.env', '.env.local']) {
+    let t; try { t = fs.readFileSync(path.join(process.cwd(), f), 'utf8'); } catch (_) { continue; }
+    for (const line of t.split(/\r?\n/)) {
+      const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
+      if (!m || (m[1] in process.env)) continue;
+      let v = m[2].trim();
+      if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
+      process.env[m[1]] = v;
+    }
+  }
+}
 
 function rosterPath(p) { return path.join(path.dirname(p.config), 'roster.json'); }
 function loadRoster(p) { return U.readJSON(rosterPath(p), null); }
@@ -554,12 +570,33 @@ function cellChanges(root, lock, cells) {
   return { changes: out, times };
 }
 
+async function cmdPlan(flags) {
+  const { p, config, lock } = loadState();
+  if (!config) return fail('run `yay init` first');
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) return fail('set ANTHROPIC_API_KEY in your .env (or .env.local) to synthesize a plan — each user brings their own key.');
+  const manifest = buildManifest(flags.dir || p.root);
+  if (!Object.keys(manifest.cells).length) return fail('no Cells to plan — write/adopt some specs first.');
+  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: loadRoster(p), root: trustRootPin(flags) });
+  const model = (flags.model && flags.model !== true) ? flags.model : 'claude-sonnet-5';
+  const digest = plan.buildDigest(manifest, config.project);
+  console.log(U.c.dim(`synthesizing system plan with ${model} … (${digest.modules.length} module(s), ${Object.keys(manifest.cells).length} Cell(s))`));
+  let result;
+  try { result = await plan.synthesize(digest, { model, apiKey: key }); }
+  catch (e) { return fail('plan synthesis failed: ' + e.message); }
+  const out = { model, at: new Date().toISOString(), counts: verified.counts, ...result };
+  U.writeJSON(path.join(path.dirname(p.config), 'plan.json'), out);
+  console.log(U.c.green('✓ system plan written → .yaylayer/plan.json') + U.c.dim(`  (${result.subsystems.length} subsystem(s))`));
+  console.log('  ' + U.c.dim('view it in ') + U.c.bold('yay map') + U.c.dim(' → the "System Plan" toggle. Re-run `yay plan` to refresh.'));
+}
+
 function cmdMap(flags) {
   const { p, config, lock } = loadState();
   const manifest = buildManifest(flags.dir || p.root);
   const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), root: trustRootPin(flags) });
   const { changes, times } = cellChanges(manifest.root, lock, manifest.cells);
-  const html = renderMap(manifest, verified, config && config.project, changes, times);
+  const planDoc = U.readJSON(path.join(path.dirname(p.config), 'plan.json'), null);
+  const html = renderMap(manifest, verified, config && config.project, changes, times, planDoc);
   const out = (flags.o && flags.o !== true) ? flags.o : (flags.out && flags.out !== true ? flags.out : 'yay-layer-map.html');
   fs.writeFileSync(out, html);
   console.log(U.c.green('✓ map written → ') + out + U.c.dim(`  (${Object.keys(verified.results).length} items)`));
@@ -600,7 +637,8 @@ const HELP = `yay — a protocol for provable, signed AI code
   yay sign [--all|--cell IDs] approve the current specs  ·  --phone signs on the paired phone
   yay verify [--strict] [-d]  the gate — paint every Cell; -d/--details prints each spec, code & checks
                              --problems shows only non-green Cells · --no-mutate skips prover mutation grading
-  yay map [-o file.html]      write the HTML flowchart (default: yay-layer-map.html)
+  yay plan [--model m]       AI-synthesize a high-level System Plan → .yaylayer/plan.json (needs ANTHROPIC_API_KEY)
+  yay map [-o file.html]      write the HTML flowchart (default: yay-layer-map.html) — includes the System Plan toggle if planned
   yay gate [dir]              write the CI gate workflow (+ --hook local pre-push) & print the
                              branch-protection steps · flags: --scope <dir> --pkg <spec> --hook --force
   yay status                  one-line summary
@@ -608,6 +646,7 @@ const HELP = `yay — a protocol for provable, signed AI code
   docs: standard/STANDARD.md · CONSTITUTION.md · README.md`;
 
 async function main() {
+  loadDotenv();
   const [, , cmd, ...rest] = process.argv;
   const { flags, positional } = args(rest);
   switch (cmd) {
@@ -618,6 +657,7 @@ async function main() {
     case 'enroll': return cmdEnroll(flags);
     case 'verify': case 'check': return cmdVerify(flags);
     case 'map': return cmdMap(flags);
+    case 'plan': return cmdPlan(flags);
     case 'adopt': return cmdAdopt(flags, positional);
     case 'constitution': case 'rules': return cmdConstitution(flags, positional);
     case 'gate': case 'ci': return cmdGate(flags, positional);
