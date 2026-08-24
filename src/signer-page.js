@@ -84,7 +84,7 @@ async function main(){
 function pairFlow(sess){
   var key=loadKey();
   if(key){ h('<div class="msg">Key ready for <b>'+esc(key.name)+'</b> on this device.</div><button id="go" class="btn">Pair this device</button>'); document.getElementById('go').onclick=function(){doPair(sess,key);}; return; }
-  h('<label class="lbl">Your name (shown on every signature)</label><input id="nm" class="inp" placeholder="e.g. Jonas" autocapitalize="words"><button id="go" class="btn">Create key &amp; pair</button>');
+  h('<label class="lbl">Your name (shown on every signature)</label><input id="nm" class="inp" placeholder="e.g. Alex Doe" autocapitalize="words"><button id="go" class="btn">Create key &amp; pair</button>');
   document.getElementById('go').onclick=async function(){
     var name=(document.getElementById('nm').value||'').trim(); if(!name){setStatus('Enter a name','err');return;}
     setStatus('Generating your key…');
