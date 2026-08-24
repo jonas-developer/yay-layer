@@ -19,6 +19,7 @@ const { verifyManifest } = require('../src/verify');
 const { renderMap } = require('../src/map');
 const { adopt } = require('../src/adopt');
 const { HARNESSES, writeConstitution, resolveKeys } = require('../src/constitution');
+const gate = require('../src/gate');
 
 function args(argv) {
   const flags = {}; const positional = [];
@@ -213,6 +214,29 @@ async function cmdInit(flags, positional) {
 
   const cd = rel === '.' ? '' : `cd ${rel} && `;
   console.log('\n' + U.c.bold('Done.') + ' Next: write/prune specs → ' + U.c.bold(`${cd}yay verify`) + ' → ' + U.c.bold('yay sign') + '.');
+}
+
+function cmdGate(flags, positional) {
+  const target = path.resolve(positional[0] || process.cwd());
+  if (!fs.existsSync(target)) return fail(`no such directory: ${target}`);
+  const scope = (flags.scope && flags.scope !== true) ? flags.scope : '';
+  const pkg = (flags.pkg && flags.pkg !== true) ? flags.pkg : 'yay-layer';
+  const opts = { force: !!flags.force, scope, pkg };
+
+  const w = gate.writeWorkflow(target, opts);
+  const wmark = w.action === 'skipped' ? U.c.dim('• skipped (exists — use --force) ') : U.c.green('✓ ' + w.action + ' ');
+  console.log('  ' + wmark + w.path);
+
+  if (flags.hook) {
+    const h = gate.writeHook(target, opts);
+    if (h.action === 'no-git') console.log('  ' + U.c.yellow('• pre-push hook: not a git repo (run `git init` first)'));
+    else if (h.action === 'skipped') console.log('  ' + U.c.dim('• pre-push hook skipped (exists — use --force)'));
+    else console.log('  ' + U.c.green('✓ created ') + h.path + U.c.dim('  (local feedback; bypass with git push --no-verify)'));
+  }
+
+  if (pkg === 'yay-layer') console.log('\n' + U.c.dim('note: yay-layer isn\'t on npm yet — until it is, use ') + U.c.bold('yay gate --pkg github:jonas-developer/yay-layer') + U.c.dim(' or edit the install line.'));
+  console.log('\n' + gate.branchProtectionSteps());
+  if (!flags.hook) console.log('\n' + U.c.dim('Tip: `yay gate --hook` also installs a local pre-push gate for solo/offline work.'));
 }
 
 function cmdConstitution(flags, positional) {
@@ -452,6 +476,8 @@ const HELP = `yay — a protocol for provable, signed AI code
   yay verify [--strict] [-d]  the gate — paint every Cell; -d/--details prints each spec, code & checks
                              --problems shows only non-green Cells · --no-mutate skips prover mutation grading
   yay map [-o file.html]      write the HTML flowchart (default: yay-layer-map.html)
+  yay gate [dir]              write the CI gate workflow (+ --hook local pre-push) & print the
+                             branch-protection steps · flags: --scope <dir> --pkg <spec> --hook --force
   yay status                  one-line summary
 
   docs: standard/STANDARD.md · CONSTITUTION.md · README.md`;
@@ -467,6 +493,7 @@ async function main() {
     case 'map': return cmdMap(flags);
     case 'adopt': return cmdAdopt(flags, positional);
     case 'constitution': case 'rules': return cmdConstitution(flags, positional);
+    case 'gate': case 'ci': return cmdGate(flags, positional);
     case 'status': return cmdStatus();
     case undefined: case 'help': case '--help': case '-h': return console.log(HELP);
     default: console.error(U.c.red(`unknown command: ${cmd}`)); console.log(HELP); process.exitCode = 1;

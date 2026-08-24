@@ -137,4 +137,17 @@ const weak = proveManifest({ root: mtmp, cells: { url: mkc('url', 'out.length > 
 ok(weak.mutation.survived > 0 && weak.mutation.score < 0.5, 'mutation: a loose ensures (out.length>0) lets mutants survive (low score)');
 fs.rmSync(mtmp, { recursive: true, force: true });
 
+// 13) `yay gate` generators: workflow + hook content, idempotent write
+const G = require('../src/gate');
+ok(/yay verify --strict/.test(G.ciWorkflow()) && /gate:/.test(G.ciWorkflow()), 'gate: workflow runs `yay verify --strict` under a `gate` job');
+ok(/--dir src/.test(G.ciWorkflow({ scope: 'src' })), 'gate: --scope adds --dir to the workflow');
+ok(/npm install -g github:/.test(G.ciWorkflow({ pkg: 'github:jonas-developer/yay-layer' })), 'gate: --pkg sets the install source');
+ok(/yay verify --strict/.test(G.prePushHook()) && /no-verify/.test(G.prePushHook()), 'gate: pre-push hook verifies and documents the bypass');
+const gtmp = fs.mkdtempSync(P.join(os.tmpdir(), 'yay-gate-'));
+const w1 = G.writeWorkflow(gtmp);
+ok(w1.action === 'created' && fs.existsSync(P.join(gtmp, G.WORKFLOW_REL)), 'gate: writes the workflow file');
+ok(G.writeWorkflow(gtmp).action === 'skipped', 'gate: re-run is idempotent (skips existing)');
+ok(G.writeWorkflow(gtmp, { force: true }).action === 'overwritten', 'gate: --force overwrites');
+fs.rmSync(gtmp, { recursive: true, force: true });
+
 console.log(`\nAll ${n} checks passed.`);
