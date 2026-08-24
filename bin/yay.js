@@ -290,11 +290,15 @@ async function cmdSign(flags) {
   console.log('  ' + U.c.dim('seal appended to .yaylayer/lock.json (commit this)'));
 }
 
-function printReport(manifest, verified, details) {
+function printReport(manifest, verified, details, problemsOnly) {
   for (const prob of manifest.problems) {
     console.log(U.c.red('  ✗ ') + `${prob.id || ''} ${prob.file || ''} — ${prob.error}`);
   }
-  const ids = Object.keys(verified.results).sort();
+  const allIds = Object.keys(verified.results).sort();
+  const ids = problemsOnly ? allIds.filter((id) => verified.results[id].state !== 'GREEN') : allIds;
+  if (problemsOnly && !ids.length && !manifest.problems.length) {
+    console.log('  ' + U.c.green(`✓ all ${allIds.length} Cell(s) green — nothing to review.`));
+  }
   const ind = '        ';
   for (const id of ids) {
     const r = verified.results[id];
@@ -348,7 +352,7 @@ function cmdVerify(flags) {
     console.log(U.c.dim('no code found. Write a spec block (see README/STANDARD), or run `yay adopt`.')); return;
   }
   const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'] });
-  printReport(manifest, verified, !!(flags.details || flags.d));
+  printReport(manifest, verified, !!(flags.details || flags.d), !!(flags.problems || flags.issues || flags.p));
   const blocked = !verified.passed || manifest.problems.length;
   console.log('\n  ' + (blocked ? U.c.red('GATE: BLOCKED') + U.c.dim(' (red, unsigned, or unspecified/pink code cannot reach main)')
     : U.c.green('GATE: PASS')));
@@ -446,7 +450,7 @@ const HELP = `yay — a protocol for provable, signed AI code
   yay adopt [path] [--dry]    scaffold draft specs over existing code
   yay sign [--all|--cell IDs] approve the current specs (local stand-in for the phone signer)
   yay verify [--strict] [-d]  the gate — paint every Cell; -d/--details prints each spec, code & checks
-                             runs the behavioural prover + mutation grading on pure Cells (--no-mutate to skip)
+                             --problems shows only non-green Cells · --no-mutate skips prover mutation grading
   yay map [-o file.html]      write the HTML flowchart (default: yay-layer-map.html)
   yay status                  one-line summary
 
