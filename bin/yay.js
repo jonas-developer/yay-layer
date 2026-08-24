@@ -672,7 +672,22 @@ async function cmdMap(flags) {
   await maybePlanForMap(p, config, manifest, verified, flags);
   const { changes, times } = cellChanges(manifest.root, lock, manifest.cells);
   const planDoc = U.readJSON(path.join(path.dirname(p.config), 'plan.json'), null);
-  const html = renderMap(manifest, verified, config && config.project, changes, times, planDoc);
+  // governance for the Signers tab: authoritative roster (signed) enriched with
+  // device kind / enrolment date (from the config mirror) + approvals per signer.
+  const rlog = loadRoster(p);
+  const drv = rosterMod.deriveRoster(rlog || { events: [] }, { root: trustRootPin(flags) });
+  const cfgSigners = (config && config.signers) || {};
+  const kindByPub = {};
+  for (const n of Object.keys(cfgSigners)) { const e = cfgSigners[n]; if (Array.isArray(e)) e.forEach((k) => { if (k && k.pub) kindByPub[k.pub] = { kind: k.kind, addedAt: k.addedAt }; }); }
+  const approvalsBy = {}; for (const a of (lock.approvals || [])) approvalsBy[a.signer] = (approvalsBy[a.signer] || 0) + 1;
+  const rosterNames = Object.keys(drv.roster);
+  const signers = (rosterNames.length ? rosterNames : Object.keys(cfgSigners)).sort().map((name) => {
+    const pubs = drv.roster[name] || U.pubKeysOf(cfgSigners[name]);
+    return { name, role: drv.roles[name] || 'signer', approvals: approvalsBy[name] || 0,
+      keys: pubs.map((pub) => ({ fp: rosterMod.fingerprint(pub), kind: (kindByPub[pub] && kindByPub[pub].kind) || '', addedAt: (kindByPub[pub] && kindByPub[pub].addedAt) || null })) };
+  });
+  const gov = { signedRoster: !!(rlog && rlog.events && rlog.events.length), rootFp: drv.rootFp, problems: drv.problems, signers };
+  const html = renderMap(manifest, verified, config && config.project, changes, times, planDoc, gov);
   const out = (flags.o && flags.o !== true) ? flags.o : (flags.out && flags.out !== true ? flags.out : 'yay-layer-map.html');
   fs.writeFileSync(out, html);
   console.log(U.c.green('✓ map written → ') + out + U.c.dim(`  (${Object.keys(verified.results).length} items)`));
