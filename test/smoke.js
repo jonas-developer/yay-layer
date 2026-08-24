@@ -162,6 +162,39 @@ const wrongOnly = { signers: { tester: [{ pub: decoy.pubB64, kind: 'phone' }] } 
 mv = verifyManifest(manifest, { approvals: [approval] }, wrongOnly, { mutate: false });
 ok(mv.results['C-040'].state === 'UNSIGNED', 'multi-key: if none of the enrolled keys match, it is UNSIGNED');
 
+// 13b) signed roster governance — an owner-signed chain; unauthorized adds are rejected
+const R = require('../src/roster');
+const kO = C.generateKeypair(), kA = C.generateKeypair(), kE = C.generateKeypair();
+function mkEvent(log, type, name, pub, role, signPriv) {
+  const e = { id: R.nextEventId(log), type, name, pub, role, prev: log.events.length ? log.events[log.events.length - 1].id : 'genesis', nonce: 'n' + log.events.length, at: '2026-01-01T00:00:00.000Z' };
+  e.signature = C.sign(R.eventBytes(e), signPriv);
+  log.events.push(e); return e;
+}
+// happy path: genesis (self-signed owner) + owner-signed add-signer
+const logA = { events: [] };
+mkEvent(logA, 'genesis', 'L.J Bergman', kO.pubB64, 'owner', kO.privDer);
+mkEvent(logA, 'add-signer', 'Alice', kA.pubB64, 'signer', kO.privDer);
+let dA = R.deriveRoster(logA);
+ok(dA.ok && dA.roster['L.J Bergman'][0] === kO.pubB64 && dA.roster['Alice'][0] === kA.pubB64, 'roster: genesis + owner-signed add-signer enroll both identities');
+ok(dA.roles['L.J Bergman'] === 'owner' && dA.roles['Alice'] === 'signer', 'roster: roles assigned (owner / signer)');
+// THE attack: a malignant key enrolls itself (self-signed, not by an owner)
+const logB = { events: [] };
+mkEvent(logB, 'genesis', 'L.J Bergman', kO.pubB64, 'owner', kO.privDer);
+mkEvent(logB, 'add-signer', 'EvilAI', kE.pubB64, 'owner', kE.privDer); // signed by itself
+const dB = R.deriveRoster(logB);
+ok(!dB.roster['EvilAI'] && !dB.ok && /not signed by an owner/.test(dB.problems.join(' ')), 'roster: a self-signed (non-owner) enrollment is REJECTED — the AI cannot add itself');
+// a non-owner signer cannot enroll others
+const logC = { events: [] };
+mkEvent(logC, 'genesis', 'L.J Bergman', kO.pubB64, 'owner', kO.privDer);
+mkEvent(logC, 'add-signer', 'Alice', kA.pubB64, 'signer', kO.privDer);
+mkEvent(logC, 'add-signer', 'Bob', kE.pubB64, 'signer', kA.privDer); // Alice is only a signer
+ok(!R.deriveRoster(logC).roster['Bob'], 'roster: a non-owner signer cannot enroll others');
+// tampered genesis → no trust root
+ok(!R.deriveRoster({ events: [{ type: 'genesis', name: 'X', pub: kO.pubB64, prev: 'genesis', nonce: 'n', at: 't', signature: C.sign('wrong', kO.privDer) }] }).ok, 'roster: invalid genesis signature → no trust root established');
+// root pinning
+ok(R.deriveRoster(logA, { root: dA.rootFp }).ok, 'roster: matching root pin passes');
+ok(!R.deriveRoster(logA, { root: 'DEAD-BEEF-DEAD-BEEF' }).ok && /MISMATCH/.test(R.deriveRoster(logA, { root: 'DEAD-BEEF-DEAD-BEEF' }).problems.join(' ')), 'roster: a wrong root pin is caught (swap detection)');
+
 // 14) phone signing over LAN — simulate the phone with Node crypto (same wire
 // formats: SPKI-DER pubkey, raw ed25519 sig over canonical(approval)).
 (async function () {
