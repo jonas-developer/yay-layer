@@ -195,6 +195,12 @@ mkEvent(logC, 'genesis', 'L.J Bergman', kO.pubB64, 'owner', kO.privDer);
 mkEvent(logC, 'add-signer', 'Alice', kA.pubB64, 'signer', kO.privDer);
 mkEvent(logC, 'add-signer', 'Bob', kE.pubB64, 'signer', kA.privDer); // Alice is only a signer
 ok(!R.deriveRoster(logC).roster['Bob'], 'roster: a non-owner signer cannot enroll others');
+// add-key: an owner adds a SECOND key to their own identity (the "go mobile" path)
+const logK = { events: [] };
+mkEvent(logK, 'genesis', 'L.J Bergman', kO.pubB64, 'owner', kO.privDer);
+mkEvent(logK, 'add-key', 'L.J Bergman', kA.pubB64, 'owner', kO.privDer); // owner adds a phone key to self
+const dK = R.deriveRoster(logK);
+ok(dK.ok && dK.roster['L.J Bergman'].length === 2, 'roster: an owner can add a second key to their own identity (local → mobile)');
 // tampered genesis → no trust root
 ok(!R.deriveRoster({ events: [{ type: 'genesis', name: 'X', pub: kO.pubB64, prev: 'genesis', nonce: 'n', at: 't', signature: C.sign('wrong', kO.privDer) }] }).ok, 'roster: invalid genesis signature → no trust root established');
 // root pinning

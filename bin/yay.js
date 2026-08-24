@@ -229,7 +229,7 @@ async function cmdInit(flags, positional) {
     console.log('\n' + U.c.bold('Mobile signing') + U.c.dim(' — your key is created and stays on your phone; this machine never holds it.'));
     const nameFlag = (flags.name && flags.name !== true) ? flags.name : null;
     const pairNow = flags.pair ? true : (flags['no-pair'] ? false : (tty ? /^y/i.test((await ask('  Pair your phone now? (Y/n): ')) || 'y') : false));
-    if (pairNow) await runPairing(p, config, nameFlag);
+    if (pairNow) await runPairing(p, config, flags);
     else console.log('  ' + U.c.dim('skipped — pair anytime (same Wi-Fi) with ') + U.c.bold('yay pair') + U.c.dim('.'));
   } else if (keyChoice === 'local') {
     let name = (flags.name && flags.name !== true) ? flags.name : null;
@@ -442,7 +442,9 @@ async function cmdSign(flags) {
 }
 
 // Shared pairing flow (used by `yay pair` and by `yay init` when Mobile is chosen).
-async function runPairing(p, config, nameFlag) {
+async function runPairing(p, config, flags) {
+  flags = flags || {};
+  const nameFlag = (flags.name && flags.name !== true) ? flags.name : null;
   const s = await phone.pairOverLan({ project: config.project });
   console.log('\n' + U.c.bold('Pair your phone') + ' — on the SAME Wi-Fi, open this on your phone:');
   console.log('   ' + U.c.accent(s.url));
@@ -453,22 +455,53 @@ async function runPairing(p, config, nameFlag) {
   console.log('\n  Your phone should show code: ' + U.c.bold(r.code));
   const ans = await ask('  Does it match exactly? (y/N): ');
   if (!/^y/i.test(ans)) { console.log(U.c.red('  pairing aborted — code did not match (possible wrong device)')); return false; }
-  const outcome = addSignerKey(config, name, r.pubB64, 'phone');
-  config.devices = config.devices || {};
-  config.devices[name] = config.devices[name] || {};
-  config.devices[name].phonePairedAt = new Date().toISOString();
+
+  const rlog = loadRoster(p);
+  if (rlog && rlog.events && rlog.events.length) {
+    // A signed trust root exists → the phone key must be authorized by an existing
+    // OWNER (signed roster event), or the gate won't trust it. Sign with an owner
+    // key held on this machine.
+    const drv = rosterMod.deriveRoster(rlog);
+    if ((drv.roster[name] || []).includes(r.pubB64)) { console.log(U.c.dim(`  this phone key is already enrolled for "${name}".`)); return true; }
+    const owners = Object.keys(drv.roles).filter((n) => drv.roles[n] === 'owner');
+    const byFlag = (flags.by && flags.by !== true) ? flags.by : null;
+    const authOwner = (byFlag && fs.existsSync(path.join(p.keys, `${byFlag}.keystore`))) ? byFlag
+      : owners.find((n) => fs.existsSync(path.join(p.keys, `${n}.keystore`)));
+    if (!authOwner) {
+      addSignerKey(config, name, r.pubB64, 'phone'); U.writeJSON(p.config, config);
+      console.log(U.c.yellow('  ⚠ phone captured, but NOT enrolled in the signed roster') + U.c.dim(' — no owner key on this machine to authorize it.'));
+      console.log('  ' + U.c.dim('From a machine holding an owner key, run: ') + U.c.bold(`yay enroll --name "${name}" --pubkey ${r.pubB64}`));
+      return true;
+    }
+    const pass = await getPassphrase(flags, `Enter ${authOwner}'s passphrase to authorize adding your phone`);
+    let priv;
+    try { priv = C.decryptKeystore(JSON.parse(fs.readFileSync(path.join(p.keys, `${authOwner}.keystore`), 'utf8')), pass); }
+    catch (e) { console.log(U.c.red('  ' + e.message)); return false; }
+    const type = drv.roster[name] ? 'add-key' : 'add-signer';
+    const role = drv.roles[name] || (flags.role === 'owner' ? 'owner' : 'signer');
+    const ev = { id: rosterMod.nextEventId(rlog), type, name, pub: r.pubB64, role, by: authOwner, prev: rlog.events[rlog.events.length - 1].id, nonce: C.randomNonce(), at: new Date().toISOString() };
+    ev.signature = C.sign(rosterMod.eventBytes(ev), priv);
+    const test = rosterMod.deriveRoster({ ...rlog, events: rlog.events.concat([ev]) });
+    if (test.problems.length) { console.log(U.c.red('  refusing to write — ' + test.problems.join('; '))); return false; }
+    rlog.events.push(ev);
+    U.writeJSON(rosterPath(p), rlog);
+    addSignerKey(config, name, r.pubB64, 'phone'); U.writeJSON(p.config, config);
+    console.log(U.c.green(`✓ paired "${name}"`) + U.c.dim(` — phone key added to the SIGNED roster (authorized by ${authOwner}). Commit .yaylayer/. Sign with `) + U.c.bold('yay sign --phone') + U.c.dim('.'));
+    return true;
+  }
+
+  // No trust root yet — the phone can't self-authorize into a signed roster here.
+  addSignerKey(config, name, r.pubB64, 'phone');
+  config.devices = config.devices || {}; config.devices[name] = config.devices[name] || {}; config.devices[name].phonePairedAt = new Date().toISOString();
   U.writeJSON(p.config, config);
-  if (outcome === 'exists') { console.log(U.c.dim(`  this phone key is already enrolled for "${name}" — nothing to add.`)); return true; }
-  const total = U.pubKeysOf(config.signers[name]).length;
-  console.log(U.c.green(`✓ paired "${name}"`) + U.c.dim(` — phone key added (this identity now has ${total} key${total > 1 ? 's' : ''}; commit .yaylayer/config.json).`));
+  console.log(U.c.yellow('  ⚠ no signed trust root yet') + U.c.dim(' — phone saved to config, but not a signed root. Create one first with ') + U.c.bold('yay keygen') + U.c.dim(' (phone-as-genesis is a later increment).'));
   return true;
 }
 
 async function cmdPair(flags) {
   const { p, config } = loadState();
   if (!config) return fail('run `yay init` first');
-  const nameFlag = (flags.name && flags.name !== true) ? flags.name : null;
-  const ok = await runPairing(p, config, nameFlag);
+  const ok = await runPairing(p, config, flags);
   if (ok) console.log('  ' + U.c.dim('now approve change-sets with ') + U.c.bold('yay sign --phone'));
 }
 
@@ -671,7 +704,8 @@ async function cmdMap(flags) {
   const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), root: trustRootPin(flags) });
   await maybePlanForMap(p, config, manifest, verified, flags);
   const { changes, times } = cellChanges(manifest.root, lock, manifest.cells);
-  const planDoc = U.readJSON(path.join(path.dirname(p.config), 'plan.json'), null);
+  // --no-plan omits the System Plan from the map entirely (no tab); otherwise bake the cached plan.
+  const planDoc = flags['no-plan'] ? null : U.readJSON(path.join(path.dirname(p.config), 'plan.json'), null);
   // governance for the Signers tab: authoritative roster (signed) enriched with
   // device kind / enrolment date (from the config mirror) + approvals per signer.
   const rlog = loadRoster(p);
