@@ -20,6 +20,7 @@ const { renderMap } = require('../src/map');
 const { adopt } = require('../src/adopt');
 const { HARNESSES, writeConstitution, resolveKeys } = require('../src/constitution');
 const gate = require('../src/gate');
+const phone = require('../src/phone');
 
 function args(argv) {
   const flags = {}; const positional = [];
@@ -289,13 +290,6 @@ async function cmdSign(flags) {
     if (!manifest.cells[id]) { console.log(U.c.yellow(`  skip ${id}: not found`)); continue; }
     items[id] = manifest.cells[id].specHash;
   }
-  const ksPath = path.join(p.keys, `${name}.keystore`);
-  if (!fs.existsSync(ksPath)) return fail(`no keystore for "${name}"`);
-  const pass = await getPassphrase(flags, `Enter ${name}'s passphrase to sign`);
-  let privDer;
-  try { privDer = C.decryptKeystore(JSON.parse(fs.readFileSync(ksPath, 'utf8')), pass); }
-  catch (e) { return fail(e.message); }
-
   const n = (lock.approvals || []).length + 1;
   const approval = {
     id: 'A-' + String(n).padStart(4, '0'),
@@ -306,12 +300,63 @@ async function cmdSign(flags) {
     signer: name,
     items,
   };
-  approval.signature = C.sign(U.canonical(approval), privDer);
+
+  if (flags.phone) {
+    // Sign on the paired phone over the LAN — the private key never touches this machine.
+    const verified = verifyManifest(manifest, lock, config, { mutate: false });
+    const SEALCOLORS = { GREEN: '#1f9d57', YELLOW: '#c9860f', RED: '#cf4436', UNSIGNED: '#7f8796', PINK: '#e0559b' };
+    const summary = Object.keys(items).map((id) => {
+      const c = manifest.cells[id]; const r = (verified.results[id] || {});
+      return { id, unit: c.unitName || (c.spec && c.spec.unit) || '', intent: (c.spec && c.spec.intent) || '', state: r.state || 'UNSIGNED', color: SEALCOLORS[r.state] || '#7f8796' };
+    });
+    const s = await phone.signOverLan({ project: config.project, approval, summary, expectPubB64: config.signers[name] });
+    console.log('\n' + U.c.bold('Approve on your phone') + ' — on the same Wi-Fi, open:');
+    console.log('   ' + U.c.accent(s.url));
+    console.log(U.c.dim('   or on THIS computer: ') + U.c.accent(s.local));
+    console.log(U.c.dim(`   reviewing ${summary.length} change(s) as "${name}" · Ctrl-C to cancel`));
+    let r; try { r = await s.done; } finally { s.close(); }
+    approval.signature = r.signature;
+  } else {
+    const ksPath = path.join(p.keys, `${name}.keystore`);
+    if (!fs.existsSync(ksPath)) return fail(`no keystore for "${name}" — if this signer is a phone, use \`yay sign --phone\``);
+    const pass = await getPassphrase(flags, `Enter ${name}'s passphrase to sign`);
+    let privDer;
+    try { privDer = C.decryptKeystore(JSON.parse(fs.readFileSync(ksPath, 'utf8')), pass); }
+    catch (e) { return fail(e.message); }
+    approval.signature = C.sign(U.canonical(approval), privDer);
+  }
+
   lock.approvals = lock.approvals || [];
   lock.approvals.push(approval);
   U.writeJSON(p.lock, lock);
   console.log(U.c.green(`✓ signed ${Object.keys(items).length} Cell(s)`) + ` as "${name}" — approval ${approval.id}`);
   console.log('  ' + U.c.dim('seal appended to .yaylayer/lock.json (commit this)'));
+}
+
+async function cmdPair(flags) {
+  const { p, config } = loadState();
+  if (!config) return fail('run `yay init` first');
+  const nameFlag = (flags.name && flags.name !== true) ? flags.name : null;
+  const s = await phone.pairOverLan({ project: config.project });
+  console.log('\n' + U.c.bold('Pair your phone') + ' — on the SAME Wi-Fi, open this on your phone:');
+  console.log('   ' + U.c.accent(s.url));
+  console.log(U.c.dim('   or, to try it on THIS computer: ') + U.c.accent(s.local) + U.c.dim('  (localhost works; a plain-http LAN address disables signing)'));
+  console.log(U.c.dim('   create your key there; it will show a 6-digit code. (Ctrl-C to cancel.)'));
+  let r; try { r = await s.done; } finally { s.close(); }
+  const name = nameFlag || r.name;
+  console.log('\n  Your phone should show code: ' + U.c.bold(r.code));
+  const ans = await ask('  Does it match exactly? (y/N): ');
+  if (!/^y/i.test(ans)) return fail('pairing aborted — code did not match (possible wrong device)');
+  config.signers = config.signers || {};
+  if (config.signers[name]) console.log(U.c.yellow(`  note: replacing the existing key for "${name}"`));
+  config.signers[name] = r.pubB64;
+  config.owners = config.owners || [];
+  if (!config.owners.includes(name)) config.owners.push(name);
+  config.devices = config.devices || {};
+  config.devices[name] = { type: 'phone', pairedAt: new Date().toISOString() };
+  U.writeJSON(p.config, config);
+  console.log(U.c.green(`✓ paired "${name}"`) + U.c.dim(' — public key added to the roster (commit .yaylayer/config.json).'));
+  console.log('  ' + U.c.dim('now approve change-sets with ') + U.c.bold('yay sign --phone'));
 }
 
 function printReport(manifest, verified, details, problemsOnly) {
@@ -472,7 +517,8 @@ const HELP = `yay — a protocol for provable, signed AI code
                              (--for claude,agents,cursor,copilot,windsurf,cline,gemini,generic | all · --list)
   yay keygen --name <you>     create your signing key
   yay adopt [path] [--dry]    scaffold draft specs over existing code
-  yay sign [--all|--cell IDs] approve the current specs (local stand-in for the phone signer)
+  yay pair [--name you]      pair your phone as the signer (key stays on the phone, over LAN)
+  yay sign [--all|--cell IDs] approve the current specs  ·  --phone signs on the paired phone
   yay verify [--strict] [-d]  the gate — paint every Cell; -d/--details prints each spec, code & checks
                              --problems shows only non-green Cells · --no-mutate skips prover mutation grading
   yay map [-o file.html]      write the HTML flowchart (default: yay-layer-map.html)
@@ -489,6 +535,7 @@ async function main() {
     case 'init': return cmdInit(flags, positional);
     case 'keygen': return cmdKeygen(flags);
     case 'sign': return cmdSign(flags);
+    case 'pair': return cmdPair(flags);
     case 'verify': case 'check': return cmdVerify(flags);
     case 'map': return cmdMap(flags);
     case 'adopt': return cmdAdopt(flags, positional);

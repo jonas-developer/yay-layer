@@ -150,4 +150,43 @@ ok(G.writeWorkflow(gtmp).action === 'skipped', 'gate: re-run is idempotent (skip
 ok(G.writeWorkflow(gtmp, { force: true }).action === 'overwritten', 'gate: --force overwrites');
 fs.rmSync(gtmp, { recursive: true, force: true });
 
-console.log(`\nAll ${n} checks passed.`);
+// 14) phone signing over LAN — simulate the phone with Node crypto (same wire
+// formats: SPKI-DER pubkey, raw ed25519 sig over canonical(approval)).
+(async function () {
+  const { pairOverLan, signOverLan, confirmCode } = require('../src/phone');
+  const kp = C.generateKeypair(); // { pubB64, privDer }
+  const post = (base, body) => fetch(base + '/api/submit', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
+  const get = (base) => fetch(base + '/api/session').then((r) => r.json());
+
+  // pairing
+  const ps = await pairOverLan({ project: 'demo' });
+  const pbase = 'http://127.0.0.1:' + ps.port;
+  const psess = await get(pbase);
+  ok(psess.mode === 'pair' && !!psess.challenge, 'phone: pair session serves a challenge');
+  const pres = await post(pbase, { name: 'Jonas', pubB64: kp.pubB64, proof: C.sign(psess.challenge, kp.privDer) });
+  ok(pres.ok && pres.code === confirmCode(kp.pubB64), 'phone: valid possession proof accepted, confirm code bound to key');
+  const pdone = await ps.done; ps.close();
+  ok(pdone.name === 'Jonas' && pdone.pubB64 === kp.pubB64, 'phone: pairing resolves with the device identity');
+
+  const bs = await pairOverLan({ project: 'demo' });
+  const bres = await post('http://127.0.0.1:' + bs.port, { name: 'X', pubB64: kp.pubB64, proof: C.sign('wrong', kp.privDer) });
+  ok(!!bres.error, 'phone: pairing rejects a bad possession proof'); bs.close();
+
+  // signing
+  const approval = { id: 'A-0001', project: 'demo', prev: 'genesis', nonce: 'abc', at: '2026-01-01T00:00:00.000Z', signer: 'Jonas', items: { 'C-1': 'hash' } };
+  const ss = await signOverLan({ project: 'demo', approval, summary: [{ id: 'C-1', unit: 'f', intent: 'x', state: 'GREEN', color: '#1f9d57' }], expectPubB64: kp.pubB64 });
+  const sbase = 'http://127.0.0.1:' + ss.port;
+  const ssess = await get(sbase);
+  ok(ssess.mode === 'approve' && ssess.approval && ssess.approval.id === 'A-0001', 'phone: approve session serves the unsigned approval + summary');
+  const sig = C.sign(canonical(ssess.approval), kp.privDer);
+  const sres = await post(sbase, { signature: sig });
+  ok(!!sres.ok, 'phone: signature over canonical(approval) is accepted');
+  const sdone = await ss.done; ss.close();
+  ok(sdone.signature === sig, 'phone: signing resolves with the signature');
+
+  const ws = await signOverLan({ project: 'demo', approval, summary: [], expectPubB64: kp.pubB64 });
+  const wres = await post('http://127.0.0.1:' + ws.port, { signature: C.sign('not the approval', kp.privDer) });
+  ok(!!wres.error, 'phone: a signature over the wrong bytes is rejected'); ws.close();
+
+  console.log(`\nAll ${n} checks passed.`);
+})().catch((e) => { console.error('smoke failed:', e); process.exit(1); });
