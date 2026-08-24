@@ -166,8 +166,11 @@ async function cmdInit(flags, positional) {
   }
 
   if (keyChoice === 'mobile') {
-    console.log('\n' + U.c.yellow('⚠ Mobile signing is still under development.') + ' (Your key would live only on your phone — Face ID — never on this machine.)');
-    console.log('  No key created. Once it ships you can pair your phone; for now pick Local, or run `yay keygen` later.');
+    console.log('\n' + U.c.bold('Mobile signing') + U.c.dim(' — your key is created and stays on your phone; this machine never holds it.'));
+    const nameFlag = (flags.name && flags.name !== true) ? flags.name : null;
+    const pairNow = flags.pair ? true : (flags['no-pair'] ? false : (tty ? /^y/i.test((await ask('  Pair your phone now? (Y/n): ')) || 'y') : false));
+    if (pairNow) await runPairing(p, config, nameFlag);
+    else console.log('  ' + U.c.dim('skipped — pair anytime (same Wi-Fi) with ') + U.c.bold('yay pair') + U.c.dim('.'));
   } else if (keyChoice === 'local') {
     let name = (flags.name && flags.name !== true) ? flags.name : null;
     if (!name && tty) name = await ask('  Your signer name (e.g. alice, or "Alice Carlsen"): ');
@@ -333,10 +336,8 @@ async function cmdSign(flags) {
   console.log('  ' + U.c.dim('seal appended to .yaylayer/lock.json (commit this)'));
 }
 
-async function cmdPair(flags) {
-  const { p, config } = loadState();
-  if (!config) return fail('run `yay init` first');
-  const nameFlag = (flags.name && flags.name !== true) ? flags.name : null;
+// Shared pairing flow (used by `yay pair` and by `yay init` when Mobile is chosen).
+async function runPairing(p, config, nameFlag) {
   const s = await phone.pairOverLan({ project: config.project });
   console.log('\n' + U.c.bold('Pair your phone') + ' — on the SAME Wi-Fi, open this on your phone:');
   console.log('   ' + U.c.accent(s.url));
@@ -346,7 +347,7 @@ async function cmdPair(flags) {
   const name = nameFlag || r.name;
   console.log('\n  Your phone should show code: ' + U.c.bold(r.code));
   const ans = await ask('  Does it match exactly? (y/N): ');
-  if (!/^y/i.test(ans)) return fail('pairing aborted — code did not match (possible wrong device)');
+  if (!/^y/i.test(ans)) { console.log(U.c.red('  pairing aborted — code did not match (possible wrong device)')); return false; }
   config.signers = config.signers || {};
   if (config.signers[name]) console.log(U.c.yellow(`  note: replacing the existing key for "${name}"`));
   config.signers[name] = r.pubB64;
@@ -356,7 +357,15 @@ async function cmdPair(flags) {
   config.devices[name] = { type: 'phone', pairedAt: new Date().toISOString() };
   U.writeJSON(p.config, config);
   console.log(U.c.green(`✓ paired "${name}"`) + U.c.dim(' — public key added to the roster (commit .yaylayer/config.json).'));
-  console.log('  ' + U.c.dim('now approve change-sets with ') + U.c.bold('yay sign --phone'));
+  return true;
+}
+
+async function cmdPair(flags) {
+  const { p, config } = loadState();
+  if (!config) return fail('run `yay init` first');
+  const nameFlag = (flags.name && flags.name !== true) ? flags.name : null;
+  const ok = await runPairing(p, config, nameFlag);
+  if (ok) console.log('  ' + U.c.dim('now approve change-sets with ') + U.c.bold('yay sign --phone'));
 }
 
 function printReport(manifest, verified, details, problemsOnly) {
