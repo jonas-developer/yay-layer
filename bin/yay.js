@@ -456,6 +456,35 @@ async function cmdKeygen(flags) {
   console.log(U.c.dim('    24-word recovery backup that never touches this machine, use ') + U.c.bold('yay pair') + U.c.dim('. Never commit .yaylayer/keys/.'));
 }
 
+// ── route phone requests through a RUNNING dashboard (one origin, scan-once) ──
+function dashboardReg(p) {
+  const d = U.readJSON(path.join(path.dirname(p.config), 'dashboard.json'), null);
+  return d && d.port ? d : null;
+}
+async function dfetch(info, pathname, opts) {
+  const base = `${info.scheme}://127.0.0.1:${info.port}`;
+  const prev = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+  if (info.scheme === 'https') process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'; // self-signed localhost
+  try { return await fetch(base + pathname, opts); }
+  finally { if (info.scheme === 'https') { if (prev === undefined) delete process.env.NODE_TLS_REJECT_UNAUTHORIZED; else process.env.NODE_TLS_REJECT_UNAUTHORIZED = prev; } }
+}
+// → { result, info } from the phone via the dashboard, { busy } if one's in flight,
+// or null if there's no live dashboard (caller falls back to the ephemeral server).
+async function routeThroughDashboard(p, mode, payload) {
+  const info = dashboardReg(p); if (!info) return null;
+  let ping; try { ping = await dfetch(info, '/api/ping').then((r) => r.json()); } catch (_) { return null; }
+  if (!ping || ping.yay !== 'dashboard') return null;
+  const rq = await dfetch(info, '/api/request', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode, ...payload }) });
+  if (rq.status === 409) { console.log(U.c.yellow('  a request is already awaiting the phone on the dashboard — finish it first.')); return { busy: true, info }; }
+  console.log('\n' + U.c.bold('→ sent to your phone') + U.c.dim(` — approve on the dashboard you already have open (${info.phoneUrl || info.scheme + '://<this-mac>:' + info.port + '/phone'}). Ctrl-C to cancel.`));
+  for (;;) {
+    let r; try { r = await dfetch(info, '/api/result').then((x) => x.json()); } catch (_) { return null; }
+    if (r.gone) { console.log(U.c.red('  the dashboard request was cancelled.')); return null; }
+    if (r.result) return { result: r.result, info };
+  }
+}
+async function dashboardFinal(info, final) { try { await dfetch(info, '/api/final', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ final }) }); } catch (_) {} }
+
 async function cmdSign(flags) {
   const { p, config, lock } = loadState();
   if (!config) return fail('run `yay init` first');
@@ -497,17 +526,27 @@ async function cmdSign(flags) {
         diff: specDiffForCell(p.root, c), // what changed vs the last committed spec (null = new/unchanged)
       };
     });
-    const tls = tlsCert(p, flags);
-    const s = await phone.signOverLan({ project: config.project, approval, summary, expectPubB64: U.pubKeysOf(config.signers[name]), tls });
-    console.log('\n' + U.c.bold('Approve on your phone') + ' — scan with your phone camera (same Wi-Fi):');
-    console.log('   ' + U.c.accent(s.url) + U.c.dim('   (or ' + s.local + ' on this computer)'));
-    printQR(s.url);
-    if (s.fellBack) console.log(U.c.yellow('   ⚠ the preferred phone port was busy (another yay sign/serve running?) — using a different address; your phone may ask to Restore.'));
-    if (tls) console.log(U.c.dim('   https: tap through the one-time "not private" warning (Advanced → visit).'));
-    console.log(U.c.dim(`   reviewing ${summary.length} change(s) as "${name}" · Ctrl-C to cancel`));
-    let r; try { r = await s.done; } finally { s.close(); }
-    if (r && r.timedOut) return fail('no approval received in time — nothing was signed. Re-run when ready.');
-    approval.signature = r.signature;
+    const pubs = U.pubKeysOf(config.signers[name]);
+    // If a dashboard is running, route through it — the request pops up on the phone
+    // the human already has open (scan-once). Otherwise spin the one-shot LAN server.
+    const routed = await routeThroughDashboard(p, 'approve', { approval, summary, expectPubB64: pubs });
+    if (routed && routed.busy) return;
+    if (routed && routed.result) {
+      approval.signature = routed.result.signature;
+      await dashboardFinal(routed.info, { ok: true, message: 'Signed ✓ — you can leave this open for the next request.' });
+    } else {
+      const tls = tlsCert(p, flags);
+      const s = await phone.signOverLan({ project: config.project, approval, summary, expectPubB64: pubs, tls });
+      console.log('\n' + U.c.bold('Approve on your phone') + ' — scan with your phone camera (same Wi-Fi):');
+      console.log('   ' + U.c.accent(s.url) + U.c.dim('   (or ' + s.local + ' on this computer)'));
+      printQR(s.url);
+      if (s.fellBack) console.log(U.c.yellow('   ⚠ the preferred phone port was busy (another yay sign/serve running?) — using a different address; your phone may ask to Restore.'));
+      if (tls) console.log(U.c.dim('   https: tap through the one-time "not private" warning (Advanced → visit).'));
+      console.log(U.c.dim(`   reviewing ${summary.length} change(s) as "${name}" · Ctrl-C to cancel · tip: run \`yay dashboard\` to scan once and skip the QR each time`));
+      let r; try { r = await s.done; } finally { s.close(); }
+      if (r && r.timedOut) return fail('no approval received in time — nothing was signed. Re-run when ready.');
+      approval.signature = r.signature;
+    }
   } else {
     const ksPath = path.join(p.keys, `${name}.keystore`);
     if (!fs.existsSync(ksPath)) return fail(`no keystore for "${name}" — if this signer is a phone, use \`yay sign --phone\``);
@@ -537,18 +576,27 @@ async function runPairing(p, config, flags) {
   const genesis = isGenesis
     ? { id: 'R-0001', type: 'genesis', role: 'owner', prev: 'genesis', nonce: C.randomNonce(), at: new Date().toISOString() }
     : null;
-  const s = await phone.pairOverLan({ project: config.project, tls, genesis });
-  console.log('\n' + U.c.bold('Pair your phone') + ' — scan with your phone camera (same Wi-Fi):');
-  console.log('   ' + U.c.accent(s.url) + U.c.dim('   (or ' + s.local + ' on this computer)'));
-  printQR(s.url);
-  if (s.fellBack) console.log(U.c.yellow('   ⚠ the preferred phone port was busy (another yay sign/serve running?) — using a different address; the phone may ask to Restore.'));
-  if (tls) console.log(U.c.dim('   https: tap through the one-time "not private" warning (Advanced → visit).'));
-  console.log(U.c.dim('   create your key there; it shows a 6-digit code. (Ctrl-C to cancel.)'));
-  // Keep the server alive through confirmation so the phone can poll the outcome
-  // and flip to a "✓ Paired" (or failure) screen instead of hanging on the code.
-  const finishPhone = async (finalMsg) => { s.setFinal(finalMsg); await Promise.race([s.settled, new Promise((res) => setTimeout(res, 8000))]); };
+  const challenge = C.randomNonce() + C.randomNonce();
+  // Route through a running dashboard (one origin, scan-once) if present; else the one-shot LAN server.
+  const routed = await routeThroughDashboard(p, 'pair', { challenge, genesis });
+  if (routed && routed.busy) return false;
+  let r, finishPhone, closeServer = () => {};
+  if (routed && routed.result) {
+    r = routed.result;
+    finishPhone = (f) => dashboardFinal(routed.info, f);
+  } else {
+    const s = await phone.pairOverLan({ project: config.project, tls, genesis, challenge });
+    console.log('\n' + U.c.bold('Pair your phone') + ' — scan with your phone camera (same Wi-Fi):');
+    console.log('   ' + U.c.accent(s.url) + U.c.dim('   (or ' + s.local + ' on this computer)'));
+    printQR(s.url);
+    if (s.fellBack) console.log(U.c.yellow('   ⚠ the preferred phone port was busy (another yay sign/serve running?) — using a different address; the phone may ask to Restore.'));
+    if (tls) console.log(U.c.dim('   https: tap through the one-time "not private" warning (Advanced → visit).'));
+    console.log(U.c.dim('   create your key there; it shows a 6-digit code. (Ctrl-C to cancel.)'));
+    finishPhone = async (finalMsg) => { s.setFinal(finalMsg); await Promise.race([s.settled, new Promise((res) => setTimeout(res, 8000))]); };
+    closeServer = () => s.close();
+    r = await s.done;
+  }
   try {
-    const r = await s.done;
     if (r && r.timedOut) { console.log(U.c.red('  pairing timed out — no phone responded.')); return false; }
     const name = nameFlag || r.name;
     console.log('\n  Your phone should show code: ' + U.c.bold(r.code));
@@ -613,7 +661,7 @@ async function runPairing(p, config, flags) {
     console.log('  ' + U.c.dim('commit ') + U.c.bold('.yaylayer/') + U.c.dim(', then approve change-sets with ') + U.c.bold('yay sign --phone'));
     await finishPhone({ ok: true, message: 'You’re the trust root now — you can close this.' });
     return true;
-  } finally { s.close(); }
+  } finally { closeServer(); }
 }
 
 // Get an OWNER to sign a governance event `ev` (enroll / revoke / reroot).
@@ -641,6 +689,10 @@ async function authorizeRosterEvent(p, config, log, ev, flags, summary) {
   // Phone authorization: any current owner's phone can sign the event bytes.
   ev.by = byFlag || owners[0];
   const ownerPubs = owners.reduce((a, n) => a.concat(drv.roster[n] || []), []);
+  // Route through a running dashboard (one origin) if there is one; else ephemeral.
+  const routed = await routeThroughDashboard(p, 'authorize', { event: ev, summary, ownerPubs });
+  if (routed && routed.busy) return null;
+  if (routed && routed.result) { ev.signature = routed.result.signature; await dashboardFinal(routed.info, { ok: true, message: 'Authorized ✓ — you can leave this open.' }); return ev; }
   const tls = tlsCert(p, flags);
   const s = await phone.authorizeOverLan({ project: config.project, event: ev, summary, ownerPubs, tls });
   console.log('\n' + U.c.bold('Authorize on an owner’s phone') + ' — scan (same Wi-Fi):');
@@ -1022,7 +1074,7 @@ async function cmdTest(flags) {
 async function cmdDashboard(flags) {
   const { p, config } = loadState();
   if (!config) return fail('run `yay init` first');
-  const port = (flags.port && flags.port !== true) ? Number(flags.port) : (Number(process.env.YAY_DASHBOARD_PORT) || 48756);
+  const port = (flags.port && flags.port !== true) ? Number(flags.port) : (Number(process.env.YAY_DASHBOARD_PORT) || 48757);
   const tls = tlsCert(p, flags);
   let s;
   try {
@@ -1056,12 +1108,22 @@ async function cmdDashboard(flags) {
     if (e && e.code === 'EADDRINUSE') return fail(`port ${port} is already in use — a dashboard may already be running (open http://localhost:${port}), or pass --port.`);
     return fail(e.message || String(e));
   }
-  console.log('\n' + U.c.green('✓ yay dashboard is live') + U.c.dim(' — keep this running; it serves the map and auto-refreshes on changes.'));
-  console.log('   ' + U.c.accent(s.url) + U.c.dim('   (or ' + s.local + ' on this computer)'));
+  // Register so the CLI (yay sign/pair/…) can find this dashboard and route through it.
+  const regPath = path.join(path.dirname(p.config), 'dashboard.json');
+  U.writeJSON(regPath, { scheme: tls ? 'https' : 'http', port: s.port, phoneUrl: s.url + '/phone', startedAt: new Date().toISOString() });
+  ensureGitignored(p.root, '.yaylayer/dashboard.json');
+  const cleanup = () => { try { fs.unlinkSync(regPath); } catch (_) {} };
+  process.on('SIGINT', () => { cleanup(); process.exit(0); });
+  process.on('SIGTERM', () => { cleanup(); process.exit(0); });
+  process.on('exit', cleanup);
+
+  console.log('\n' + U.c.green('✓ yay dashboard is live') + U.c.dim(' — keep this running; scan ONCE, then approvals appear here automatically.'));
+  console.log('   ' + U.c.bold('phone → ') + U.c.accent(s.url + '/phone') + U.c.dim('   (map: ' + s.url + ')'));
+  printQR(s.url + '/phone');
+  if (tls) console.log(U.c.dim('   https: tap through the one-time "not private" warning on the phone (Advanced → visit).'));
   const tc = resolveTestCmd(p.root, config, flags);
-  console.log('   ' + U.c.dim('buttons (on this computer): ') + U.c.bold('▶ Run tests') + U.c.dim(tc ? ` (${tc})` : ' (none configured)') + U.c.dim(' · ') + U.c.bold('⟲ System Plan') + U.c.dim(' (LLM, on demand)'));
-  if (tls) console.log(U.c.dim('   https: accept the one-time self-signed warning.'));
-  console.log(U.c.dim('   Ctrl-C to stop.'));
+  console.log('   ' + U.c.dim('buttons (this computer): ') + U.c.bold('▶ Run tests') + U.c.dim(tc ? ` (${tc})` : ' (none)') + U.c.dim(' · ') + U.c.bold('⚔ Adversary') + U.c.dim(' · ') + U.c.bold('⟲ System Plan') + U.c.dim(' · ') + U.c.bold('≷ Changes'));
+  console.log('   ' + U.c.dim('`yay sign` now routes here — the request pops up on your phone. Ctrl-C to stop.'));
   if (flags.open) { try { require('child_process').exec((process.platform === 'darwin' ? 'open ' : 'xdg-open ') + JSON.stringify(s.local)); } catch (_) {} }
   await new Promise(() => {}); // run until Ctrl-C
 }
@@ -1159,4 +1221,10 @@ async function main() {
     default: console.error(U.c.red(`unknown command: ${cmd}`)); console.log(HELP); process.exitCode = 1;
   }
 }
-main().catch((e) => { console.error(U.c.red('error: ') + (e && e.message || e)); process.exitCode = 1; });
+// Exit explicitly once the command resolves — routed HTTP calls (undici keep-alive)
+// and a ref'd stdin from prompts can otherwise keep the process alive after we're
+// done. `yay dashboard` never resolves (runs until Ctrl-C), so it's unaffected.
+main().then(
+  () => process.exit(process.exitCode || 0),
+  (e) => { console.error(U.c.red('error: ') + (e && e.message || e)); process.exit(1); },
+);

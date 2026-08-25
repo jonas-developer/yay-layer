@@ -131,8 +131,8 @@ function serve(mode, project, sessionData, onPost, opts) {
 // signature IS the trust root. The laptop never holds a key. We rebuild the
 // event authoritatively from our own fields + the phone's name/pub, so a
 // tampered phone cannot smuggle a different role/nonce past us.
-async function pairOverLan({ project, tls, genesis }) {
-  const challenge = C.randomNonce() + C.randomNonce();
+async function pairOverLan({ project, tls, genesis, challenge }) {
+  challenge = challenge || (C.randomNonce() + C.randomNonce());
   const session = genesis ? { challenge, genesis } : { challenge };
   const s = await serve('pair', project, session, (body) => {
     const { name, pubB64, proof } = body || {};

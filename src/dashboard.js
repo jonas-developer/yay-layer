@@ -8,6 +8,14 @@
 
 const http = require('http');
 const os = require('os');
+const C = require('./crypto');
+const { canonical } = require('./util');
+const { signerHTML } = require('./signer-page');
+
+function confirmCode(pubB64) { return String(parseInt(C.sha256('yay-pair:' + pubB64).slice(0, 8), 16) % 1000000).padStart(6, '0'); }
+function readBody(req) {
+  return new Promise((resolve) => { let b = ''; req.on('data', (c) => { b += c; if (b.length > 4e6) req.destroy(); }); req.on('end', () => { try { resolve(JSON.parse(b || '{}')); } catch (_) { resolve({}); } }); req.on('error', () => resolve({})); });
+}
 
 function lanIP() {
   const ifaces = os.networkInterfaces();
@@ -57,9 +65,76 @@ function withLiveControls(mapHTML, version) {
 function startDashboard(deps, opts) {
   opts = opts || {};
   let lastTest = null;
+  // ── relay: one pending request at a time; the CLI posts it, the phone (already
+  // open at this one origin) picks it up and signs, the CLI reads the result. This
+  // is what lets the human scan the QR ONCE and then approve everything from here.
+  let pending = null;      // { mode, session, expectPubs, genesis, done, submitted, waiters:[], at }
+  let finalStatus = null;  // outcome the phone shows after it submits (pair confirm / ✓)
+  const phoneHTML = signerHTML({ mode: 'dashboard', project: deps.project || 'project' });
+  function verifySubmit(b) {
+    if (pending.mode === 'pair') {
+      const { name, pubB64, proof } = b || {};
+      if (!name || !pubB64 || !proof) return { error: 'missing name/pubB64/proof' };
+      if (pending.genesis) {
+        const ev = { ...pending.genesis, name: String(name), pub: pubB64, by: String(name) };
+        if (!C.verify(canonical(ev), proof, pubB64)) return { error: 'genesis self-signature failed' };
+        return { code: confirmCode(pubB64), done: { name: String(name), pubB64, code: confirmCode(pubB64), genesisEvent: { ...ev, signature: proof } } };
+      }
+      if (!C.verify(pending.session.challenge, proof, pubB64)) return { error: 'key possession proof failed' };
+      return { code: confirmCode(pubB64), done: { name: String(name), pubB64, proof, code: confirmCode(pubB64) } };
+    }
+    // approve / authorize: verify the signature over the canonical approval/event
+    const canon = canonical(pending.session.approval || pending.session.event);
+    if (!b || !b.signature) return { error: 'missing signature' };
+    if (!(pending.expectPubs || []).some((pub) => pub && C.verify(canon, b.signature, pub))) return { error: 'not signed by an authorized key on this phone' };
+    return { done: { signature: b.signature } };
+  }
   const handler = async (req, res) => {
     const url = req.url.split('?')[0];
-    if (req.method === 'GET' && url === '/api/ping') return sendJSON(res, 200, { yay: 'dashboard' });
+    if (req.method === 'OPTIONS') return sendJSON(res, 200, {});
+    if (req.method === 'GET' && url === '/api/ping') return sendJSON(res, 200, { yay: 'dashboard', busy: !!pending });
+
+    // ── CLI-facing (localhost only) ──
+    if (req.method === 'POST' && url === '/api/request') {
+      if (!isLocal(req)) return sendJSON(res, 403, { error: 'local only' });
+      if (pending) return sendJSON(res, 409, { error: 'a request is already awaiting the phone' });
+      const b = await readBody(req);
+      const session = { mode: b.mode };
+      if (b.approval) session.approval = b.approval;
+      if (b.event) session.event = b.event;
+      if (b.summary) session.summary = b.summary;
+      if (b.challenge) session.challenge = b.challenge;
+      if (b.genesis) session.genesis = b.genesis;
+      pending = { mode: b.mode, session, expectPubs: b.expectPubB64 || b.ownerPubs || [], genesis: b.genesis || null, done: null, submitted: false, waiters: [], at: Date.now() };
+      finalStatus = null;
+      return sendJSON(res, 200, { ok: true });
+    }
+    if (req.method === 'GET' && url === '/api/result') { // CLI long-poll for the phone's submission
+      if (!isLocal(req)) return sendJSON(res, 403, { error: 'local only' });
+      if (!pending) return sendJSON(res, 200, { result: null, gone: true });
+      if (pending.done) return sendJSON(res, 200, { result: pending.done });
+      pending.waiters.push(res); return; // held until the phone submits
+    }
+    if (req.method === 'POST' && url === '/api/final') { // CLI publishes the outcome, then clears the slot
+      if (!isLocal(req)) return sendJSON(res, 403, { error: 'local only' });
+      finalStatus = (await readBody(req)).final || null; pending = null; return sendJSON(res, 200, { ok: true });
+    }
+    if (req.method === 'POST' && url === '/api/cancel') { if (!isLocal(req)) return sendJSON(res, 403, { error: 'local only' }); pending = null; finalStatus = null; return sendJSON(res, 200, { ok: true }); }
+
+    // ── phone-facing ──
+    if (req.method === 'GET' && (url === '/phone' || url === '/phone.html')) return sendHTML(res, phoneHTML);
+    if (req.method === 'GET' && url === '/api/session') return sendJSON(res, 200, pending ? { ...pending.session } : { mode: 'idle' });
+    if (req.method === 'GET' && url === '/api/status') return sendJSON(res, 200, { final: finalStatus });
+    if (req.method === 'POST' && url === '/api/submit') {
+      if (!pending) return sendJSON(res, 409, { error: 'nothing to sign right now' });
+      const out = verifySubmit(await readBody(req));
+      if (out.error) return sendJSON(res, 400, { error: out.error });
+      pending.done = out.done; pending.submitted = true;
+      const ws = pending.waiters; pending.waiters = [];
+      for (const w of ws) { try { sendJSON(w, 200, { result: out.done }); } catch (_) {} }
+      return sendJSON(res, 200, { ok: true, code: out.code });
+    }
+
     if (req.method === 'GET' && url === '/api/version') { try { return sendJSON(res, 200, { v: deps.version() }); } catch (e) { return sendJSON(res, 200, { v: 'err' }); } }
     if (req.method === 'GET' && url === '/api/diffs') { try { return sendJSON(res, 200, { diffs: deps.diffs ? deps.diffs() : [] }); } catch (e) { return sendJSON(res, 200, { diffs: [], error: String(e && e.message || e) }); } }
     if (req.method === 'GET' && url === '/api/tests') return sendJSON(res, 200, { ...(deps.testInfo ? deps.testInfo() : { configured: false }), last: lastTest });

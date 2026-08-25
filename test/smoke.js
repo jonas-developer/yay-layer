@@ -465,6 +465,58 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
   ok(dpage.includes('yd-diffs') && dpage.includes('yd-adv'), 'dashboard: has Changes + Adversary buttons');
   const advr = await fetch(dbase + '/api/adversary/run', { method: 'POST' }).then((r) => r.json());
   ok(advr.results && advr.results[0].status === 'broke', 'dashboard: /api/adversary/run returns per-Cell adversary results');
+
+  // ── v2 relay: pair / sign / authorize all route through the ONE dashboard origin.
+  // The CLI POSTs /api/request; the phone (already open) polls /api/session and
+  // submits to /api/submit; the CLI long-polls /api/result. "Scan once, approvals appear."
+  { // own scope so these locals don't collide with earlier sections
+  const dpost = (path, body) => fetch(dbase + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) });
+  const dget = (path) => fetch(dbase + path).then((r) => r.json());
+  ok((await fetch(dbase + '/phone').then((r) => r.text())).length > 100, 'v2 relay: GET /phone serves the phone signer page (one origin for the whole session)');
+  ok((await dget('/api/session')).mode === 'idle', 'v2 relay: /api/session is idle when nothing is pending');
+
+  // pair (phone-as-genesis): CLI posts a pair request, phone self-signs the genesis event.
+  const phoneKp = C.generateKeypair();
+  const genesis = { type: 'genesis', role: 'owner', nonce: 'n-123', project: 'relayproj' };
+  ok((await dpost('/api/request', { mode: 'pair', challenge: 'chal-abc', genesis })).status === 200, 'v2 relay: CLI POST /api/request (pair) accepts the pending request');
+  const psess = await dget('/api/session');
+  ok(psess.mode === 'pair' && psess.genesis && psess.genesis.nonce === 'n-123', 'v2 relay: phone sees the pair request (with genesis) via /api/session');
+  ok((await dget('/api/ping')).busy === true, 'v2 relay: /api/ping reports busy while a request is pending');
+  ok((await dpost('/api/request', { mode: 'approve', approval: {} })).status === 409, 'v2 relay: a second /api/request is rejected 409 while one is pending (single slot)');
+  const gev = { ...genesis, name: 'Alex', pub: phoneKp.pubB64, by: 'Alex' };
+  const gproof = C.sign(canonical(gev), phoneKp.privDer);
+  const badPair = await dpost('/api/submit', { name: 'Alex', pubB64: phoneKp.pubB64, proof: C.sign('wrong-bytes', phoneKp.privDer) });
+  ok(badPair.status === 400, 'v2 relay: a genesis proof over the wrong bytes is rejected (400)');
+  const okPair = await dpost('/api/submit', { name: 'Alex', pubB64: phoneKp.pubB64, proof: gproof }).then((r) => r.json());
+  ok(/^\d{6}$/.test(okPair.code), 'v2 relay: a valid genesis self-signature is accepted, returns a 6-digit confirm code');
+  const pres = await dget('/api/result');
+  ok(pres.result && pres.result.genesisEvent && pres.result.genesisEvent.signature === gproof, 'v2 relay: CLI /api/result returns the signed genesis event');
+  ok((await dpost('/api/final', { final: { ok: true, message: 'root established' } })).status === 200, 'v2 relay: CLI /api/final publishes the outcome and clears the slot');
+  ok((await dget('/api/status')).final.ok === true, 'v2 relay: phone learns the outcome via /api/status');
+  ok((await dget('/api/session')).mode === 'idle' && (await dget('/api/ping')).busy === false, 'v2 relay: the slot is free again after /api/final (next approval can arrive)');
+
+  // sign (approve): CLI posts an approval, phone signs canonical(approval).
+  const approval = { specHash: 'abc', by: 'Alex', at: '2026-01-01', cell: 'C-1' };
+  await dpost('/api/request', { mode: 'approve', approval, summary: 'add two numbers', expectPubB64: [phoneKp.pubB64] });
+  ok((await dget('/api/session')).approval.specHash === 'abc', 'v2 relay: phone sees the approval to sign via /api/session');
+  const sig = C.sign(canonical(approval), phoneKp.privDer);
+  ok((await dpost('/api/submit', { signature: C.sign('nope', phoneKp.privDer) })).status === 400, 'v2 relay: a signature over the wrong approval bytes is rejected (400)');
+  await dpost('/api/submit', { signature: sig });
+  const sres = await dget('/api/result');
+  ok(sres.result && sres.result.signature === sig && C.verify(canonical(approval), sres.result.signature, phoneKp.pubB64), 'v2 relay: CLI /api/result returns a valid approval signature');
+  await dpost('/api/final', { final: { ok: true } });
+
+  // authorize: CLI posts a governance event, an owner phone signs canonical(event).
+  const gevent = { type: 'enroll', name: 'Sam', pub: 'somepub', nonce: 'g-9', by: 'Alex' };
+  await dpost('/api/request', { mode: 'authorize', event: gevent, summary: 'enroll Sam', ownerPubs: [phoneKp.pubB64] });
+  ok((await dget('/api/session')).event.name === 'Sam', 'v2 relay: phone sees the governance event to authorize via /api/session');
+  const asig = C.sign(canonical(gevent), phoneKp.privDer);
+  await dpost('/api/submit', { signature: asig });
+  const ares = await dget('/api/result');
+  ok(ares.result && C.verify(canonical(gevent), ares.result.signature, phoneKp.pubB64), 'v2 relay: CLI /api/result returns a valid governance-event signature');
+  await dpost('/api/final', { final: { ok: true } });
+  ok((await dget('/api/result')).gone === true, 'v2 relay: /api/result reports the slot is gone once cleared');
+  }
   ds.close();
 
   // spec-only adversary: an LLM sees ONLY the spec (never the code) and tries to break it.

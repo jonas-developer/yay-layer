@@ -87,7 +87,7 @@ textarea.inp{min-height:96px;resize:vertical;font-family:var(--mono);font-size:.
 var MODE=${M}, PROJECT=${P};
 var app=document.getElementById('app'), statusEl=document.getElementById('status');
 document.getElementById('proj').textContent=PROJECT;
-document.getElementById('ttl').textContent=(MODE==='pair'?'Pair this phone':MODE==='authorize'?'Authorize change':'Approve changes');
+document.getElementById('ttl').textContent=(MODE==='pair'?'Pair this phone':MODE==='authorize'?'Authorize change':MODE==='dashboard'?'YayLayer Signer':'Approve changes');
 function setStatus(t,cls){statusEl.textContent=t;statusEl.className=cls||'';}
 function h(html){app.innerHTML=html;}
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
@@ -142,13 +142,26 @@ async function api(path,body){var r=await fetch(path,{method:body?'POST':'GET',h
 
 async function main(){
   if(!hasCrypto()){ h('<div class="msg">This browser is too old to sign here — it lacks <b>crypto.getRandomValues</b>. Try a current mobile browser.</div>'); return; }
+  if(MODE==='dashboard') return dashLoop();   // persistent: scan once, requests appear
   try{
     var sess=await api('/api/session');
-    if(sess.mode==='pair') return pairFlow(sess);
-    if(sess.mode==='approve') return approveFlow(sess);
-    if(sess.mode==='authorize') return authorizeFlow(sess);
+    if(sess.mode==='pair'||sess.mode==='approve'||sess.mode==='authorize') return dispatch(sess);
     h('<div class="msg">Nothing to do right now.</div>');
   }catch(e){ setStatus('Could not reach the laptop — still waiting? '+e,'err'); }
+}
+// Dashboard mode: idle here until the laptop sends a request, handle it, then wait
+// for the next — the human only ever scans the QR once, at the start of the session.
+function idleScreen(msg){ h('<div class="msg" style="color:var(--mut)">'+esc(msg||'Waiting for a request from the laptop…')+'</div><div class="msg" style="color:var(--mut);font-size:.85rem">Keep this page open. Approvals will appear here automatically.</div>'); setStatus('● connected','ok'); }
+async function waitCleared(){ for(var i=0;i<4000;i++){ await sleep(1500); try{ var s=await api('/api/session'); if(!s||!s.mode||s.mode==='idle') return; }catch(e){ return; } } }
+async function dashLoop(){
+  idleScreen();
+  for(;;){
+    try{
+      var sess=await api('/api/session');
+      if(sess && sess.mode && sess.mode!=='idle'){ dispatch(sess); await waitCleared(); idleScreen(); }
+    }catch(e){ setStatus('reconnecting…','err'); }
+    await sleep(1500);
+  }
 }
 function pairFlow(sess){
   var key=loadKey();
