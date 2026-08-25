@@ -439,13 +439,18 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
   const A = require('../src/adversary');
   const advDir = fs.mkdtempSync(require('path').join(os.tmpdir(), 'yay-adv-'));
   const specBlock = '//∷YAY⟨C-1⟩\n//  unit: add\n//  in: (a:number,b:number)\n//  out: number\n//  pure: yes\n//  ensures: out === a + b\n//∷YAY-END⟨C-1⟩\n';
-  const fakeChat = async () => 'function probe(fn){for(let a=-2;a<3;a++)for(let b=-2;b<3;b++){if(fn(a,b)!==a+b)throw new Error("add("+a+","+b+") != a+b");}}';
+  // the LLM proposes INPUTS only (spec-only); our deterministic checker judges them.
+  const fakeChat = async () => '[[1,1],[2,3],[-2,-2],[10,-4]]';
   fs.writeFileSync(require('path').join(advDir, 'm.js'), specBlock + 'function add(a,b){return a-b;}\n'); // BUG
   let am = await A.adversaryManifest(buildManifest(advDir), { provider: 'x' }, { chat: fakeChat });
-  ok(am['C-1'].status === 'broke' && /add\(/.test(am['C-1'].counterexample), 'adversary: a spec-only probe BREAKS buggy code (counterexample reported)');
+  ok(am['C-1'].status === 'broke' && /ensures failed/.test(am['C-1'].counterexample), 'adversary: proposed inputs + deterministic judge BREAK buggy code (machine-confirmed counterexample)');
   fs.writeFileSync(require('path').join(advDir, 'm.js'), specBlock + 'function add(a,b){return a+b;}\n'); // fixed
   am = await A.adversaryManifest(buildManifest(advDir), { provider: 'x' }, { chat: fakeChat });
-  ok(am['C-1'].status === 'survived', 'adversary: the same probe SURVIVES once the code matches the spec');
+  ok(am['C-1'].status === 'survived', 'adversary: the same inputs SURVIVE once the code matches the spec (no false positive)');
+  // false-positive guard: a bad expectation can no longer break it — the machine judges, not the LLM.
+  fs.writeFileSync(require('path').join(advDir, 'e.js'), '//∷YAY⟨C-2⟩\n//  unit: idnum\n//  in: (a:number)\n//  out: number\n//  pure: yes\n//  ensures: out === a\n//∷YAY-END⟨C-2⟩\nfunction idnum(a){return a;}\n');
+  const am2 = await A.adversaryManifest(buildManifest(advDir), { provider: 'x' }, { chat: async () => '[[0],[-5],[999]]' });
+  ok(am2['C-2'].status === 'survived', 'adversary: correct code survives even hostile inputs (no LLM-judgment false positives)');
   fs.rmSync(advDir, { recursive: true, force: true });
 
   // recovery: BIP39 mnemonic → ed25519 key (the phone's key-backup layer), roster-compatible.

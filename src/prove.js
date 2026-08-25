@@ -81,7 +81,8 @@ function hash(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s
 
 // ── inputs ────────────────────────────────────────────────────────────────
 function parseIn(spec) {
-  const raw = (spec && spec.in ? String(spec.in) : '').trim();
+  let raw = (spec && spec.in ? String(spec.in) : '').trim();
+  raw = raw.replace(/^\(([\s\S]*)\)$/, '$1').trim(); // tolerate `(a:number, b:number)` wrapping
   if (!raw || /^todo$/i.test(raw)) return [];
   return raw.split(',').map((part) => {
     const m = part.split(':');
@@ -215,4 +216,4 @@ function proveManifest(manifest, opts) {
   return out;
 }
 
-module.exports = { proveManifest, runSource };
+module.exports = { proveManifest, runSource, parseIn, buildChecker, show };
