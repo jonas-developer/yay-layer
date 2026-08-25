@@ -119,7 +119,11 @@ function detailInner(cell, res, t) {
       return `<span class="${cls}">${esc((d.t === '+' ? '+ ' : d.t === '-' ? '- ' : '  ') + d.text)}</span>`;
     }).join('\n')}</pre>`
     : '';
-  return `<div class="mhead"><span class="mid">${esc(cell.id)}</span><span class="mname">${esc(cell.unitName || cell.spec.unit || cell.id)}</span><span class="mpill" style="color:${col}">${label}</span></div>
+  // green ≠ proven: show whether the promise is machine-proven or only signed.
+  const provBadge = (res.state === 'GREEN' && res.hasEnsures)
+    ? `<span class="mpill" style="color:${res.proven ? 'var(--accent)' : 'var(--amber)'};margin-left:6px" title="${res.proven ? 'ensures machine-proven' : 'signed, but its ensures is not machine-checked — strengthen it'}">${res.proven ? '✓ proven' : '● unproven'}</span>`
+    : '';
+  return `<div class="mhead"><span class="mid">${esc(cell.id)}</span><span class="mname">${esc(cell.unitName || cell.spec.unit || cell.id)}</span><span class="mpill" style="color:${col}">${label}</span>${provBadge}</div>
     <div class="dmeta">${meta.map((m) => `<span>${m}</span>`).join('')}</div>
     <div class="dh">Sealed spec</div><pre class="code">${colorizeSpec(cell.specBlock)}</pre>
     ${diffSection}
@@ -385,7 +389,7 @@ pre.code .sp-ensures{color:var(--purple);font-weight:600}
 <div class="nav-right"><nav class="tabs"><button class="tab active" data-tab="map">Map</button><button class="tab" data-tab="files">Files</button><button class="tab" data-tab="plan" id="tab-plan" style="display:none">System Plan</button><button class="tab" data-tab="signers">Signers</button><button class="tab" data-tab="commands">Commands</button></nav><button id="themebtn" class="themebtn" aria-label="Toggle theme">Dark</button></div>
 </div></header>
 <div class="wrap">
-<div class="pagehead"><h1>System map</h1><p class="sub">${totalUnits} units · ${verified.passed ? 'gate PASS' : 'gate BLOCKED'}</p></div>
+<div class="pagehead"><h1>System map</h1><p class="sub">${totalUnits} units · ${verified.passed ? 'gate PASS' : 'gate BLOCKED'}${verified.counts.GREEN ? ` · ${verified.counts.proven || 0} proven / ${verified.counts.unproven || 0} unproven` : ''}</p></div>
 <div class="legend">${legend}</div>
 <div id="needs" class="needs"></div>
 <p class="hint">A drill-down tree. The box on the <b>left is where you are</b>; its contents branch to the right. Click a <b>container ›</b> to zoom into it, click the left box or <b>↑ Up a level</b> to zoom out, and click a <b>unit</b> to open its spec, code &amp; checks.</p>

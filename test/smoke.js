@@ -164,6 +164,21 @@ fs.writeFileSync(require('path').join(igDir, '.yaylayerignore'), 'a.js\n');
 ok(!buildManifest(igDir).cells['C-1'], 'manifest: .yaylayerignore excludes listed files');
 fs.rmSync(igDir, { recursive: true, force: true });
 
+// 10h) legibility: a signed + machine-checkable ensures counts as PROVEN, prose as unproven
+const lgDir = fs.mkdtempSync(require('path').join(os.tmpdir(), 'yay-lg-'));
+fs.writeFileSync(require('path').join(lgDir, 'm.js'),
+  '//∷YAY⟨C-P⟩\n//  unit: inc\n//  intent: add one\n//  in: a:number\n//  out: number\n//  pure: yes\n//  ensures: out === a + 1\n//∷YAY-END⟨C-P⟩\nfunction inc(a){return a+1;}\n\n' +
+  '//∷YAY⟨C-Q⟩\n//  unit: greet\n//  intent: greet by name\n//  in: name:string\n//  out: string\n//  pure: yes\n//  ensures: the greeting is friendly\n//∷YAY-END⟨C-Q⟩\nfunction greet(name){return "hi "+name;}\n');
+const lgm = buildManifest(lgDir);
+const kpl = C.generateKeypair();
+const apl = { id: 'A-1', project: 'x', prev: 'genesis', nonce: 'n', at: '2026-01-01T00:00:00.000Z', signer: 'me', items: { 'C-P': lgm.cells['C-P'].specHash, 'C-Q': lgm.cells['C-Q'].specHash } };
+apl.signature = C.sign(canonical(apl), kpl.privDer);
+const lgv = verifyManifest(lgm, { approvals: [apl] }, { signers: { me: [{ pub: kpl.pubB64 }] }, owners: ['me'] }, { mutate: false });
+ok(lgv.results['C-P'].state === 'GREEN' && lgv.results['C-P'].proven === true, 'verify: a signed + machine-checkable ensures is PROVEN');
+ok(lgv.results['C-Q'].state === 'GREEN' && lgv.results['C-Q'].proven === false && lgv.results['C-Q'].hasEnsures, 'verify: a signed prose ensures is GREEN but NOT proven (signed-only)');
+ok(lgv.counts.proven >= 1 && lgv.counts.unproven >= 1, 'verify: counts split green into machine-proven vs signed-only');
+fs.rmSync(lgDir, { recursive: true, force: true });
+
 // 10e) unit-name mismatch (A) + dangling-reference (B) checks
 const abDir = fs.mkdtempSync(require('path').join(os.tmpdir(), 'yay-ab-'));
 fs.writeFileSync(require('path').join(abDir, 'a.js'),

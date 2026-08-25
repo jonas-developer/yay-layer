@@ -818,6 +818,9 @@ function printReport(manifest, verified, details, problemsOnly) {
   const c = verified.counts;
   console.log('\n  ' + U.c.green(`${c.GREEN} green`) + '  ' + U.c.yellow(`${c.YELLOW} yellow`) + '  ' +
     U.c.red(`${c.RED} red`) + '  ' + U.c.gray(`${c.UNSIGNED} unsigned`) + '  ' + U.c.pink(`${c.PINK} pink`));
+  // Legibility: green ≠ proven. Show how many green Cells are machine-proven vs only signed.
+  if (c.GREEN) console.log('  ' + U.c.dim('of green: ') + U.c.green(`${c.proven || 0} machine-proven`) + U.c.dim(' · ') +
+    (c.unproven ? U.c.yellow(`${c.unproven} signed but unproven`) + U.c.dim(' — strengthen these `ensures` (they carry a promise nothing checks)') : U.c.dim('0 unproven')));
   if (c.PINK) console.log('  ' + U.c.pink(`◆ ${c.PINK} unspecified code section(s) — never described or signed. Run `) + U.c.bold('yay adopt') + U.c.pink('.'));
 }
 

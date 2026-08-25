@@ -143,6 +143,8 @@ function verifyManifest(manifest, lock, config, opts) {
     results[id] = {
       id, state, trust, notes: sc.notes, badLines: sc.badLines || [], file: cell.file, line: cell.line,
       blast: cell.blast || 0, dependents: cell.directCallers || 0, isEntry: !!cell.isEntry, bloat: !!cell.bloat,
+      // legibility: is the promise actually machine-proven, or just signed?
+      hasEnsures: !!(cell.spec && cell.spec.ensures), proven: false,
     };
   }
 
@@ -159,6 +161,7 @@ function verifyManifest(manifest, lock, config, opts) {
       const body = manifest.cells[id] && manifest.cells[id].unitBody;
       if (body) results[id].badLines = body.split('\n').map((l) => l.trim()).filter((l) => /\breturn\b/.test(l));
     } else if (pr.status === 'pass') {
+      results[id].proven = true;
       const mu = pr.mutation;
       let text = `ensures proven over ${pr.cases} generated case(s)`;
       if (mu && mu.total) {
@@ -217,6 +220,11 @@ function verifyManifest(manifest, lock, config, opts) {
 
   const counts = { GREEN: 0, YELLOW: 0, RED: 0, UNSIGNED: 0, PINK: 0 };
   for (const r of Object.values(results)) counts[r.state]++;
+  // Legibility: of the GREEN Cells, how many are machine-PROVEN vs signed-but-unproven
+  // (a promise stated but never machine-checked — the specs to strengthen next).
+  let proven = 0, unproven = 0;
+  for (const r of Object.values(results)) if (r.state === 'GREEN') { if (r.proven) proven++; else if (r.hasEnsures) unproven++; }
+  counts.proven = proven; counts.unproven = unproven;
   // A tampered / unauthorized / root-mismatched roster blocks the gate: if we can't
   // trust WHO may sign, we can't trust any signature.
   const passed = counts.RED === 0 && counts.UNSIGNED === 0 && counts.PINK === 0 && rosterOk;
