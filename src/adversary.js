@@ -11,7 +11,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { runSource, parseIn, buildChecker, show, ensuresHint } = require('./prove');
+const { runSource, parseIn, buildChecker, buildEffectChecker, show, ensuresHint } = require('./prove');
 const plan = require('./plan');
 
 const SYSTEM = [
@@ -31,6 +31,7 @@ function specText(cell) {
   if (s.in) L.push('in: ' + s.in);
   if (s.out) L.push('out: ' + s.out);
   if (s.pure) L.push('pure: ' + s.pure);
+  if (s.records) L.push('records: ' + s.records + '   (this param is instrumented by the harness — pass {} for it; ensures is checked against its recorded calls/sets)');
   if (s.ensures) L.push('ensures: ' + s.ensures);
   if (s.throws) L.push('throws: ' + s.throws);
   return L.join('\n');
@@ -49,14 +50,15 @@ function eligible(cell) {
   const s = cell.spec || {};
   const isLeaf = !(cell.contains && cell.contains.length);
   const pure = /^yes\b/i.test(s.pure || '');
-  return isLeaf && cell.unitFound && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(cell.unitName || '') && pure && !!s.ensures;
+  const records = !!(s.records && String(s.records).trim());
+  return isLeaf && cell.unitFound && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(cell.unitName || '') && !!s.ensures && (pure || records);
 }
 function skipReason(cell) {
   const s = cell.spec || {};
   if (cell.contains && cell.contains.length) return 'container Cell (composition, not code)';
   if (!cell.unitFound) return 'no code unit found below the spec';
-  if (!/^yes\b/i.test(s.pure || '')) return 'not pure (has effects) — needs a code-aware / effect-trace test, not a spec-only probe';
   if (!s.ensures) return 'no machine-checkable `ensures` to judge against';
+  if (!/^yes\b/i.test(s.pure || '') && !(s.records && String(s.records).trim())) return 'has effects — declare the effect surface with `records: <param>` and assert on its trace, so effects become probeable';
   return 'not adversary-testable';
 }
 
@@ -67,19 +69,23 @@ function judge(source, cell, tuples) {
   const base = runSource(source, [cell.unitName]);
   if (base.error || typeof base.fns[cell.unitName] !== 'function') return { status: 'skip', reason: 'unit not callable in isolation' };
   const params = parseIn(cell.spec).map((p) => p.name);
-  let checker; try { checker = buildChecker(base.ctx, params, cell.spec.ensures); }
+  const records = cell.spec.records && String(cell.spec.records).trim();
+  let checker;
+  try { checker = records ? buildEffectChecker(base.ctx, params, records, cell.spec.ensures) : buildChecker(base.ctx, params, cell.spec.ensures); }
   catch (e) { return { status: 'skip', reason: 'ensures not machine-checkable — ' + ensuresHint(cell.spec.ensures) + ' (strengthen the spec, then re-sign)' }; }
   if (!Array.isArray(tuples) || !tuples.length) return { status: 'survived', note: 'no candidate inputs proposed' };
   const throwsDeclared = !!(cell.spec && cell.spec.throws);
+  const fmt = (A) => '(' + params.map((n, i) => (n === records ? n + '=<recorded>' : n + '=' + show(A[i]))).join(', ') + ')';
   for (const A of tuples) {
     if (!Array.isArray(A)) continue;
+    const snap = fmt(A); // format BEFORE the checker instruments/mutates the records slot
     let r;
     try { r = checker(base.fns[cell.unitName], A); }
     catch (e) {
       if (throwsDeclared) continue; // may be an expected throw — don't judge without an oracle
-      return { status: 'broke', counterexample: 'threw on ' + fmtArgs(params, A) + ' — ' + String((e && e.message) || e).slice(0, 160) };
+      return { status: 'broke', counterexample: 'threw on ' + snap + ' — ' + String((e && e.message) || e).slice(0, 160) };
     }
-    if (r && r.ok === false) return { status: 'broke', counterexample: 'ensures failed for ' + fmtArgs(params, A) + ' → out=' + show(r.out) };
+    if (r && r.ok === false) return { status: 'broke', counterexample: 'ensures failed for ' + snap + (records ? '' : ' → out=' + show(r.out)) };
   }
   return { status: 'survived' };
 }

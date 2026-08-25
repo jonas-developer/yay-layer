@@ -17,6 +17,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('node:vm');
 const { mutants } = require('./mutate');
+const { makeRecorder } = require('./record');
 
 function stripTS(code) {
   let m; try { m = require('node:module'); } catch (_) { return code; }
@@ -54,6 +55,7 @@ function makeSandbox(names, registry) {
     NaN, Infinity, undefined,
     console: { log() {}, warn() {}, error() {}, info() {}, debug() {} },
     __ylreg: (obj) => { Object.assign(registry, obj); },
+    __mkrec: makeRecorder, // effect recorder factory (for `records:` Cells)
   };
   const sandbox = new Proxy(real, {
     has: () => true, // tell the VM every identifier is "global" → no ReferenceError
@@ -158,6 +160,22 @@ function buildChecker(ctx, params, ensuresExpr) {
   const src = `(function(fn,A){ ${decl} var out=${call}; return {out:out, ok:!!(${expr})}; })`;
   return vm.runInContext(src, ctx, { timeout: 2000 });
 }
+// Effect-aware checker: instrument the `records:` param with a recorder, run the
+// (side-effecting) function, and evaluate `ensures` against the recorded trace.
+// The ensures may use: `trace` (raw), `calls(name)` → arg-arrays, `sets(name)` →
+// assigned values, `didCall(name)`, `didSet(name, value)` — plus `out` and the args.
+function buildEffectChecker(ctx, params, recordsName, ensuresExpr) {
+  const idx = params.indexOf(recordsName);
+  if (idx < 0) throw new Error('records: names "' + recordsName + '", which is not a parameter in in:');
+  const expr = normalizeEnsures(ensuresExpr);
+  const decl = params.map((p, i) => `var ${p}=A[${i}];`).join(' ');
+  const call = `fn(${params.map((_, i) => `A[${i}]`).join(',')})`;
+  const helpers = 'function calls(n){return trace.filter(function(e){return e.type==="call"&&e.name===n;}).map(function(e){return e.args;});}'
+    + 'function sets(n){return trace.filter(function(e){return e.type==="set"&&e.name===n;}).map(function(e){return e.value;});}'
+    + 'function didCall(n){return calls(n).length>0;}function didSet(n,v){return sets(n).indexOf(v)>=0;}';
+  const src = `(function(fn,A){ var __r=__mkrec(); A[${idx}]=__r.proxy; ${decl} var trace=__r.trace; ${helpers} var out=${call}; return {out:out, trace:trace, ok:!!(${expr})}; })`;
+  return vm.runInContext(src, ctx, { timeout: 2000 });
+}
 function show(v) { try { return typeof v === 'string' ? JSON.stringify(v) : JSON.stringify(v) ?? String(v); } catch (_) { return String(v); } }
 
 function proveCell(cell, ctx, fn) {
@@ -250,4 +268,4 @@ function proveManifest(manifest, opts) {
   return out;
 }
 
-module.exports = { proveManifest, runSource, parseIn, buildChecker, show, ensuresHint, normalizeEnsures };
+module.exports = { proveManifest, runSource, parseIn, buildChecker, buildEffectChecker, show, ensuresHint, normalizeEnsures };

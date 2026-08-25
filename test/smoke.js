@@ -483,6 +483,17 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
   fs.writeFileSync(require('path').join(advDir, 'e.js'), '//∷YAY⟨C-2⟩\n//  unit: idnum\n//  in: (a:number)\n//  out: number\n//  pure: yes\n//  ensures: out === a\n//∷YAY-END⟨C-2⟩\nfunction idnum(a){return a;}\n');
   const am2 = await A.adversaryManifest(buildManifest(advDir), { provider: 'x' }, { chat: async () => '[[0],[-5],[999]]' });
   ok(am2['C-2'].status === 'survived', 'adversary: correct code survives even hostile inputs (no LLM-judgment false positives)');
+  // effect-recording: instrument a side-effecting fn and assert on its recorded trace
+  const rec = require('../src/record').makeRecorder();
+  rec.proxy.fillStyle = '#00f'; rec.proxy.fillRect(0, 0, 9, 9);
+  ok(rec.trace.some((e) => e.type === 'set' && e.name === 'fillStyle' && e.value === '#00f') && rec.trace.some((e) => e.type === 'call' && e.name === 'fillRect'), 'record: recorder logs property sets and method calls');
+  const erSpec = '//∷YAY⟨C-R⟩\n//  unit: paint\n//  intent: blue then red\n//  in: ctx, h:number\n//  pure: no\n//  records: ctx\n//  ensures: sets("fillStyle")[0] === "#00f" && sets("fillStyle").includes("#f00")\n//∷YAY-END⟨C-R⟩\n';
+  const erChat = async () => '[[{},300]]';
+  fs.writeFileSync(require('path').join(advDir, 'r.js'), erSpec + 'function paint(ctx,h){ctx.fillStyle="#00f";ctx.fillRect(0,0,9,h/3);ctx.fillStyle="#f00";ctx.fillRect(0,h/3,9,h);}\n');
+  ok((await A.adversaryManifest(buildManifest(advDir), { provider: 'x' }, { chat: erChat }))['C-R'].status === 'survived', 'adversary(effects): correct effect order survives (recorded trace)');
+  fs.writeFileSync(require('path').join(advDir, 'r.js'), erSpec + 'function paint(ctx,h){ctx.fillStyle="#f00";ctx.fillRect(0,0,9,h/3);ctx.fillStyle="#00f";ctx.fillRect(0,h/3,9,h);}\n');
+  const erBad = (await A.adversaryManifest(buildManifest(advDir), { provider: 'x' }, { chat: erChat }))['C-R'];
+  ok(erBad.status === 'broke' && /ensures failed/.test(erBad.counterexample), 'adversary(effects): inverted effect order BROKE via the recorded trace (the render-bug class)');
   fs.rmSync(advDir, { recursive: true, force: true });
 
   // recovery: BIP39 mnemonic → ed25519 key (the phone's key-backup layer), roster-compatible.
