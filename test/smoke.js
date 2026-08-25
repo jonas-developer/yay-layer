@@ -415,6 +415,7 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     runTests: () => Promise.resolve({ configured: true, ok: true, code: 0, output: 'ran', cmd: 'echo hi' }),
     regenPlan: () => Promise.resolve({ ok: true, provider: 'openai', model: 'gpt-4o', subsystems: 2 }),
     diffs: () => [{ id: 'C-1', unit: 'add', file: 'a.js', diff: [{ t: ' ', text: 'intent: x' }, { t: '-', text: 'ensures: a' }, { t: '+', text: 'ensures: b' }] }],
+    adversary: () => Promise.resolve({ results: [{ id: 'C-1', unit: 'add', status: 'broke', counterexample: 'add(1,1) wrong' }] }),
   }, { port: 0 });
   const dbase = 'http://127.0.0.1:' + ds.port;
   ok((await fetch(dbase + '/api/ping').then((r) => r.json())).yay === 'dashboard', 'dashboard: /api/ping identifies a running dashboard');
@@ -429,8 +430,23 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
   ok(pres2.ok === true && pres2.subsystems === 2, 'dashboard: /api/plan/regen regenerates the System Plan on demand');
   const dfs = await fetch(dbase + '/api/diffs').then((r) => r.json());
   ok(dfs.diffs && dfs.diffs[0].id === 'C-1' && dfs.diffs[0].diff.some((d) => d.t === '+'), 'dashboard: /api/diffs returns per-Cell spec changes vs last commit');
-  ok(dpage.includes('yd-diffs'), 'dashboard: has a Changes button');
+  ok(dpage.includes('yd-diffs') && dpage.includes('yd-adv'), 'dashboard: has Changes + Adversary buttons');
+  const advr = await fetch(dbase + '/api/adversary/run', { method: 'POST' }).then((r) => r.json());
+  ok(advr.results && advr.results[0].status === 'broke', 'dashboard: /api/adversary/run returns per-Cell adversary results');
   ds.close();
+
+  // spec-only adversary: an LLM sees ONLY the spec (never the code) and tries to break it.
+  const A = require('../src/adversary');
+  const advDir = fs.mkdtempSync(require('path').join(os.tmpdir(), 'yay-adv-'));
+  const specBlock = '//∷YAY⟨C-1⟩\n//  unit: add\n//  in: (a:number,b:number)\n//  out: number\n//  pure: yes\n//  ensures: out === a + b\n//∷YAY-END⟨C-1⟩\n';
+  const fakeChat = async () => 'function probe(fn){for(let a=-2;a<3;a++)for(let b=-2;b<3;b++){if(fn(a,b)!==a+b)throw new Error("add("+a+","+b+") != a+b");}}';
+  fs.writeFileSync(require('path').join(advDir, 'm.js'), specBlock + 'function add(a,b){return a-b;}\n'); // BUG
+  let am = await A.adversaryManifest(buildManifest(advDir), { provider: 'x' }, { chat: fakeChat });
+  ok(am['C-1'].status === 'broke' && /add\(/.test(am['C-1'].counterexample), 'adversary: a spec-only probe BREAKS buggy code (counterexample reported)');
+  fs.writeFileSync(require('path').join(advDir, 'm.js'), specBlock + 'function add(a,b){return a+b;}\n'); // fixed
+  am = await A.adversaryManifest(buildManifest(advDir), { provider: 'x' }, { chat: fakeChat });
+  ok(am['C-1'].status === 'survived', 'adversary: the same probe SURVIVES once the code matches the spec');
+  fs.rmSync(advDir, { recursive: true, force: true });
 
   // recovery: BIP39 mnemonic → ed25519 key (the phone's key-backup layer), roster-compatible.
   const R = require('../src/vendor/recovery');

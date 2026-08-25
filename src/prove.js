@@ -49,6 +49,7 @@ function blackHole() {
 function makeSandbox(names, registry) {
   const real = {
     Math, JSON, String, Number, Boolean, Array, Object, RegExp, Date, Symbol,
+    Error, TypeError, RangeError, // so probes/units can throw with a readable message
     isNaN, isFinite, parseInt, parseFloat, encodeURIComponent, decodeURIComponent,
     NaN, Infinity, undefined,
     console: { log() {}, warn() {}, error() {}, info() {}, debug() {} },
@@ -214,4 +215,4 @@ function proveManifest(manifest, opts) {
   return out;
 }
 
-module.exports = { proveManifest };
+module.exports = { proveManifest, runSource };

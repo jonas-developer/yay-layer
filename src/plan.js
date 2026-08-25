@@ -105,4 +105,37 @@ async function synthesize(digest, opts) {
   return plan;
 }
 
-module.exports = { buildDigest, synthesize, SYSTEM_PROMPT };
+// Generic one-shot chat (reused by the spec-only adversary). Same provider routing
+// as the plan; returns the raw text.
+async function chatAnthropic(system, user, { model, apiKey, maxTokens }) {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST', headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({ model, max_tokens: maxTokens || 1500, system, messages: [{ role: 'user', content: user }] }),
+  });
+  if (!res.ok) throw new Error('Anthropic API ' + res.status + ': ' + (await res.text().catch(() => '')).slice(0, 240));
+  const data = await res.json();
+  return (data && data.content && data.content[0] && data.content[0].text) || '';
+}
+async function chatOpenAICompat(system, user, { model, apiKey, baseUrl, maxTokens }, tokenField) {
+  const url = (baseUrl || 'https://api.openai.com/v1').replace(/\/$/, '') + '/chat/completions';
+  const body = { model, messages: [{ role: 'system', content: system }, { role: 'user', content: user }] };
+  body[tokenField || 'max_tokens'] = maxTokens || 1500;
+  const headers = { 'content-type': 'application/json' };
+  if (apiKey) headers.authorization = 'Bearer ' + apiKey;
+  const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+  if (!res.ok) {
+    const errText = (await res.text().catch(() => '')).slice(0, 300);
+    if (res.status === 400 && /max_completion_tokens/.test(errText) && (tokenField || 'max_tokens') === 'max_tokens') return chatOpenAICompat(system, user, { model, apiKey, baseUrl, maxTokens }, 'max_completion_tokens');
+    throw new Error('OpenAI-compatible API ' + res.status + ': ' + errText);
+  }
+  const data = await res.json();
+  return (data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+}
+async function chat(system, user, opts) {
+  if (typeof fetch !== 'function') throw new Error('global fetch unavailable — needs Node 18+');
+  const provider = opts.provider || 'anthropic';
+  const model = opts.model || (provider === 'anthropic' ? 'claude-sonnet-5' : 'gpt-4o');
+  return provider === 'anthropic' ? chatAnthropic(system, user, { ...opts, model }) : chatOpenAICompat(system, user, { ...opts, model });
+}
+
+module.exports = { buildDigest, synthesize, SYSTEM_PROMPT, chat };

@@ -22,6 +22,7 @@ const { HARNESSES, writeConstitution, resolveKeys } = require('../src/constituti
 const { specDiffForCell } = require('../src/specdiff');
 const dashboardMod = require('../src/dashboard');
 const { resolveTestCmd, runTests } = require('../src/testrun');
+const { adversaryManifest, eligible: advEligible } = require('../src/adversary');
 const gate = require('../src/gate');
 const phone = require('../src/phone');
 const rosterMod = require('../src/roster');
@@ -972,6 +973,31 @@ function stateVersion(p) {
   return C.sha256(parts.join('|')).slice(0, 16);
 }
 
+// `yay adversary` — spec-only adversarial testing: an LLM sees ONLY each Cell's spec
+// (never the code) and writes probes that try to break it, run against the real code.
+async function cmdAdversary(flags) {
+  const { p, config } = loadState();
+  if (!config) return fail('run `yay init` first');
+  const auth = resolvePlanAuth(config, flags);
+  if (auth.error) return fail(auth.error + ' — the adversary needs an LLM (each user brings their own key).');
+  const manifest = buildManifest(flags.dir || p.root);
+  const only = (flags.cell && flags.cell !== true) ? String(flags.cell).split(',').map((s) => s.trim()) : null;
+  const ids = Object.keys(manifest.cells).filter((id) => advEligible(manifest.cells[id]) && (!only || only.includes(id)));
+  if (!ids.length) return fail('no eligible Cells — need a leaf Cell with a runnable unit and an ensures/out/throws promise.');
+  console.log(U.c.dim(`spec-only adversary (${auth.provider}/${auth.model}) — writing probes from the specs ALONE, then running them against ${ids.length} Cell(s)…`));
+  const res = await adversaryManifest(manifest, auth, { cells: only });
+  let broke = 0, survived = 0, skipped = 0;
+  for (const id of Object.keys(res).sort()) {
+    const r = res[id], name = (manifest.cells[id].unitName || '');
+    if (r.status === 'broke') { broke++; console.log('  ' + U.c.red('✗ ' + id) + U.c.dim(' ' + name) + ' — ' + U.c.red('BROKE: ') + r.counterexample); }
+    else if (r.status === 'survived') { survived++; console.log('  ' + U.c.green('✓ ' + id) + U.c.dim(' ' + name + ' — survived adversarial probing')); }
+    else { skipped++; console.log('  ' + U.c.yellow('– ' + id) + U.c.dim(' ' + name + ' — ' + (r.reason || r.status))); }
+  }
+  console.log('\n  ' + (broke ? U.c.red(broke + ' broke') : U.c.green('0 broke')) + U.c.dim(` · ${survived} survived · ${skipped} skipped`));
+  console.log('  ' + U.c.dim('probes were written from the spec only — a break is a real spec↔code violation, not a code echo.'));
+  if (broke) process.exitCode = 1;
+}
+
 // `yay test` — run the project's own test suite (package.json "test" / config.test /
 // --test). Exit non-zero on failure so CI and the gate can use it.
 async function cmdTest(flags) {
@@ -1011,6 +1037,14 @@ async function cmdDashboard(flags) {
           if (d && d.length) out.push({ id, unit: c.unitName || '', file: c.file, diff: d });
         }
         return out;
+      },
+      adversary: async () => {
+        const st = loadState();
+        const auth = resolvePlanAuth(st.config, flags);
+        if (auth.error) return { error: auth.error };
+        const m = buildManifest(flags.dir || st.p.root);
+        const res = await adversaryManifest(m, auth);
+        return { results: Object.keys(res).map((id) => ({ id, unit: (m.cells[id].unitName || ''), ...res[id] })) };
       },
     }, { port, tls });
   } catch (e) {
@@ -1087,6 +1121,7 @@ const HELP = `yay — a protocol for provable, signed AI code
                              if plan generation is enabled it regenerates the System Plan; --no-plan skips it, --replan forces it
   yay dashboard [--port N]    live control panel: map + auto-refresh + Run-tests & Regenerate-plan buttons (leave running; --open, --https)
   yay test [--test "cmd"]     run the project's own test suite (package.json "test" / config.test); non-zero exit on failure
+  yay adversary [--cell IDs]  spec-only adversary: an LLM sees ONLY the specs and writes probes to break the code (needs an LLM key)
   yay gate [dir]              write the CI gate workflow (+ --hook local pre-push) & print the
                              branch-protection steps · flags: --scope <dir> --pkg <spec> --hook --force
   yay status                  one-line summary
@@ -1109,6 +1144,7 @@ async function main() {
     case 'map': return cmdMap(flags);
     case 'dashboard': case 'serve': return cmdDashboard(flags);
     case 'test': case 'tests': return cmdTest(flags);
+    case 'adversary': case 'adversarial': return cmdAdversary(flags);
     case 'plan': return cmdPlan(flags);
     case 'adopt': return cmdAdopt(flags, positional);
     case 'constitution': case 'rules': return cmdConstitution(flags, positional);
