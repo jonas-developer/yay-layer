@@ -336,7 +336,7 @@ h1{font-family:var(--sans);font-size:1.5rem;font-weight:700;letter-spacing:-.02e
 .parrows{position:absolute;left:0;top:0;color:var(--mut)}
 .parrow{fill:none;stroke:var(--mut);stroke-width:2.5;opacity:.55}
 .pflow{position:absolute;transform:translate(-50%,-50%);max-width:168px;font-family:var(--mono);font-size:.66rem;line-height:1.35;text-align:center;color:var(--ink2);background:var(--card);border:1px solid var(--rule);border-radius:10px;padding:4px 9px;white-space:normal;word-break:break-word;z-index:3;box-shadow:var(--shadow)}
-.pcard{position:absolute;z-index:2;background:var(--card);border:1px solid var(--rule);border-top:4px solid var(--mut);border-radius:14px;padding:16px 18px;box-shadow:0 12px 30px -18px rgba(16,24,40,.25);display:flex;flex-direction:column}
+.pcard{position:absolute;z-index:2;background:var(--card);border:1px solid var(--rule);border-top:4px solid var(--mut);border-radius:14px;padding:16px 18px;box-shadow:0 12px 30px -18px rgba(16,24,40,.25);display:flex;flex-direction:column;overflow:hidden}
 .prole{font-family:var(--mono);font-size:.6rem;text-transform:uppercase;letter-spacing:.1em;font-weight:600}
 .pname{font-family:var(--sans);font-weight:700;font-size:1.05rem;margin:3px 0 7px;line-height:1.25}
 .ppurpose{font-size:.9rem;color:var(--ink2);line-height:1.5;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
@@ -519,15 +519,24 @@ pre.code .sp-ensures{color:var(--purple);font-weight:600}
     var rank=layerBy(subs.map(function(s){return s.name;}), flows.map(function(f){return [f.from,f.to];}));
     var cols={}; subs.forEach(function(s){ var r=rank[s.name]||0; (cols[r]=cols[r]||[]).push(s); });
     var colKeys=Object.keys(cols).map(Number).sort(function(a,b){return a-b;});
-    var CARDW=272, CARDH=184, COLGAP=210, ROWGAP=56, PADX=34, PADY=34, COLW=CARDW+COLGAP;
+    var CARDW=272, CARDH=212, COLGAP=210, ROWGAP=64, PADX=34, PADY=34, COLW=CARDW+COLGAP;
     var pos={}, maxRows=1;
     colKeys.forEach(function(r,ci){ cols[r].forEach(function(s,ri){ pos[s.name]={x:PADX+ci*COLW,y:PADY+ri*(CARDH+ROWGAP)}; }); maxRows=Math.max(maxRows,cols[r].length); });
     var W=PADX*2 + colKeys.length*CARDW + Math.max(0,colKeys.length-1)*COLGAP;
     var H=PADY*2 + maxRows*CARDH + Math.max(0,maxRows-1)*ROWGAP;
-    var arrows='', labels='';
+    var arrows='', labels='', placed=[];
+    // Is (lx,ly) on top of any subsystem card? (multi-column flows cross intermediate cards)
+    function cardAt(lx,ly){ for(var i=0;i<subs.length;i++){ var q=pos[subs[i].name]; if(!q) continue; if(lx>q.x-6&&lx<q.x+CARDW+6&&ly>q.y-6&&ly<q.y+CARDH+6) return q; } return null; }
+    // A spot is clear if it's off every card AND not on top of an already-placed label.
+    function clearSpot(lx,ly){ if(cardAt(lx,ly)) return false; for(var i=0;i<placed.length;i++){ if(Math.abs(placed[i].x-lx)<150 && Math.abs(placed[i].y-ly)<26) return false; } return true; }
     flows.forEach(function(f){ var a=pos[f.from], b=pos[f.to]; if(!a||!b||f.from===f.to) return; var x1=a.x+CARDW,y1=a.y+CARDH/2,x2=b.x,y2=b.y+CARDH/2,mx=(x1+x2)/2;
       arrows+='<path d="M'+x1+','+y1+' C'+mx+','+y1+' '+mx+','+y2+' '+x2+','+y2+'" class="parrow" marker-end="url(#pah)"/>';
-      if(f.what) labels+='<div class="pflow" style="left:'+mx+'px;top:'+((y1+y2)/2)+'px">'+esc2(f.what)+'</div>'; });
+      if(f.what){ var lx=mx, ly=(y1+y2)/2;
+        // nudge off cards and other labels: try the midpoint, then step vertically out
+        if(!clearSpot(lx,ly)){ for(var d=1;d<=10;d++){ var down=ly+d*26, up=ly-d*26;
+            if(down<H-10&&clearSpot(lx,down)){ ly=down; break; } if(up>10&&clearSpot(lx,up)){ ly=up; break; } } }
+        placed.push({x:lx,y:ly});
+        labels+='<div class="pflow" style="left:'+lx+'px;top:'+ly+'px">'+esc2(f.what)+'</div>'; } });
     var cards=subs.map(function(s){ var pp=pos[s.name], col=planColor(s.role);
       var cells=(s.modules||[]).reduce(function(sum,mn){ var n=NODES['m:'+mn]; return sum+(n?n.count:0); },0);
       var mods=(s.modules||[]).slice(0,6).map(function(mn){ return '<span class="pmod">'+esc2(mn)+'</span>'; }).join('');
