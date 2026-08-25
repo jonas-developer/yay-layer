@@ -263,6 +263,7 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
 // 14) phone signing over LAN — simulate the phone with Node crypto (same wire
 // formats: SPKI-DER pubkey, raw ed25519 sig over canonical(approval)).
 (async function () {
+  process.env.YAY_PHONE_PORT = '0'; // tests open many servers at once → random ports (prod uses the stable 8787)
   const { pairOverLan, signOverLan, confirmCode } = require('../src/phone');
   const kp = C.generateKeypair(); // { pubB64, privDer }
   const post = (base, body) => fetch(base + '/api/submit', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());

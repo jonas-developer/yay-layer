@@ -11,6 +11,10 @@
 
 const http = require('http');
 const os = require('os');
+// Stable default port so the phone page keeps one origin (→ its saved key persists).
+// YAY_PHONE_PORT overrides it; set it to 0 to force a random port (0 is honored).
+const PHONE_PORT = (process.env.YAY_PHONE_PORT !== undefined && process.env.YAY_PHONE_PORT !== '')
+  ? Number(process.env.YAY_PHONE_PORT) : 8787;
 const C = require('./crypto');
 const { canonical } = require('./util');
 const { signerHTML } = require('./signer-page');
@@ -82,15 +86,26 @@ function serve(mode, project, sessionData, onPost, opts) {
   const server = tls ? require('https').createServer({ key: tls.key, cert: tls.cert }, handler) : http.createServer(handler);
   const scheme = tls ? 'https' : 'http';
 
-  return new Promise((resolve) => {
-    server.listen(0, '0.0.0.0', () => {
-      const port = server.address().port;
-      resolve({
-        url: `${scheme}://${lanIP()}:${port}`, local: `${scheme}://localhost:${port}`, port, done, settled,
-        setFinal: (f) => { final = f; },
-        close: () => server.close(),
-      });
+  // Bind a STABLE port so the phone URL's origin (host:port) stays constant across
+  // pair → sign sessions — otherwise localStorage (where the phone key lives) is
+  // scoped to a different origin each run and the phone "forgets" its key. Prefer
+  // PHONE_PORT, step through a few, and only fall back to a random port as a last
+  // resort (in which case the phone may need to restore from its recovery phrase).
+  return new Promise((resolve, reject) => {
+    const mk = (port) => ({
+      url: `${scheme}://${lanIP()}:${port}`, local: `${scheme}://localhost:${port}`, port, done, settled,
+      setFinal: (f) => { final = f; },
+      close: () => server.close(),
     });
+    const bind = (port, triesLeft) => {
+      const onErr = (e) => {
+        if ((e.code === 'EADDRINUSE' || e.code === 'EACCES') && triesLeft > 0) bind(triesLeft === 1 ? 0 : port + 1, triesLeft - 1);
+        else reject(e);
+      };
+      server.once('error', onErr);
+      server.listen(port, '0.0.0.0', () => { server.removeListener('error', onErr); resolve(mk(server.address().port)); });
+    };
+    bind(PHONE_PORT, 6);
   });
 }
 

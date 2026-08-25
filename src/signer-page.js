@@ -136,20 +136,23 @@ function verifyBackup(sess,k,words){
   };
   document.getElementById('sk').onclick=function(){showBackup(sess,k);};
 }
-// Restore an existing identity by pasting its written-down phrase.
+// Re-enter the flow for the current mode after the key is available.
+function dispatch(sess){ if(sess.mode==='approve') return approveFlow(sess); if(sess.mode==='authorize') return authorizeFlow(sess); return pairFlow(sess); }
+// Restore an existing identity by pasting its written-down phrase. Works from ANY
+// mode (pair / approve / authorize) — after restoring it continues that flow.
 function restoreFlow(sess){
   h('<div class="msg"><b>Restore your key</b> — paste your 24-word recovery phrase.</div>'
     +'<label class="lbl">Your name (as shown on your signatures)</label><input id="nm" class="inp" placeholder="e.g. Alex Doe" autocapitalize="words">'
     +'<label class="lbl">Recovery phrase</label><textarea id="ph" class="inp" autocapitalize="none" autocomplete="off" placeholder="word1 word2 … word24"></textarea>'
-    +'<button id="go" class="btn">Restore &amp; pair</button><span id="bk" class="link">Back</span>');
+    +'<button id="go" class="btn">Restore key</button><span id="bk" class="link">Back</span>');
   document.getElementById('go').onclick=async function(){
     var name=(document.getElementById('nm').value||'').trim(); if(!name){setStatus('Enter your name','err');return;}
     var phrase=(document.getElementById('ph').value||'').trim(); if(!phrase){setStatus('Paste your phrase','err');return;}
     setStatus('Restoring your key…');
-    try{ var k=restoreIdentity(name,phrase); saveKey(k); setStatus(''); await doPair(sess,k); }
+    try{ var k=restoreIdentity(name,phrase); saveKey(k); setStatus('Key restored','ok'); if(sess.mode==='pair'){ await doPair(sess,k); } else { dispatch(sess); } }
     catch(e){ setStatus(String(e&&e.message||e).replace(/^Error:\\s*/,''),'err'); }
   };
-  document.getElementById('bk').onclick=function(){pairFlow(sess);};
+  document.getElementById('bk').onclick=function(){dispatch(sess);};
 }
 async function doPair(sess,key){
   setStatus('Pairing…');
@@ -189,7 +192,7 @@ async function pollPairStatus(){
 }
 function approveFlow(sess){
   var key=loadKey();
-  if(!key){ h('<div class="msg">This phone has no key yet — run <b>yay pair</b> first.</div>'); return; }
+  if(!key){ h('<div class="msg">This phone has no key on this page yet — restore it from your recovery phrase, or run <b>yay pair</b>.</div><button id="rst" class="btn">Restore from recovery phrase</button>'); document.getElementById('rst').onclick=function(){restoreFlow(sess);}; return; }
   var rows=(sess.summary||[]).map(function(c){return '<div class="cell"><span class="dot" style="background:'+(c.color||'#888')+'"></span><div><div class="cid">'+esc(c.id)+' · '+esc(c.unit||'')+'</div><div class="cin">'+esc(c.intent||'')+'</div></div><span class="col">'+esc(c.state||'')+'</span></div>';}).join('');
   h('<div class="msg">Approve these <b>'+((sess.summary||[]).length)+'</b> change(s):</div>'+rows+'<button id="go" class="btn" style="margin-top:16px">Approve &amp; sign</button>');
   document.getElementById('go').onclick=async function(){
@@ -206,7 +209,7 @@ function approveFlow(sess){
 // Owner authorizes a roster/governance change (enroll, revoke, reroot) from the phone.
 function authorizeFlow(sess){
   var key=loadKey();
-  if(!key){ h('<div class="msg">This phone has no key — only an existing owner can authorize this. Run <b>yay pair</b> or restore your key first.</div>'); return; }
+  if(!key){ h('<div class="msg">This phone has no key on this page yet — restore it from your recovery phrase (an existing owner’s phrase is required to authorize).</div><button id="rst" class="btn">Restore from recovery phrase</button>'); document.getElementById('rst').onclick=function(){restoreFlow(sess);}; return; }
   var s=sess.summary||{};
   var rows=(s.rows||[]).map(function(r){return '<div class="cell"><div><div class="cid">'+esc(r.k||'')+'</div><div class="cin">'+esc(r.v||'')+'</div></div></div>';}).join('');
   var warn=s.warn?'<div class="warn">'+esc(s.warn)+'</div>':'';
