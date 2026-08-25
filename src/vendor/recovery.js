@@ -171,7 +171,33 @@
     return entropyToMnemonic(entropy32);
   }
 
-  var R = { sha256: sha256, hmacSha512: hmacSha512, pbkdf2Sha512: pbkdf2Sha512, entropyToMnemonic: entropyToMnemonic, newMnemonic: newMnemonic, mnemonicToEntropy: mnemonicToEntropy, mnemonicToSeed: mnemonicToSeed, mnemonicToKeypair: mnemonicToKeypair, normalizeMnemonic: normalizeMnemonic, b64: b64 };
+  // ── PIN-encrypted keystore (at-rest protection for the phone key) ─
+  // Seal the base64 secret key under a PIN with XSalsa20-Poly1305 (nacl.secretbox),
+  // key = PBKDF2-HMAC-SHA512(pin). Only the ciphertext is stored; the plaintext key
+  // never touches localStorage. NOTE: a short PIN is only casual protection — an
+  // attacker who extracts the ciphertext can brute-force a low-entropy PIN offline
+  // with native code; a longer passphrase (or the future enclave/WebAuthn layer) is
+  // the real hardening. The 24-word phrase remains the master backup.
+  function unb64(s) {
+    if (typeof atob === 'function') { var bin = atob(s), a = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); return a; }
+    return new Uint8Array(Buffer.from(s, 'base64'));
+  }
+  var KDF_ITERS = 50000;
+  function sealSecret(secB64, pin, iters) {
+    iters = iters || KDF_ITERS;
+    var salt = nacl.randomBytes(16), nonce = nacl.randomBytes(24);
+    var key = pbkdf2Sha512(utf8(String(pin)), salt, iters, 32);
+    var ct = nacl.secretbox(unb64(secB64), nonce, key);
+    return { ct: b64(ct), nonce: b64(nonce), salt: b64(salt), iters: iters };
+  }
+  function openSecret(enc, pin) {
+    if (!enc || !enc.ct) return null;
+    var key = pbkdf2Sha512(utf8(String(pin)), unb64(enc.salt), enc.iters || KDF_ITERS, 32);
+    var out = nacl.secretbox.open(unb64(enc.ct), unb64(enc.nonce), key);
+    return out ? b64(out) : null; // null = wrong PIN / tampered blob
+  }
+
+  var R = { sha256: sha256, hmacSha512: hmacSha512, pbkdf2Sha512: pbkdf2Sha512, entropyToMnemonic: entropyToMnemonic, newMnemonic: newMnemonic, mnemonicToEntropy: mnemonicToEntropy, mnemonicToSeed: mnemonicToSeed, mnemonicToKeypair: mnemonicToKeypair, normalizeMnemonic: normalizeMnemonic, sealSecret: sealSecret, openSecret: openSecret, b64: b64 };
   if (typeof module !== 'undefined' && module.exports) module.exports = R;
   if (typeof window !== 'undefined') window.YayRecovery = R;
 })();

@@ -377,5 +377,11 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
   const rsig = require('../src/vendor/tweetnacl.min.js').sign.detached(new TextEncoder().encode('m'), Buffer.from(rk1.sec, 'base64'));
   ok(C.verify('m', Buffer.from(rsig).toString('base64'), rk1.pub), 'recovery: a mnemonic-derived signature verifies via crypto.js (enrollable in the roster)');
 
+  // PIN-encrypted keystore: only ciphertext is stored; right PIN restores, wrong PIN fails.
+  const blob = R.sealSecret(rk1.sec, 'correct horse battery', 2000);
+  ok(!JSON.stringify(blob).includes(rk1.sec) && blob.ct && blob.nonce && blob.salt, 'keystore: sealed blob holds ciphertext, not the plaintext key');
+  ok(R.openSecret(blob, 'correct horse battery') === rk1.sec, 'keystore: the right PIN unlocks the exact secret');
+  ok(R.openSecret(blob, 'wrong pin here') === null, 'keystore: a wrong PIN returns null (no key leaked)');
+
   console.log(`\nAll ${n} checks passed.`);
 })().catch((e) => { console.error('smoke failed:', e); process.exit(1); });

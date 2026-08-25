@@ -84,6 +84,39 @@ function saveKey(o){localStorage.setItem('yay.key',JSON.stringify(o));}
 function newIdentity(name){var ent=new Uint8Array(32);window.crypto.getRandomValues(ent);var mnemonic=YayRecovery.newMnemonic(ent);var kp=YayRecovery.mnemonicToKeypair(mnemonic);return {name:name,sec:kp.sec,pub:kp.pub,mnemonic:mnemonic};}
 // Re-derive the SAME keypair from a written-down phrase (device loss / new phone).
 function restoreIdentity(name,phrase){var kp=YayRecovery.mnemonicToKeypair(phrase);return {name:name,sec:kp.sec,pub:kp.pub};}
+// ── PIN lock ── the secret is stored ENCRYPTED (nacl.secretbox under a PBKDF2(PIN)
+// key); only ciphertext hits localStorage. Unlocked once per page-load, cached in
+// memory. A longer passphrase is stronger; the 24 words remain the master backup.
+var unlocked=null; // {pub,sec} after a successful unlock this page-load
+function askPin(title,sub){
+  return new Promise(function(resolve){
+    h('<div class="msg"><b>'+esc(title)+'</b></div>'+(sub?'<div class="warn" style="color:var(--mut)">'+esc(sub)+'</div>':'')+'<input id="pin" class="inp" type="password" autocomplete="off" autocapitalize="off" placeholder="PIN or passphrase (6+ characters)"><button id="go" class="btn">OK</button>');
+    document.getElementById('pin').focus();
+    document.getElementById('go').onclick=function(){var v=document.getElementById('pin').value||'';if(v.length<6){setStatus('At least 6 characters','err');return;}setStatus('');resolve(v);};
+  });
+}
+// Set a PIN, seal the key, store only ciphertext, cache it for this page-load.
+async function setPinAndSave(k){
+  var pin=await askPin('Protect your key with a PIN','You’ll enter this to sign on this phone. A longer passphrase is stronger. It never leaves the phone and can’t be recovered — but your 24 words can always restore the key.');
+  var pin2=await askPin('Confirm your PIN');
+  if(pin!==pin2){setStatus('PINs didn’t match — start again','err');return setPinAndSave(k);}
+  setStatus('Encrypting…'); await sleep(30);
+  saveKey({name:k.name,pub:k.pub,enc:YayRecovery.sealSecret(k.sec,pin),v:2});
+  unlocked={pub:k.pub,sec:k.sec}; setStatus('');
+}
+// Plaintext secret for a stored key, unlocking with the PIN if it's encrypted.
+async function getSecret(key){
+  if(key.sec) return key.sec;                       // legacy plaintext key
+  if(!key.enc) throw new Error('no key material on this device');
+  if(unlocked&&unlocked.pub===key.pub) return unlocked.sec;
+  for(;;){
+    var pin=await askPin('Enter your PIN to sign');
+    setStatus('Unlocking…'); await sleep(30);
+    var sec=YayRecovery.openSecret(key.enc,pin);
+    if(sec){unlocked={pub:key.pub,sec:sec};setStatus('');return sec;}
+    setStatus('Wrong PIN — try again','err');
+  }
+}
 function signStr(secB64,str){return b64(nacl.sign.detached(ebytes(str),unb64(secB64)));}
 async function api(path,body){var r=await fetch(path,{method:body?'POST':'GET',headers:body?{'content-type':'application/json'}:{},body:body?JSON.stringify(body):undefined});return r.json();}
 
@@ -132,7 +165,7 @@ function verifyBackup(sess,k,words){
   document.getElementById('go').onclick=async function(){
     var v=(document.getElementById('wv').value||'').trim().toLowerCase();
     if(v!==words[pos]){setStatus('That word doesn’t match #'+(pos+1)+' — check your written copy','err');return;}
-    setStatus(''); delete k.mnemonic; saveKey({name:k.name,sec:k.sec,pub:k.pub}); await doPair(sess,{name:k.name,sec:k.sec,pub:k.pub});
+    setStatus(''); delete k.mnemonic; await setPinAndSave(k); await doPair(sess,{name:k.name,sec:k.sec,pub:k.pub});
   };
   document.getElementById('sk').onclick=function(){showBackup(sess,k);};
 }
@@ -149,23 +182,24 @@ function restoreFlow(sess){
     var name=(document.getElementById('nm').value||'').trim(); if(!name){setStatus('Enter your name','err');return;}
     var phrase=(document.getElementById('ph').value||'').trim(); if(!phrase){setStatus('Paste your phrase','err');return;}
     setStatus('Restoring your key…');
-    try{ var k=restoreIdentity(name,phrase); saveKey(k); setStatus('Key restored','ok'); if(sess.mode==='pair'){ await doPair(sess,k); } else { dispatch(sess); } }
+    try{ var k=restoreIdentity(name,phrase); await setPinAndSave(k); if(sess.mode==='pair'){ await doPair(sess,k); } else { dispatch(sess); } }
     catch(e){ setStatus(String(e&&e.message||e).replace(/^Error:\\s*/,''),'err'); }
   };
   document.getElementById('bk').onclick=function(){dispatch(sess);};
 }
 async function doPair(sess,key){
-  setStatus('Pairing…');
   try{
+    var sec=await getSecret(key);
+    setStatus('Pairing…');
     var proof;
     if(sess.genesis){
       // No trust root yet → this phone BECOMES it. Self-sign the genesis event
       // (canonical() here matches the laptop's eventBytes exactly).
       var g=sess.genesis;
       var ev={id:g.id,type:g.type,name:key.name,pub:key.pub,role:g.role,by:key.name,prev:g.prev,nonce:g.nonce,at:g.at};
-      proof=signStr(key.sec,canonical(ev));
+      proof=signStr(sec,canonical(ev));
     }else{
-      proof=signStr(key.sec,sess.challenge);
+      proof=signStr(sec,sess.challenge);
     }
     var res=await api('/api/submit',{name:key.name,pubB64:key.pub,proof:proof});
     if(res.error){ setStatus('Rejected: '+res.error,'err'); return; }
@@ -196,9 +230,10 @@ function approveFlow(sess){
   var rows=(sess.summary||[]).map(function(c){return '<div class="cell"><span class="dot" style="background:'+(c.color||'#888')+'"></span><div><div class="cid">'+esc(c.id)+' · '+esc(c.unit||'')+'</div><div class="cin">'+esc(c.intent||'')+'</div></div><span class="col">'+esc(c.state||'')+'</span></div>';}).join('');
   h('<div class="msg">Approve these <b>'+((sess.summary||[]).length)+'</b> change(s):</div>'+rows+'<button id="go" class="btn" style="margin-top:16px">Approve &amp; sign</button>');
   document.getElementById('go').onclick=async function(){
-    setStatus('Signing…');
     try{
-      var sig=signStr(key.sec,canonical(sess.approval));
+      var sec=await getSecret(key);
+      setStatus('Signing…');
+      var sig=signStr(sec,canonical(sess.approval));
       var res=await api('/api/submit',{signature:sig});
       if(res.error){ setStatus('Rejected: '+res.error,'err'); return; }
       h('<div class="ok-big">✓ Signed</div><div class="msg">Done — you can close this. The laptop has the seal.</div>');
@@ -215,9 +250,10 @@ function authorizeFlow(sess){
   var warn=s.warn?'<div class="warn">'+esc(s.warn)+'</div>':'';
   h('<div class="msg">'+esc(s.title||'Authorize this change')+'</div>'+rows+warn+'<button id="go" class="btn" style="margin-top:16px">Authorize &amp; sign</button>');
   document.getElementById('go').onclick=async function(){
-    setStatus('Signing…');
     try{
-      var sig=signStr(key.sec,canonical(sess.event));
+      var sec=await getSecret(key);
+      setStatus('Signing…');
+      var sig=signStr(sec,canonical(sess.event));
       var res=await api('/api/submit',{signature:sig});
       if(res.error){ setStatus('Rejected: '+res.error,'err'); return; }
       h('<div class="ok-big">✓ Authorized</div><div class="msg">Done — you can close this. The laptop has the signed event.</div>');
