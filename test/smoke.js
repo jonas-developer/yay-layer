@@ -111,9 +111,11 @@ fs.rmSync(tmp, { recursive: true, force: true });
 // method-aware: a phone-signed project tells the AI to approve with `yay sign --phone`
 const tmpP = fs.mkdtempSync(require('path').join(require('os').tmpdir(), 'con-'));
 writeConstitution(tmpP, resolveKeys('claude'), 'phone');
-ok(/approve it with `yay sign --phone`/.test(fs.readFileSync(require('path').join(tmpP, 'CLAUDE.md'), 'utf8')), 'constitution: phone project → Constitution says `yay sign --phone`');
+const conP = fs.readFileSync(require('path').join(tmpP, 'CLAUDE.md'), 'utf8');
+ok(/`yay sign --phone`/.test(conP) && /returns a completed signature/.test(conP), 'constitution: phone project → `yay sign --phone` + auto-proceed on signature');
 writeConstitution(tmpP, resolveKeys('agents'), 'local');
-ok(/approve it with `yay sign`/.test(fs.readFileSync(require('path').join(tmpP, 'AGENTS.md'), 'utf8')), 'constitution: local project → Constitution says `yay sign`');
+const conL = fs.readFileSync(require('path').join(tmpP, 'AGENTS.md'), 'utf8');
+ok(/`yay sign`/.test(conL) && !/--phone/.test(conL), 'constitution: local project → `yay sign` (no --phone)');
 fs.rmSync(tmpP, { recursive: true, force: true });
 
 // 11) behavioural prover: satisfied ensures → pass, violated → fail, prose → skip

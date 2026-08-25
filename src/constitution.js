@@ -44,15 +44,22 @@ function signGuidance(method) {
 
 function header(method) {
   const g = signGuidance(method);
+  const waits = method === 'phone';
   return [
     '# This project is built under YayLayer',
     '',
-    'Follow the YayLayer Constitution below **exactly, from the very first file**:',
-    'write the spec first, present the change-set with the colour you expect each',
-    `Cell to earn, then STOP and wait for the human to approve it with ${g.cmd}`,
-    'before writing any implementation code. After it is signed, write code to match,',
-    "then run `yay verify` and report the result. Never sign on the human's behalf.",
-    ...(g.note ? ['', g.note] : []),
+    'Follow the YayLayer Constitution below **exactly, from the very first file**.',
+    '',
+    '**The loop for every observable change:**',
+    '1. Write/update the spec block FIRST — no implementation code yet.',
+    '2. Present the change-set with the colour you expect each Cell to earn, then request approval by',
+    `   running ${g.cmd} yourself. ${waits ? 'It prints a QR/URL and BLOCKS until the human approves on their phone (allow a few minutes; use a long command timeout).' : 'The human enters their passphrase to sign.'}`,
+    `3. **The moment ${g.cmd} returns a completed signature, continue on your own** — implement the code`,
+    '   to match the signed spec, then run `yay verify` and report the result. Do NOT stop to ask',
+    '   "should I implement now?" — a returned signature IS the go-ahead.',
+    '4. If approval fails, is declined, or times out, STOP and ask — never implement unapproved specs.',
+    '',
+    `Never sign on the human's behalf${waits ? ' (only their phone holds the key — you cannot)' : ''}. ${g.note}`.trim(),
     '',
     '---',
     '',
