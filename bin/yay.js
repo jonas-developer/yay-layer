@@ -499,7 +499,7 @@ async function cmdSign(flags) {
     console.log('\n' + U.c.bold('Approve on your phone') + ' — scan with your phone camera (same Wi-Fi):');
     console.log('   ' + U.c.accent(s.url) + U.c.dim('   (or ' + s.local + ' on this computer)'));
     printQR(s.url);
-    if (s.fellBack) console.log(U.c.yellow('   ⚠ port 8787 was busy (another yay sign/serve running?) — using a different address; your phone may ask to Restore.'));
+    if (s.fellBack) console.log(U.c.yellow('   ⚠ the preferred phone port was busy (another yay sign/serve running?) — using a different address; your phone may ask to Restore.'));
     if (tls) console.log(U.c.dim('   https: tap through the one-time "not private" warning (Advanced → visit).'));
     console.log(U.c.dim(`   reviewing ${summary.length} change(s) as "${name}" · Ctrl-C to cancel`));
     let r; try { r = await s.done; } finally { s.close(); }
@@ -538,7 +538,7 @@ async function runPairing(p, config, flags) {
   console.log('\n' + U.c.bold('Pair your phone') + ' — scan with your phone camera (same Wi-Fi):');
   console.log('   ' + U.c.accent(s.url) + U.c.dim('   (or ' + s.local + ' on this computer)'));
   printQR(s.url);
-  if (s.fellBack) console.log(U.c.yellow('   ⚠ port 8787 was busy (another yay sign/serve running?) — using a different address; the phone may ask to Restore.'));
+  if (s.fellBack) console.log(U.c.yellow('   ⚠ the preferred phone port was busy (another yay sign/serve running?) — using a different address; the phone may ask to Restore.'));
   if (tls) console.log(U.c.dim('   https: tap through the one-time "not private" warning (Advanced → visit).'));
   console.log(U.c.dim('   create your key there; it shows a 6-digit code. (Ctrl-C to cancel.)'));
   // Keep the server alive through confirmation so the phone can poll the outcome
@@ -643,7 +643,7 @@ async function authorizeRosterEvent(p, config, log, ev, flags, summary) {
   console.log('\n' + U.c.bold('Authorize on an owner’s phone') + ' — scan (same Wi-Fi):');
   console.log('   ' + U.c.accent(s.url) + U.c.dim('   (or ' + s.local + ' on this computer)'));
   printQR(s.url);
-  if (s.fellBack) console.log(U.c.yellow('   ⚠ port 8787 was busy — using a different address; the phone may ask to Restore.'));
+  if (s.fellBack) console.log(U.c.yellow('   ⚠ the preferred phone port was busy — using a different address; the phone may ask to Restore.'));
   if (tls) console.log(U.c.dim('   https: tap through the one-time "not private" warning.'));
   console.log(U.c.dim('   review the change on the phone and approve. (Ctrl-C to cancel.)'));
   let r; try { r = await s.done; } finally { s.close(); }

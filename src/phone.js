@@ -12,9 +12,11 @@
 const http = require('http');
 const os = require('os');
 // Stable default port so the phone page keeps one origin (→ its saved key persists).
-// YAY_PHONE_PORT overrides it; set it to 0 to force a random port (0 is honored).
+// 48757 is a deliberately uncommon high port, clear of the usual dev ports
+// (React 3000, Vite 5173, Express 8080/3000, Rails 3000, webpack 4200/8000, …) so
+// it rarely collides. YAY_PHONE_PORT overrides it; set it to 0 to force a random port.
 const PHONE_PORT = (process.env.YAY_PHONE_PORT !== undefined && process.env.YAY_PHONE_PORT !== '')
-  ? Number(process.env.YAY_PHONE_PORT) : 8787;
+  ? Number(process.env.YAY_PHONE_PORT) : 48757;
 const C = require('./crypto');
 const { canonical } = require('./util');
 const { signerHTML } = require('./signer-page');
