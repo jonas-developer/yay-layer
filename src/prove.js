@@ -130,10 +130,29 @@ function cartesian(lists, cap) {
 }
 
 // ── the ensures expression ──────────────────────────────────────────────────
+// SAFE, unambiguous normalizations only (never anything that could change meaning
+// and mint a false pass): `;` clause-separator → conjunction, and |simple| → Math.abs.
+function normalizeEnsures(ensuresExpr) {
+  return String(ensuresExpr || '')
+    .replace(/;/g, ' && ')
+    .replace(/\|\s*([A-Za-z_$][A-Za-z0-9_$.]*)\s*\|/g, 'Math.abs($1)') // |dx| → Math.abs(dx)
+    .replace(/(?:&&\s*)+$/, '')
+    .trim() || 'true';
+}
+// A helpful, honest reason when an `ensures` can't be machine-checked — tells the
+// author exactly how to make it checkable, instead of a bare "prose?".
+function ensuresHint(ensuresExpr) {
+  const e = String(ensuresExpr || '');
+  if (/\b(iff|⇔|<=>)\b/i.test(e)) return 'uses "iff" — write it as JS: `A === B` (boolean equality)';
+  if (/(=>|⇒|\bimplies\b)/i.test(e)) return 'uses implication — write it as JS: `(!A || B)`';
+  if (/\b(for ?all|every|each|∀)\b/i.test(e)) return 'uses "for all/every" — write it as JS: `arr.every(x => …)`';
+  if (/\b(unchanged|not ?mutated|immutab)\b/i.test(e)) return 'talks about mutation — compare a copy: `JSON.stringify(out) === JSON.stringify(fn(...))`';
+  if (/\bclamp\b/i.test(e)) return 'uses clamp() — inline it: `Math.max(lo, Math.min(x, hi))`';
+  if (!/[<>=!]=?|===|!==|&&|\|\||\.every|\.some|\.includes/.test(e)) return 'reads as prose — write a boolean JS expression over `out` and the inputs';
+  return 'not valid JavaScript — write `ensures:` as a boolean expression over `out` and the inputs';
+}
 function buildChecker(ctx, params, ensuresExpr) {
-  // `;`-separated clauses are conjunctions, not statements — join them so multi-line
-  // ensures compile as one boolean expression.
-  const expr = String(ensuresExpr || '').replace(/;/g, ' && ').replace(/(?:&&\s*)+$/, '').trim() || 'true';
+  const expr = normalizeEnsures(ensuresExpr);
   const decl = params.map((p, i) => `var ${p}=A[${i}];`).join(' ');
   const call = `fn(${params.map((_, i) => `A[${i}]`).join(',')})`;
   const src = `(function(fn,A){ ${decl} var out=${call}; return {out:out, ok:!!(${expr})}; })`;
@@ -147,7 +166,7 @@ function proveCell(cell, ctx, fn) {
   const ensures = String(cell.spec.ensures || '').trim();
   let checker;
   try { checker = buildChecker(ctx, params.map((p) => p.name), ensures); }
-  catch (_) { return { status: 'skip', level: 'yellow', reason: 'ensures is not a checkable expression (prose?)' }; }
+  catch (_) { return { status: 'skip', level: 'yellow', reason: 'ensures not machine-checkable — ' + ensuresHint(ensures) }; }
 
   const tuples = cartesian(params.map((p) => valuesFor(p.type)), 40);
   const cases = tuples.length || 1;
@@ -231,4 +250,4 @@ function proveManifest(manifest, opts) {
   return out;
 }
 
-module.exports = { proveManifest, runSource, parseIn, buildChecker, show };
+module.exports = { proveManifest, runSource, parseIn, buildChecker, show, ensuresHint, normalizeEnsures };

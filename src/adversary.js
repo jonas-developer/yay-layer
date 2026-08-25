@@ -11,7 +11,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { runSource, parseIn, buildChecker, show } = require('./prove');
+const { runSource, parseIn, buildChecker, show, ensuresHint } = require('./prove');
 const plan = require('./plan');
 
 const SYSTEM = [
@@ -68,7 +68,7 @@ function judge(source, cell, tuples) {
   if (base.error || typeof base.fns[cell.unitName] !== 'function') return { status: 'skip', reason: 'unit not callable in isolation' };
   const params = parseIn(cell.spec).map((p) => p.name);
   let checker; try { checker = buildChecker(base.ctx, params, cell.spec.ensures); }
-  catch (e) { return { status: 'skip', reason: 'ensures not evaluable: ' + (e && e.message ? e.message.split('\n')[0] : 'error') }; }
+  catch (e) { return { status: 'skip', reason: 'ensures not machine-checkable — ' + ensuresHint(cell.spec.ensures) + ' (strengthen the spec, then re-sign)' }; }
   if (!Array.isArray(tuples) || !tuples.length) return { status: 'survived', note: 'no candidate inputs proposed' };
   const throwsDeclared = !!(cell.spec && cell.spec.throws);
   for (const A of tuples) {

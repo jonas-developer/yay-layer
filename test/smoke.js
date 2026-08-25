@@ -150,6 +150,9 @@ try {
 // 10f) parseIn keeps object/array param types intact (bracket-aware split)
 const PI = require('../src/prove').parseIn;
 ok(JSON.stringify(PI({ in: 'paddle: {x,y,w,h}, step: number, w: number' }).map((p) => p.name)) === '["paddle","step","w"]', 'prove: parseIn keeps object params intact (no comma shredding)');
+const EH = require('../src/prove').ensuresHint;
+ok(/every/.test(EH('every b.alive == true')) && /implication/.test(EH('a => b')) && /prose/.test(EH('just words here')), 'prove: ensuresHint gives actionable guidance to strengthen prose ensures');
+ok(require('../src/prove').normalizeEnsures('|dx| < 3; a >= 0') === 'Math.abs(dx) < 3 &&  a >= 0', 'prove: normalizeEnsures makes |x| and ; evaluable (safe transforms only)');
 
 // 10g) scanner ignores the generated map + honours .yaylayerignore
 const igDir = fs.mkdtempSync(require('path').join(os.tmpdir(), 'yay-ig-'));
