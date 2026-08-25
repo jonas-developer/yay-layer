@@ -29,17 +29,16 @@ const HARNESSES = [
 
 // The approval command depends on how THIS project signs (chosen at `yay init`):
 // a phone-signed project must tell the AI to have the human approve on their phone.
+// `yay sign` auto-uses the project's established method, so the command is always
+// just `yay sign` — the note explains where the signature actually happens.
 function signGuidance(method) {
   if (method === 'phone') {
-    return {
-      cmd: '`yay sign --phone`',
-      note: 'This project signs on a **phone** — the signing key lives only on the human’s phone, never on this machine. The human approves by scanning the QR that `yay sign --phone` prints. You cannot sign; never attempt to.',
-    };
+    return { cmd: '`yay sign`', note: 'This project signs on a **phone**: `yay sign` automatically opens the phone approval (prints a QR/URL) and the signing key never touches this machine. You cannot sign — only the human’s phone can.' };
   }
   if (method === 'local') {
-    return { cmd: '`yay sign`', note: 'This project signs with a **local key** (passphrase-encrypted, on the human’s machine).' };
+    return { cmd: '`yay sign`', note: 'This project signs with a **local key**: `yay sign` prompts for the human’s passphrase.' };
   }
-  return { cmd: '`yay sign` (or `yay sign --phone` if this project signs on a phone)', note: '' };
+  return { cmd: '`yay sign`', note: '`yay sign` uses whichever signing method this project is set up with.' };
 }
 
 function header(method) {

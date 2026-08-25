@@ -75,6 +75,17 @@ function signMethodOf(config) {
   if (hasLocal && !hasPhone) return 'local';
   return null; // unknown or mixed → generic guidance
 }
+
+// Decide how `yay sign` signs when no explicit flag is given: use the project's
+// established method so you never have to type --phone. Explicit --phone/--local win.
+function resolveSignMethod(config, p, name, flags) {
+  if (flags.phone) return 'phone';
+  if (flags.local) return 'local';
+  const m = signMethodOf(config);
+  if (m) return m; // project clearly signs one way
+  // mixed/unknown: a local keystore on this machine → local, else the phone
+  return fs.existsSync(path.join(p.keys, `${name}.keystore`)) ? 'local' : 'phone';
+}
 function trustRootPin(flags) { return (flags.root && flags.root !== true) ? flags.root : (process.env.YAY_TRUST_ROOT || null); }
 
 // Print a scannable QR of a URL to the terminal (graceful if the lib is absent).
@@ -467,7 +478,8 @@ async function cmdSign(flags) {
     items,
   };
 
-  if (flags.phone) {
+  const method = resolveSignMethod(config, p, name, flags);
+  if (method === 'phone') {
     // Sign on the paired phone over the LAN — the private key never touches this machine.
     const verified = verifyManifest(manifest, lock, config, { mutate: false });
     const SEALCOLORS = { GREEN: '#1f9d57', YELLOW: '#c9860f', RED: '#cf4436', UNSIGNED: '#7f8796', PINK: '#e0559b' };
@@ -971,7 +983,8 @@ const HELP = `yay — a protocol for provable, signed AI code
                              authorize with a local owner key, or --phone to approve on an owner's phone
   yay revoke --name X [--pubkey <b64>]  revoke one key (or the whole identity) via an owner-signed event (--phone)
   yay reroot [--phone]        retire the current trust root and establish a new one (key lost/compromised)
-  yay sign [--all|--cell IDs] approve the current specs  ·  --phone signs on the paired phone (--https for TLS)
+  yay sign [--cell IDs]       approve specs using THIS project's method (phone or local) — no flag needed
+                             override with --phone / --local · --https for TLS · --cell to sign a subset
   yay verify [--strict] [-d]  the gate — paint every Cell; -d/--details prints each spec, code & checks
                              --problems shows only non-green Cells · --no-mutate skips prover mutation grading
   yay plan [--provider anthropic|openai|custom] [--model m] [--base-url url]
