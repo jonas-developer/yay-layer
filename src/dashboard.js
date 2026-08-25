@@ -14,7 +14,12 @@ function lanIP() {
   for (const name of Object.keys(ifaces)) for (const i of ifaces[name] || []) if (i.family === 'IPv4' && !i.internal) return i.address;
   return '127.0.0.1';
 }
-function isLocal(req) { const a = req.socket.remoteAddress || ''; return a === '127.0.0.1' || a === '::1' || a === '::ffff:127.0.0.1'; }
+// This machine's OWN addresses — so an action triggered from the laptop is allowed
+// whether it reached the dashboard via localhost OR the machine's own LAN IP, while
+// a DIFFERENT device (the phone, a teammate's laptop) is still blocked.
+const OWN = new Set(['127.0.0.1', '::1', 'localhost']);
+try { const ifs = os.networkInterfaces(); for (const n of Object.keys(ifs)) for (const i of ifs[n] || []) if (i.address) OWN.add(i.address); } catch (_) {}
+function isLocal(req) { const a = (req.socket.remoteAddress || '').replace(/^::ffff:/, ''); return OWN.has(a); }
 function sendJSON(res, status, obj) { res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(obj)); }
 function sendHTML(res, html) { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); res.end(html); }
 
