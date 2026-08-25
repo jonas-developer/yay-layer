@@ -20,6 +20,7 @@ const { renderMap } = require('../src/map');
 const { adopt } = require('../src/adopt');
 const { HARNESSES, writeConstitution, resolveKeys } = require('../src/constitution');
 const { specDiffForCell } = require('../src/specdiff');
+const dashboardMod = require('../src/dashboard');
 const gate = require('../src/gate');
 const phone = require('../src/phone');
 const rosterMod = require('../src/roster');
@@ -923,16 +924,15 @@ async function maybePlanForMap(p, config, manifest, verified, flags) {
   } catch (e) { console.log(U.c.yellow('• System Plan skipped: ') + U.c.dim(e.message)); }
 }
 
-async function cmdMap(flags) {
-  const { p, config, lock } = loadState();
+// Build the full tabbed map HTML from the CURRENT repo state. Reused by `yay map`
+// (static export) and by `yay dashboard` (live). Reads the cached plan.json — it
+// never regenerates the plan (that costs an LLM call; only `yay map`/`yay plan` do).
+function buildMapHTML(p, config, lock, flags) {
   const manifest = buildManifest(flags.dir || p.root);
   const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), root: trustRootPin(flags) });
-  await maybePlanForMap(p, config, manifest, verified, flags);
   const { changes, times } = cellChanges(manifest.root, lock, manifest.cells);
-  // --no-plan omits the System Plan from the map entirely (no tab); otherwise bake the cached plan.
   const planDoc = flags['no-plan'] ? null : U.readJSON(path.join(path.dirname(p.config), 'plan.json'), null);
-  // governance for the Signers tab: authoritative roster (signed) enriched with
-  // device kind / enrolment date (from the config mirror) + approvals per signer.
+  // governance for the Signers tab: authoritative roster + device kind + approvals.
   const rlog = loadRoster(p);
   const drv = rosterMod.deriveRoster(rlog || { events: [] }, { root: trustRootPin(flags) });
   const cfgSigners = (config && config.signers) || {};
@@ -946,10 +946,55 @@ async function cmdMap(flags) {
       keys: pubs.map((pub) => ({ fp: rosterMod.fingerprint(pub), kind: (kindByPub[pub] && kindByPub[pub].kind) || '', addedAt: (kindByPub[pub] && kindByPub[pub].addedAt) || null })) };
   });
   const gov = { signedRoster: !!(rlog && rlog.events && rlog.events.length), rootFp: drv.rootFp, problems: drv.problems, signers };
-  const html = renderMap(manifest, verified, config && config.project, changes, times, planDoc, gov);
+  return { html: renderMap(manifest, verified, config && config.project, changes, times, planDoc, gov), count: Object.keys(verified.results).length };
+}
+
+// A cheap fingerprint of the state the map depends on, so the dashboard can tell
+// the page "something changed, reload" without rebuilding the whole map each poll.
+function stateVersion(p) {
+  const parts = [];
+  const dir = path.dirname(p.config);
+  for (const f of ['config.json', 'lock.json', 'roster.json', 'plan.json']) {
+    try { parts.push(f + ':' + fs.statSync(path.join(dir, f)).mtimeMs); } catch (_) { parts.push(f + ':0'); }
+  }
+  try { for (const f of U.walk(p.root)) { if (/\.(js|ts|jsx|tsx|py|css|html)$/.test(f) && !f.includes('.yaylayer')) parts.push(f + ':' + fs.statSync(f).mtimeMs); } } catch (_) {}
+  return C.sha256(parts.join('|')).slice(0, 16);
+}
+
+// `yay dashboard` — a persistent live control panel (map that auto-refreshes).
+// Leave it running; re-reads the repo on every load so it always shows current state.
+async function cmdDashboard(flags) {
+  const { p, config } = loadState();
+  if (!config) return fail('run `yay init` first');
+  const port = (flags.port && flags.port !== true) ? Number(flags.port) : (Number(process.env.YAY_DASHBOARD_PORT) || 48756);
+  const tls = tlsCert(p, flags);
+  let s;
+  try {
+    s = await dashboardMod.startDashboard({
+      buildMapHTML: () => { const st = loadState(); return buildMapHTML(st.p, st.config, st.lock, flags); },
+      version: () => stateVersion(p),
+    }, { port, tls });
+  } catch (e) {
+    if (e && e.code === 'EADDRINUSE') return fail(`port ${port} is already in use — a dashboard may already be running (open http://localhost:${port}), or pass --port.`);
+    return fail(e.message || String(e));
+  }
+  console.log('\n' + U.c.green('✓ yay dashboard is live') + U.c.dim(' — keep this running; it serves the map and auto-refreshes on changes.'));
+  console.log('   ' + U.c.accent(s.url) + U.c.dim('   (or ' + s.local + ' on this computer)'));
+  if (tls) console.log(U.c.dim('   https: accept the one-time self-signed warning.'));
+  console.log(U.c.dim('   Ctrl-C to stop.'));
+  if (flags.open) { try { require('child_process').exec((process.platform === 'darwin' ? 'open ' : 'xdg-open ') + JSON.stringify(s.local)); } catch (_) {} }
+  await new Promise(() => {}); // run until Ctrl-C
+}
+
+async function cmdMap(flags) {
+  const { p, config, lock } = loadState();
+  const manifest = buildManifest(flags.dir || p.root);
+  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), root: trustRootPin(flags) });
+  await maybePlanForMap(p, config, manifest, verified, flags);
+  const { html, count } = buildMapHTML(p, config, lock, flags);
   const out = (flags.o && flags.o !== true) ? flags.o : (flags.out && flags.out !== true ? flags.out : 'yay-layer-map.html');
   fs.writeFileSync(out, html);
-  console.log(U.c.green('✓ map written → ') + out + U.c.dim(`  (${Object.keys(verified.results).length} items)`));
+  console.log(U.c.green('✓ map written → ') + out + U.c.dim(`  (${count} items)`));
 }
 
 function cmdAdopt(flags, positional) {
@@ -999,6 +1044,7 @@ const HELP = `yay — a protocol for provable, signed AI code
                              endpoint via --base-url (Ollama/LM Studio/vLLM/local — key optional)
   yay map [-o file.html]      write the HTML flowchart (default: yay-layer-map.html)
                              if plan generation is enabled it regenerates the System Plan; --no-plan skips it, --replan forces it
+  yay dashboard [--port N]    live control panel: serves the map and auto-refreshes on changes (leave running; --open, --https)
   yay gate [dir]              write the CI gate workflow (+ --hook local pre-push) & print the
                              branch-protection steps · flags: --scope <dir> --pkg <spec> --hook --force
   yay status                  one-line summary
@@ -1019,6 +1065,7 @@ async function main() {
     case 'reroot': return cmdReroot(flags);
     case 'verify': case 'check': return cmdVerify(flags);
     case 'map': return cmdMap(flags);
+    case 'dashboard': case 'serve': return cmdDashboard(flags);
     case 'plan': return cmdPlan(flags);
     case 'adopt': return cmdAdopt(flags, positional);
     case 'constitution': case 'rules': return cmdConstitution(flags, positional);
