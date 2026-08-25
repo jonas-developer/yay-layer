@@ -389,17 +389,27 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
   const adone = await as.done; as.close();
   ok(C.verify(canonical(rev), adone.signature, ownerKp.pubB64), 'phone-authorize: the returned signature is a valid roster event signature');
 
-  // dashboard: the live control-panel server (map + auto-refresh version + ping).
+  // dashboard: the live control-panel server (map + auto-refresh + action buttons).
   const { startDashboard } = require('../src/dashboard');
   let dv = 'A';
-  const ds = await startDashboard({ buildMapHTML: () => ({ html: '<html><body>MAPBODY</body></html>', count: 1 }), version: () => dv }, { port: 0 });
+  const ds = await startDashboard({
+    buildMapHTML: () => ({ html: '<html><body>MAPBODY</body></html>', count: 1 }),
+    version: () => dv,
+    testInfo: () => ({ configured: true, cmd: 'echo hi' }),
+    runTests: () => Promise.resolve({ configured: true, ok: true, code: 0, output: 'ran', cmd: 'echo hi' }),
+    regenPlan: () => Promise.resolve({ ok: true, provider: 'openai', model: 'gpt-4o', subsystems: 2 }),
+  }, { port: 0 });
   const dbase = 'http://127.0.0.1:' + ds.port;
   ok((await fetch(dbase + '/api/ping').then((r) => r.json())).yay === 'dashboard', 'dashboard: /api/ping identifies a running dashboard');
   const dpage = await fetch(dbase + '/').then((r) => r.text());
-  ok(dpage.includes('MAPBODY') && dpage.includes('yd-refresh') && dpage.includes('/api/version'), 'dashboard: serves the live map with a Refresh button + auto-poller');
+  ok(dpage.includes('MAPBODY') && dpage.includes('yd-refresh') && dpage.includes('yd-tests') && dpage.includes('yd-plan'), 'dashboard: serves the live map with Refresh + Run-tests + System-Plan buttons');
   const dver1 = (await fetch(dbase + '/api/version').then((r) => r.json())).v; dv = 'B';
   const dver2 = (await fetch(dbase + '/api/version').then((r) => r.json())).v;
   ok(dver1 === 'A' && dver2 === 'B', 'dashboard: /api/version reflects state so the page auto-refreshes on change');
+  const dtres = await fetch(dbase + '/api/tests/run', { method: 'POST' }).then((r) => r.json());
+  ok(dtres.ok === true && dtres.output === 'ran', 'dashboard: /api/tests/run runs the suite and returns the result');
+  const pres2 = await fetch(dbase + '/api/plan/regen', { method: 'POST' }).then((r) => r.json());
+  ok(pres2.ok === true && pres2.subsystems === 2, 'dashboard: /api/plan/regen regenerates the System Plan on demand');
   ds.close();
 
   // recovery: BIP39 mnemonic → ed25519 key (the phone's key-backup layer), roster-compatible.

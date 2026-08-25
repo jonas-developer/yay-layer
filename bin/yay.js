@@ -21,6 +21,7 @@ const { adopt } = require('../src/adopt');
 const { HARNESSES, writeConstitution, resolveKeys } = require('../src/constitution');
 const { specDiffForCell } = require('../src/specdiff');
 const dashboardMod = require('../src/dashboard');
+const { resolveTestCmd, runTests } = require('../src/testrun');
 const gate = require('../src/gate');
 const phone = require('../src/phone');
 const rosterMod = require('../src/roster');
@@ -885,23 +886,33 @@ function cellChanges(root, lock, cells) {
   return { changes: out, times };
 }
 
+// Shared System-Plan (re)generation — used by `yay plan` and the dashboard button.
+// Costly (an LLM call), so it only runs when explicitly invoked. Returns a result
+// object rather than exiting, so the dashboard can report it.
+async function regeneratePlan(p, config, lock, flags) {
+  const auth = resolvePlanAuth(config, flags);
+  if (auth.error) return { ok: false, error: auth.error };
+  const manifest = buildManifest(flags.dir || p.root);
+  if (!Object.keys(manifest.cells).length) return { ok: false, error: 'no Cells to plan yet — write/adopt some specs first.' };
+  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: loadRoster(p), root: trustRootPin(flags) });
+  const digest = plan.buildDigest(manifest, config.project);
+  let result;
+  try { result = await plan.synthesize(digest, auth); }
+  catch (e) { return { ok: false, error: 'plan synthesis failed: ' + e.message }; }
+  U.writeJSON(path.join(path.dirname(p.config), 'plan.json'), { provider: auth.provider, model: auth.model, at: new Date().toISOString(), digestHash: C.sha256(U.canonical(digest)), counts: verified.counts, ...result });
+  return { ok: true, provider: auth.provider, model: auth.model, subsystems: (result.subsystems || []).length };
+}
+
 async function cmdPlan(flags) {
   const { p, config, lock } = loadState();
   if (!config) return fail('run `yay init` first');
   const auth = resolvePlanAuth(config, flags);
   if (auth.error) return fail(auth.error + ' (each user brings their own key.)');
-  const manifest = buildManifest(flags.dir || p.root);
-  if (!Object.keys(manifest.cells).length) return fail('no Cells to plan — write/adopt some specs first.');
-  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: loadRoster(p), root: trustRootPin(flags) });
-  const digest = plan.buildDigest(manifest, config.project);
-  console.log(U.c.dim(`synthesizing system plan with ${auth.provider}/${auth.model}${auth.baseUrl ? ' @ ' + auth.baseUrl : ''} … (${digest.modules.length} module(s), ${Object.keys(manifest.cells).length} Cell(s))`));
-  let result;
-  try { result = await plan.synthesize(digest, auth); }
-  catch (e) { return fail('plan synthesis failed: ' + e.message); }
-  const out = { provider: auth.provider, model: auth.model, at: new Date().toISOString(), digestHash: C.sha256(U.canonical(digest)), counts: verified.counts, ...result };
-  U.writeJSON(path.join(path.dirname(p.config), 'plan.json'), out);
-  console.log(U.c.green('✓ system plan written → .yaylayer/plan.json') + U.c.dim(`  (${result.subsystems.length} subsystem(s))`));
-  console.log('  ' + U.c.dim('view it in ') + U.c.bold('yay map') + U.c.dim(' → the "System Plan" toggle. Re-run `yay plan` to refresh.'));
+  console.log(U.c.dim(`synthesizing system plan with ${auth.provider}/${auth.model}${auth.baseUrl ? ' @ ' + auth.baseUrl : ''} …`));
+  const r = await regeneratePlan(p, config, lock, flags);
+  if (!r.ok) return fail(r.error);
+  console.log(U.c.green('✓ system plan written → .yaylayer/plan.json') + U.c.dim(`  (${r.subsystems} subsystem(s))`));
+  console.log('  ' + U.c.dim('view it in ') + U.c.bold('yay map') + U.c.dim(' (System Plan tab) or the dashboard. Re-run `yay plan` to refresh.'));
 }
 
 // Synthesize the plan into plan.json if enabled & specs changed. Never throws —
@@ -961,6 +972,20 @@ function stateVersion(p) {
   return C.sha256(parts.join('|')).slice(0, 16);
 }
 
+// `yay test` — run the project's own test suite (package.json "test" / config.test /
+// --test). Exit non-zero on failure so CI and the gate can use it.
+async function cmdTest(flags) {
+  const { p, config } = loadState();
+  if (!config) return fail('run `yay init` first');
+  const cmd = resolveTestCmd(p.root, config, flags);
+  if (!cmd) return fail('no test command — add a "test" script to package.json, set "test" in .yaylayer/config.json, or pass --test "…".');
+  console.log(U.c.dim('running: ') + cmd);
+  const r = await runTests(p.root, cmd);
+  if (r.output) process.stdout.write(r.output.replace(/\n?$/, '\n'));
+  console.log(r.ok ? U.c.green(`✓ tests passed`) + U.c.dim(` (${r.ms} ms)`) : U.c.red(`✗ tests failed — exit ${r.code}`));
+  if (!r.ok) process.exitCode = 1;
+}
+
 // `yay dashboard` — a persistent live control panel (map that auto-refreshes).
 // Leave it running; re-reads the repo on every load so it always shows current state.
 async function cmdDashboard(flags) {
@@ -973,6 +998,9 @@ async function cmdDashboard(flags) {
     s = await dashboardMod.startDashboard({
       buildMapHTML: () => { const st = loadState(); return buildMapHTML(st.p, st.config, st.lock, flags); },
       version: () => stateVersion(p),
+      testInfo: () => { const st = loadState(); return { configured: !!resolveTestCmd(st.p.root, st.config, flags), cmd: resolveTestCmd(st.p.root, st.config, flags) }; },
+      runTests: () => { const st = loadState(); return runTests(st.p.root, resolveTestCmd(st.p.root, st.config, flags)); },
+      regenPlan: () => { const st = loadState(); return regeneratePlan(st.p, st.config, st.lock, flags); },
     }, { port, tls });
   } catch (e) {
     if (e && e.code === 'EADDRINUSE') return fail(`port ${port} is already in use — a dashboard may already be running (open http://localhost:${port}), or pass --port.`);
@@ -980,6 +1008,8 @@ async function cmdDashboard(flags) {
   }
   console.log('\n' + U.c.green('✓ yay dashboard is live') + U.c.dim(' — keep this running; it serves the map and auto-refreshes on changes.'));
   console.log('   ' + U.c.accent(s.url) + U.c.dim('   (or ' + s.local + ' on this computer)'));
+  const tc = resolveTestCmd(p.root, config, flags);
+  console.log('   ' + U.c.dim('buttons (on this computer): ') + U.c.bold('▶ Run tests') + U.c.dim(tc ? ` (${tc})` : ' (none configured)') + U.c.dim(' · ') + U.c.bold('⟲ System Plan') + U.c.dim(' (LLM, on demand)'));
   if (tls) console.log(U.c.dim('   https: accept the one-time self-signed warning.'));
   console.log(U.c.dim('   Ctrl-C to stop.'));
   if (flags.open) { try { require('child_process').exec((process.platform === 'darwin' ? 'open ' : 'xdg-open ') + JSON.stringify(s.local)); } catch (_) {} }
@@ -1044,7 +1074,8 @@ const HELP = `yay — a protocol for provable, signed AI code
                              endpoint via --base-url (Ollama/LM Studio/vLLM/local — key optional)
   yay map [-o file.html]      write the HTML flowchart (default: yay-layer-map.html)
                              if plan generation is enabled it regenerates the System Plan; --no-plan skips it, --replan forces it
-  yay dashboard [--port N]    live control panel: serves the map and auto-refreshes on changes (leave running; --open, --https)
+  yay dashboard [--port N]    live control panel: map + auto-refresh + Run-tests & Regenerate-plan buttons (leave running; --open, --https)
+  yay test [--test "cmd"]     run the project's own test suite (package.json "test" / config.test); non-zero exit on failure
   yay gate [dir]              write the CI gate workflow (+ --hook local pre-push) & print the
                              branch-protection steps · flags: --scope <dir> --pkg <spec> --hook --force
   yay status                  one-line summary
@@ -1066,6 +1097,7 @@ async function main() {
     case 'verify': case 'check': return cmdVerify(flags);
     case 'map': return cmdMap(flags);
     case 'dashboard': case 'serve': return cmdDashboard(flags);
+    case 'test': case 'tests': return cmdTest(flags);
     case 'plan': return cmdPlan(flags);
     case 'adopt': return cmdAdopt(flags, positional);
     case 'constitution': case 'rules': return cmdConstitution(flags, positional);
