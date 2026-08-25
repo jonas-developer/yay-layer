@@ -131,6 +131,19 @@ const dContent = '//∷YAY⟨C-1⟩\n//  intent: foo\n//  pure: yes\n//∷YAY-EN
 ok(JSON.stringify(SD.specLinesFromContent(dContent, 'C-1')).includes('intent: foo'), 'specdiff: extracts a cell spec block from raw content');
 ok(SD.specLinesFromContent(dContent, 'C-9') === null, 'specdiff: a missing cell id → null');
 
+// 10e) unit-name mismatch (A) + dangling-reference (B) checks
+const abDir = fs.mkdtempSync(require('path').join(os.tmpdir(), 'yay-ab-'));
+fs.writeFileSync(require('path').join(abDir, 'a.js'),
+  '//∷YAY⟨C-A⟩\n//  unit: doThing\n//  intent: does a thing\n//  pure: yes\n//∷YAY-END⟨C-A⟩\nfunction doThingRenamed(){ return 1; }\n\n' +
+  '//∷YAY⟨C-B⟩\n//  unit: caller\n//  intent: calls a helper\n//∷YAY-END⟨C-B⟩\nfunction caller(){ return missingHelper(2) + doThingRenamed(); }\n');
+const abMan = buildManifest(abDir);
+const abVer = verifyManifest(abMan, { approvals: [] }, {}, { mutate: false });
+const noteA = (abVer.results['C-A'].notes || []).map((n) => n.text).join(' | ');
+const noteB = (abVer.results['C-B'].notes || []).map((n) => n.text).join(' | ');
+ok(/unit name mismatch/.test(noteA) && /doThingRenamed/.test(noteA), 'verify(A): flags unit-name mismatch (spec `unit:` vs the real function)');
+ok(/undefined name/.test(noteB) && /missingHelper/.test(noteB) && !/doThingRenamed/.test(noteB), 'verify(B): flags a dangling call (missingHelper) but not a defined one (doThingRenamed)');
+fs.rmSync(abDir, { recursive: true, force: true });
+
 // 11) behavioural prover: satisfied ensures → pass, violated → fail, prose → skip
 const { proveManifest } = require('../src/prove');
 const P = require('path');

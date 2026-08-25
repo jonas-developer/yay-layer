@@ -89,6 +89,22 @@ function staticChecks(cell) {
   if (!isModule && !machineFields) { yellow = true; notes.push({ level: 'yellow', text: 'prose-only spec (no in/out/ensures/pure/throws) — capped at Yellow' }); }
   if (!spec.intent) { yellow = true; notes.push({ level: 'yellow', text: 'no `intent:` line' }); }
 
+  // unit-name mismatch: the spec's `unit:` names a different function than the code
+  // actually defines below it (a rename, or the block attached to the wrong function).
+  const short = (n) => String(n || '').split('.').pop();
+  if (!isModule && spec.unit && cell.detectedUnit && short(spec.unit) !== short(cell.detectedUnit)) {
+    yellow = true;
+    notes.push({ level: 'yellow', text: `unit name mismatch: spec says \`unit: ${spec.unit}\` but the code defines \`${cell.detectedUnit}\` — update the spec, or the block may be on the wrong function` });
+  }
+
+  // dangling references: this Cell calls a bare name defined nowhere in the project
+  // (renamed/removed function, typo, or an import the analyzer couldn't see).
+  if (cell.unresolved && cell.unresolved.length) {
+    yellow = true;
+    const names = cell.unresolved.map((n) => '`' + n + '`').join(', ');
+    notes.push({ level: 'yellow', text: `calls undefined name${cell.unresolved.length > 1 ? 's' : ''} ${names} — not defined anywhere in the project (renamed/removed/typo, or an unlisted import)` });
+  }
+
   return { red, yellow, notes, badLines };
 }
 

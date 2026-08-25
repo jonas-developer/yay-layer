@@ -12,6 +12,23 @@ const { sha256 } = require('./crypto');
 const { extractFile } = require('./extract');
 const { analyze, nearestUnitAfter } = require('./analyze');
 
+// Names a bare `foo()` call can resolve to without a project definition — JS/DOM/
+// Node builtins + common globals. Anything called but neither defined nor here is a
+// dangling reference. (Kept generous to avoid false positives; extend as needed.)
+const GLOBALS = new Set([
+  'Array', 'Object', 'String', 'Number', 'Boolean', 'Symbol', 'BigInt', 'Function', 'Math', 'JSON', 'Date', 'RegExp',
+  'Error', 'TypeError', 'RangeError', 'SyntaxError', 'Promise', 'Map', 'Set', 'WeakMap', 'WeakSet', 'Proxy', 'Reflect',
+  'parseInt', 'parseFloat', 'isNaN', 'isFinite', 'encodeURIComponent', 'decodeURIComponent', 'encodeURI', 'decodeURI',
+  'structuredClone', 'queueMicrotask', 'eval',
+  'setTimeout', 'setInterval', 'clearTimeout', 'clearInterval', 'setImmediate', 'requestAnimationFrame', 'cancelAnimationFrame', 'fetch',
+  'window', 'document', 'console', 'alert', 'confirm', 'prompt', 'localStorage', 'sessionStorage', 'navigator', 'location', 'history',
+  'atob', 'btoa', 'getComputedStyle', 'matchMedia', 'FormData', 'Headers', 'Request', 'Response', 'URL', 'URLSearchParams',
+  'Blob', 'File', 'FileReader', 'Image', 'Audio', 'Worker', 'WebSocket', 'EventSource',
+  'IntersectionObserver', 'MutationObserver', 'ResizeObserver', 'crypto', 'CustomEvent', 'Event',
+  'require', 'process', 'Buffer', '__dirname', '__filename', 'module', 'exports', 'global', 'globalThis',
+  '$', '_',
+]);
+
 const JS_LIKE = /\.(js|jsx|mjs|cjs|ts|tsx)$/;
 
 // Fallback (parse failed): top-level `function name(` / `const name = (` only.
@@ -64,10 +81,11 @@ function buildManifest(targetDir) {
       let { unitName, unitBody, unitBodyStart, unitFound } = cell;
       let cellModule = moduleNameOf(ana, rel);
       let cellGroup = cell.spec.contains ? 'Modules' : 'Internal';
-      let callsOut = [];
+      let callsOut = [], callsDirect = [], detectedUnit = null;
       if (ana.ok && !cell.spec.contains) {
         const u = nearestUnitAfter(ana.units, cell.endLine);
         if (u) {
+          detectedUnit = u.name;                 // the ACTUAL function name found in the code
           unitName = cell.spec.unit || u.name;
           unitBody = codeLines.slice(u.startLine - 1, u.endLine).join('\n');
           unitBodyStart = u.startLine - 1;
@@ -75,14 +93,15 @@ function buildManifest(targetDir) {
           covered.add(u.startLine);
           cellGroup = groupOf(u, ana);
           callsOut = u.callsOut || [];
+          callsDirect = u.callsDirect || [];
         }
       }
       cells[cell.id] = {
         id: cell.id, file: rel, line: cell.startLine,
         lang: (cell.spec.lang || path.extname(file).slice(1) || 'unknown').split(/[ ·]/)[0],
         spec: cell.spec, specBlock: cell.normalized, specHash: sha256(cell.normalized),
-        unitName, unitBody, unitBodyStart, unitFound, module: cellModule, group: cellGroup,
-        contains: parseList(cell.spec.contains), feeds: parseList(cell.spec.feeds), callsOut,
+        unitName, detectedUnit, unitBody, unitBodyStart, unitFound, module: cellModule, group: cellGroup,
+        contains: parseList(cell.spec.contains), feeds: parseList(cell.spec.feeds), callsOut, callsDirect,
       };
     }
     perFile[rel] = { file, ana, covered };
@@ -126,6 +145,23 @@ function buildManifest(targetDir) {
     }
   }
   const moduleEdges = [...edgeSet].map((s) => s.split(' >> '));
+
+  // Reference resolution: a DIRECT call `foo()` should resolve to something defined
+  // in the project (any file's bindings/units), an import, or a known global. What's
+  // left is a dangling reference — a rename that broke a caller, a typo, a removed fn.
+  const declared = new Set(GLOBALS);
+  for (const rel of Object.keys(perFile)) {
+    const { ana } = perFile[rel];
+    if (!ana.ok) continue;
+    (ana.bindings || []).forEach((n) => declared.add(n));
+    (ana.units || []).forEach((u) => declared.add(shortName(u.name)));
+  }
+  // NB: resolve against ACTUAL code definitions (bindings/units) only — NOT the spec's
+  // claimed `unit:` names, nor claimed exports (publicNames), or a stale/broken
+  // `{ createState }` export would mask a caller that references a now-missing function.
+  for (const c of Object.values(cells)) {
+    c.unresolved = (c.callsDirect || []).filter((n) => !declared.has(n));
+  }
 
   computeInfluence(cells);
   return { root, cells, problems, untracked, moduleEdges };

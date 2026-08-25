@@ -188,7 +188,7 @@ function calleeName(callee) {
 
 function analyze(code) {
   const ast = parse(code);
-  if (!ast) return { ok: false, units: [], loose: [], calls: [], namespace: { name: null, publicNames: new Set() } };
+  if (!ast) return { ok: false, units: [], loose: [], calls: [], bindings: [], namespace: { name: null, publicNames: new Set() } };
   const units = [];
   const seen = new Set();
   const calls = new Set(); // short callee names used anywhere in the file → for the call graph
@@ -196,13 +196,16 @@ function analyze(code) {
   walk(ast, [], (node, ancestors) => {
     if (node.type === 'CallExpression') {
       const cn = calleeName(node.callee);
+      // A DIRECT call `foo(...)` (bare identifier) is resolvable to a definition;
+      // a member call `obj.foo(...)` is a method and can't be resolved statically.
+      const direct = node.callee && node.callee.type === 'Identifier' ? node.callee.name : null;
       if (cn) {
         calls.add(cn);
         // Attribute this call to the innermost named unit that encloses it, so we
         // get a UNIT-level call graph (who calls whom), not just a file-level one.
         for (let i = ancestors.length - 1; i >= 0; i--) {
           const rec = unitByNode.get(ancestors[i]);
-          if (rec) { rec.callsOut.add(cn); break; }
+          if (rec) { rec.callsOut.add(cn); if (direct) rec.callsDirect.add(direct); break; }
         }
       }
       return;
@@ -213,13 +216,36 @@ function analyze(code) {
     const key = named.name + '@' + node.loc.start.line;
     if (seen.has(key)) return;
     seen.add(key);
-    const rec = { name: named.name, kind: named.kind, startLine: node.loc.start.line, endLine: node.loc.end.line, container: containerOf(ancestors), callsOut: new Set() };
+    const rec = { name: named.name, kind: named.kind, startLine: node.loc.start.line, endLine: node.loc.end.line, container: containerOf(ancestors), callsOut: new Set(), callsDirect: new Set() };
     units.push(rec);
     unitByNode.set(node, rec); // pre-order: a unit is recorded before we descend into its body
   });
   units.sort((a, b) => a.startLine - b.startLine);
-  for (const u of units) u.callsOut = [...u.callsOut];
-  return { ok: true, units, loose: looseTopLevel(ast), calls: [...calls], namespace: namespaceOf(ast) };
+  for (const u of units) { u.callsOut = [...u.callsOut]; u.callsDirect = [...u.callsDirect]; }
+  return { ok: true, units, loose: looseTopLevel(ast), calls: [...calls], bindings: collectBindings(ast), namespace: namespaceOf(ast) };
+}
+
+// Every name BOUND anywhere in the file (function/class ids, variable declarators,
+// params — incl. destructured — imports, catch params). Used to decide whether a
+// direct call resolves to something defined (vs a dangling reference / typo).
+function collectBindings(ast) {
+  const b = new Set();
+  const addPat = (p) => {
+    if (!p) return;
+    if (p.type === 'Identifier') b.add(p.name);
+    else if (p.type === 'ObjectPattern') (p.properties || []).forEach((pr) => addPat(pr.value || pr.argument));
+    else if (p.type === 'ArrayPattern') (p.elements || []).forEach(addPat);
+    else if (p.type === 'AssignmentPattern') addPat(p.left);
+    else if (p.type === 'RestElement') addPat(p.argument);
+  };
+  walk(ast, [], (node) => {
+    if (node.type === 'FunctionDeclaration' || node.type === 'FunctionExpression' || node.type === 'ArrowFunctionExpression') { if (node.id) b.add(node.id.name); (node.params || []).forEach(addPat); }
+    else if (node.type === 'ClassDeclaration' || node.type === 'ClassExpression') { if (node.id) b.add(node.id.name); }
+    else if (node.type === 'VariableDeclarator') addPat(node.id);
+    else if (node.type === 'ImportDefaultSpecifier' || node.type === 'ImportNamespaceSpecifier' || node.type === 'ImportSpecifier') { if (node.local) b.add(node.local.name); }
+    else if (node.type === 'CatchClause') addPat(node.param);
+  });
+  return [...b];
 }
 
 // The unit a Cell governs = the nearest unit starting just after the marker.
