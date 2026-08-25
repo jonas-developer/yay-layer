@@ -113,6 +113,7 @@ const tmpP = fs.mkdtempSync(require('path').join(require('os').tmpdir(), 'con-')
 writeConstitution(tmpP, resolveKeys('claude'), 'phone');
 const conP = fs.readFileSync(require('path').join(tmpP, 'CLAUDE.md'), 'utf8');
 ok(/`yay sign`/.test(conP) && !/--phone/.test(conP) && /phone/.test(conP) && /returns a completed signature/.test(conP), 'constitution: phone project → plain `yay sign` (auto-phone) + auto-proceed');
+ok(/git commit/.test(conP) && /git push` unless/.test(conP), 'constitution: instructs commit-after-verify (durable seal + diff baseline), no auto-push');
 writeConstitution(tmpP, resolveKeys('agents'), 'local');
 const conL = fs.readFileSync(require('path').join(tmpP, 'AGENTS.md'), 'utf8');
 ok(/`yay sign`/.test(conL) && /passphrase/.test(conL), 'constitution: local project → plain `yay sign` (local key)');
