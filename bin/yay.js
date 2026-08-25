@@ -530,14 +530,22 @@ async function cmdSign(flags) {
     signer: name,
     items,
   };
-  // MISSION (Standard §5): a short prose record of what the human ordered, drafted by
-  // the AI and passed here, signed together with the specs → attributed + tamper-evident.
-  // Kept in the approval so canonical(approval) covers it on every signing path.
-  const missionText = (flags.mission && flags.mission !== true) ? String(flags.mission).trim()
+  // MISSION (Standard §5): a short prose record of what the human ordered, signed
+  // together with the specs → attributed + tamper-evident. It is the DEFAULT: a human
+  // at a TTY is prompted for it; automation (the AI) passes --mission; --no-mission is
+  // the explicit escape for a trivial re-sign. Kept in the approval so canonical(approval)
+  // covers it on every signing path.
+  let missionText = (flags.mission && flags.mission !== true) ? String(flags.mission).trim()
     : (flags['mission-file'] && flags['mission-file'] !== true && fs.existsSync(flags['mission-file'])) ? fs.readFileSync(flags['mission-file'], 'utf8').trim()
       : '';
+  if (!missionText && !flags['no-mission']) {
+    if (process.stdin.isTTY) {
+      console.log(U.c.accent('▸ ') + U.c.bold('Mission') + U.c.dim(' — in one line, what are you approving here (what you ordered)?'));
+      missionText = await ask('  mission: ');
+    }
+    if (!missionText) return fail('a Mission is required (Standard §5) — pass --mission "<what you ordered>", or --no-mission for a trivial re-sign.');
+  }
   if (missionText) approval.mission = { text: missionText, orderedBy: 'human (AI-drafted, human-approved)' };
-  else if (Object.keys(items).length > 1) console.log(U.c.dim('  tip: pass --mission "<what the human ordered>" to sign this change-set with a Mission (Standard §5) — the human-owned headline over these parts.'));
 
   const method = resolveSignMethod(config, p, name, flags);
   if (method === 'phone') {
@@ -1223,7 +1231,8 @@ const HELP = `yay — a protocol for provable, signed AI code
   yay reroot [--phone]        retire the current trust root and establish a new one (key lost/compromised)
   yay sign [--cell IDs]       approve specs using THIS project's method (phone or local) — no flag needed
                              override with --phone / --local · SSL on by default (--no-https) · --cell to sign a subset
-                             --mission "<what the human ordered>" attaches a signed Mission headline (editable on the phone)
+                             a Mission is required by default (Standard §5): --mission "<what you ordered>" supplies it
+                             (editable on the phone) · you're prompted if omitted at a terminal · --no-mission skips a trivial re-sign
   yay verify [--strict] [-d]  the gate — paint every Cell; -d/--details prints each spec, code & checks
                              --problems shows only non-green Cells · --no-mutate skips prover mutation grading
   yay plan [--provider anthropic|openai|custom] [--model m] [--base-url url]
