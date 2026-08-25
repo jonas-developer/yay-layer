@@ -101,15 +101,35 @@ function printQR(url) {
 function tlsCert(p, flags) {
   // HTTPS is the default (SSL over the LAN); --no-https opts out for plain http.
   if (flags['no-https']) return null;
-  const keyP = path.join(p.keys, 'tls.key'), crtP = path.join(p.keys, 'tls.crt');
+  const cp = require('child_process');
+  const ip = phone.lanIP();
+  fs.mkdirSync(p.keys, { recursive: true });
+  // The cert's SubjectAltName is bound to the current LAN IP; if we switched networks
+  // the cached cert would fail hostname validation, so track the IP and regenerate on change.
+  const freshFor = (crtP, ipP) => fs.existsSync(crtP) && fs.existsSync(ipP) && fs.readFileSync(ipP, 'utf8').trim() === ip;
+
+  // Prefer mkcert: a LOCALLY-TRUSTED cert → no browser warning (real server auth + encryption).
   try {
-    fs.mkdirSync(p.keys, { recursive: true });
-    if (!fs.existsSync(keyP) || !fs.existsSync(crtP)) {
-      const ip = phone.lanIP();
-      require('child_process').execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', keyP, '-out', crtP, '-days', '825', '-subj', '/CN=yaylayer', '-addext', 'subjectAltName=IP:' + ip + ',DNS:localhost'], { stdio: 'ignore' });
+    const caRoot = cp.execFileSync('mkcert', ['-CAROOT'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+    if (caRoot && fs.existsSync(path.join(caRoot, 'rootCA.pem'))) {
+      const keyP = path.join(p.keys, 'tls-mkcert.key'), crtP = path.join(p.keys, 'tls-mkcert.crt'), ipP = path.join(p.keys, 'tls-mkcert.ip');
+      if (!fs.existsSync(keyP) || !freshFor(crtP, ipP)) {
+        cp.execFileSync('mkcert', ['-key-file', keyP, '-cert-file', crtP, ip, 'localhost', '127.0.0.1', '::1'], { stdio: 'ignore' });
+        fs.writeFileSync(ipP, ip);
+      }
+      return { key: fs.readFileSync(keyP, 'utf8'), cert: fs.readFileSync(crtP, 'utf8'), trusted: true, caRoot, ip };
     }
-    return { key: fs.readFileSync(keyP, 'utf8'), cert: fs.readFileSync(crtP, 'utf8') };
-  } catch (_) { console.log(U.c.yellow('  ⚠ could not create an HTTPS cert (is openssl installed?) — falling back to http.')); return null; }
+  } catch (_) { /* mkcert absent → fall through to self-signed */ }
+
+  // Fallback: self-signed via openssl — still encrypted, but a one-time "not private" warning.
+  const keyP = path.join(p.keys, 'tls.key'), crtP = path.join(p.keys, 'tls.crt'), ipP = path.join(p.keys, 'tls.ip');
+  try {
+    if (!fs.existsSync(keyP) || !freshFor(crtP, ipP)) {
+      cp.execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', keyP, '-out', crtP, '-days', '825', '-subj', '/CN=yaylayer', '-addext', 'subjectAltName=IP:' + ip + ',DNS:localhost'], { stdio: 'ignore' });
+      fs.writeFileSync(ipP, ip);
+    }
+    return { key: fs.readFileSync(keyP, 'utf8'), cert: fs.readFileSync(crtP, 'utf8'), trusted: false, ip };
+  } catch (_) { console.log(U.c.yellow('  ⚠ could not create an HTTPS cert (is openssl installed?) — falling back to http. Pass --no-https to silence.')); return null; }
 }
 
 function args(argv) {
@@ -1122,7 +1142,13 @@ async function cmdDashboard(flags) {
   console.log('   ' + U.c.bold('this computer → ') + U.c.accent(s.local) + U.c.dim('   (the live map + buttons)'));
   console.log('   ' + U.c.bold('phone → ') + U.c.accent(s.url + '/phone') + U.c.dim('   (scan the QR below — same Wi-Fi as this computer)'));
   printQR(s.url + '/phone');
-  if (tls) console.log(U.c.dim('   https: tap through the one-time "not private" warning on the phone (Advanced → visit).'));
+  if (tls && tls.trusted) {
+    console.log(U.c.dim('   https: ') + U.c.green('locally-trusted cert (mkcert)') + U.c.dim(' — no warning on this computer.'));
+    console.log(U.c.dim('   phone warning-free (one-time): install the root CA → ') + U.c.accent(path.join(tls.caRoot, 'rootCA.pem')) + U.c.dim(' (AirDrop/open on the phone → install profile → Settings → General → About → Certificate Trust → enable).'));
+  } else if (tls) {
+    console.log(U.c.dim('   https: self-signed (encrypted) — tap through the one-time "not private" warning on the phone (Advanced → visit).'));
+    console.log(U.c.dim('   want no warning? install mkcert (') + U.c.accent('brew install mkcert') + U.c.dim(' && ') + U.c.accent('mkcert -install') + U.c.dim('), then restart — yay will use a trusted cert.'));
+  }
   const tc = resolveTestCmd(p.root, config, flags);
   console.log('   ' + U.c.dim('buttons (this computer): ') + U.c.bold('▶ Run tests') + U.c.dim(tc ? ` (${tc})` : ' (none)') + U.c.dim(' · ') + U.c.bold('⚔ Adversary') + U.c.dim(' · ') + U.c.bold('⟲ System Plan') + U.c.dim(' · ') + U.c.bold('≷ Changes'));
   console.log('   ' + U.c.dim('`yay sign` now routes here — the request pops up on your phone. Ctrl-C to stop.'));
