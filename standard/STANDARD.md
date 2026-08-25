@@ -74,7 +74,7 @@ Cell `intent:` is bottom-up and local; it doesn't record **what the human actual
 - **Scope-bound, so it can't drift.** Because the mission is signed together with its `items` (Cell ids + spec-hashes), the ledger can always show "Mission M covered C-011, C-030 at these hashes." Editing a covered Cell later puts it visibly outside the mission's approved scope (Unsigned), rather than silently riding an old mission.
 - **When to write one.** Recommended for any multi-Cell or multi-part change-set (the common case: a conversational "build X and Y" that touches several Cells). Optional for a trivial single-Cell tweak. Missions feed the System Plan and the decision log; they are a *view* and an *attribution record*, not a gate.
 
-*(Roadmap — not yet in the reference implementation.)*
+*(MVP: `yay sign --mission "…"` attaches the mission to the approval; the phone approve screen shows it as an editable header and signs the edited text; it is stored in the seal in `lock.json` and is tamper-evident via the signature. A dedicated Missions view in the map is roadmap.)*
 
 ## 6. Colors — two axes
 

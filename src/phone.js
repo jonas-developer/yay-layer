@@ -153,13 +153,17 @@ async function pairOverLan({ project, tls, genesis, challenge }) {
 // Signing: hand the phone the unsigned approval + a plain-language summary; it
 // signs canonical(approval) and posts the signature, which we verify.
 async function signOverLan({ project, approval, summary, expectPubB64, tls }) {
-  const canon = canonical(approval);
   const pubs = Array.isArray(expectPubB64) ? expectPubB64 : [expectPubB64]; // identity may hold several keys
   const s = await serve('approve', project, { approval, summary }, (body) => {
     const { signature } = body || {};
     if (!signature) return { error: 'missing signature' };
+    // If the phone edited the Mission (§5), verify against — and return — the edited text.
+    let target = approval;
+    const editedMission = (body.mission !== undefined && approval.mission);
+    if (editedMission) target = { ...approval, mission: { ...approval.mission, text: String(body.mission).trim() } };
+    const canon = canonical(target);
     if (!pubs.some((pub) => C.verify(canon, signature, pub))) return { error: 'signature did not verify against any enrolled key' };
-    return { ok: true, done: { signature } };
+    return { ok: true, done: editedMission ? { signature, mission: String(body.mission).trim() } : { signature } };
   }, { tls });
   return s;
 }

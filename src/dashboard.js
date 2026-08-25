@@ -115,11 +115,16 @@ function startDashboard(deps, opts) {
       if (!C.verify(pending.session.challenge, proof, pubB64)) return { error: 'key possession proof failed' };
       return { code: confirmCode(pubB64), done: { name: String(name), pubB64, proof, code: confirmCode(pubB64) } };
     }
-    // approve / authorize: verify the signature over the canonical approval/event
-    const canon = canonical(pending.session.approval || pending.session.event);
+    // approve / authorize: verify the signature over the canonical approval/event.
+    // If the phone edited the Mission text (§5), rebuild the approval with it so the
+    // signature is checked against — and the seal stores — exactly what was signed.
+    let target = pending.session.approval || pending.session.event;
+    const editedMission = (b && b.mission !== undefined && pending.session.approval && pending.session.approval.mission);
+    if (editedMission) target = { ...pending.session.approval, mission: { ...pending.session.approval.mission, text: String(b.mission).trim() } };
+    const canon = canonical(target);
     if (!b || !b.signature) return { error: 'missing signature' };
     if (!(pending.expectPubs || []).some((pub) => pub && C.verify(canon, b.signature, pub))) return { error: 'not signed by an authorized key on this phone' };
-    return { done: { signature: b.signature } };
+    return { done: editedMission ? { signature: b.signature, mission: String(b.mission).trim() } : { signature: b.signature } };
   }
   const handler = async (req, res) => {
     const url = req.url.split('?')[0];

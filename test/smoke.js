@@ -534,6 +534,34 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
   ok(certTrust.includes('Download the certificate') && /iPhone|iPad/.test(certTrust) && /Android/.test(certTrust), 'v2 cert: /trust is a guided install page for iOS + Android');
   certDash.close();
 
+  // Missions (Standard §5): a signed prose headline over a change-set, editable on the
+  // phone, tamper-evident because it rides inside the signed approval.
+  {
+    const mkp = C.generateKeypair();
+    const md = await startDashboard({ buildMapHTML: () => ({ html: '<html></html>', count: 0 }), version: () => 'A' }, { port: 0 });
+    const mbase = 'http://127.0.0.1:' + md.port;
+    const mpost = (path, b) => fetch(mbase + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b || {}) });
+    const mget = (path) => fetch(mbase + path).then((r) => r.json());
+    const mapproval = { id: 'A-1', project: 'm', prev: 'genesis', nonce: 'n1', at: '2026-01-01', signer: 'Alex', mission: { text: 'Original mission', orderedBy: 'human (AI-drafted, human-approved)' }, items: { 'C-1': 'hash1' } };
+    ok((await fetch(mbase + '/phone').then((r) => r.text())).includes('MISSION'), 'v2 mission: the phone signer page renders a MISSION card');
+    await mpost('/api/request', { mode: 'approve', approval: mapproval, summary: 'x', expectPubB64: [mkp.pubB64] });
+    ok((await mget('/api/session')).approval.mission.text === 'Original mission', 'v2 mission: the phone sees the mission inside the approval session');
+    ok((await mpost('/api/submit', { signature: C.sign(canonical(mapproval), mkp.privDer) })).status === 200, 'v2 mission: signing the unedited mission verifies');
+    await mpost('/api/final', { final: { ok: true } });
+    // an EDITED mission
+    await mpost('/api/request', { mode: 'approve', approval: mapproval, summary: 'x', expectPubB64: [mkp.pubB64] });
+    const medited = { ...mapproval, mission: { ...mapproval.mission, text: 'Edited by the human' } };
+    const msigE = C.sign(canonical(medited), mkp.privDer);
+    ok((await mpost('/api/submit', { signature: msigE })).status === 400, 'v2 mission: an edited-text signature is rejected unless the edit is declared (bytes must match)');
+    ok((await mpost('/api/submit', { signature: msigE, mission: 'Edited by the human' }).then((r) => r.json())).ok === true, 'v2 mission: a declared phone edit verifies against the rebuilt approval');
+    ok((await mget('/api/result')).result.mission === 'Edited by the human', 'v2 mission: the relay returns the edited mission text so the seal stores what was signed');
+    md.close();
+    // tamper-evidence: the seal covers the mission (canonical over the whole approval minus signature).
+    const msig = C.sign(canonical(mapproval), mkp.privDer);
+    ok(C.verify(canonical(mapproval), msig, mkp.pubB64) === true, 'v2 mission: a valid seal over the mission verifies');
+    ok(C.verify(canonical({ ...mapproval, mission: { ...mapproval.mission, text: 'sneaky change' } }), msig, mkp.pubB64) === false, 'v2 mission: editing the sealed mission text breaks the signature (tamper-evident)');
+  }
+
   // spec-only adversary: an LLM sees ONLY the spec (never the code) and tries to break it.
   const A = require('../src/adversary');
   const advDir = fs.mkdtempSync(require('path').join(os.tmpdir(), 'yay-adv-'));

@@ -530,6 +530,14 @@ async function cmdSign(flags) {
     signer: name,
     items,
   };
+  // MISSION (Standard §5): a short prose record of what the human ordered, drafted by
+  // the AI and passed here, signed together with the specs → attributed + tamper-evident.
+  // Kept in the approval so canonical(approval) covers it on every signing path.
+  const missionText = (flags.mission && flags.mission !== true) ? String(flags.mission).trim()
+    : (flags['mission-file'] && flags['mission-file'] !== true && fs.existsSync(flags['mission-file'])) ? fs.readFileSync(flags['mission-file'], 'utf8').trim()
+      : '';
+  if (missionText) approval.mission = { text: missionText, orderedBy: 'human (AI-drafted, human-approved)' };
+  else if (Object.keys(items).length > 1) console.log(U.c.dim('  tip: pass --mission "<what the human ordered>" to sign this change-set with a Mission (Standard §5) — the human-owned headline over these parts.'));
 
   const method = resolveSignMethod(config, p, name, flags);
   if (method === 'phone') {
@@ -553,6 +561,7 @@ async function cmdSign(flags) {
     const routed = await routeThroughDashboard(p, 'approve', { approval, summary, expectPubB64: pubs });
     if (routed && routed.busy) return;
     if (routed && routed.result) {
+      if (routed.result.mission !== undefined && approval.mission) approval.mission.text = routed.result.mission; // human edited it on the phone
       approval.signature = routed.result.signature;
       await dashboardFinal(routed.info, { ok: true, message: 'Signed ✓ — you can leave this open for the next request.' });
     } else {
@@ -566,6 +575,7 @@ async function cmdSign(flags) {
       console.log(U.c.dim(`   reviewing ${summary.length} change(s) as "${name}" · Ctrl-C to cancel · tip: run \`yay dashboard\` to scan once and skip the QR each time`));
       let r; try { r = await s.done; } finally { s.close(); }
       if (r && r.timedOut) return fail('no approval received in time — nothing was signed. Re-run when ready.');
+      if (r && r.mission !== undefined && approval.mission) approval.mission.text = r.mission; // human edited it on the phone
       approval.signature = r.signature;
     }
   } else {
@@ -582,6 +592,7 @@ async function cmdSign(flags) {
   lock.approvals.push(approval);
   U.writeJSON(p.lock, lock);
   console.log(U.c.green(`✓ signed ${Object.keys(items).length} Cell(s)`) + ` as "${name}" — approval ${approval.id}`);
+  if (approval.mission) console.log('  ' + U.c.bold('mission: ') + U.c.accent(approval.mission.text));
   console.log('  ' + U.c.dim('seal appended to .yaylayer/lock.json (commit this)'));
 }
 
@@ -1212,6 +1223,7 @@ const HELP = `yay — a protocol for provable, signed AI code
   yay reroot [--phone]        retire the current trust root and establish a new one (key lost/compromised)
   yay sign [--cell IDs]       approve specs using THIS project's method (phone or local) — no flag needed
                              override with --phone / --local · SSL on by default (--no-https) · --cell to sign a subset
+                             --mission "<what the human ordered>" attaches a signed Mission headline (editable on the phone)
   yay verify [--strict] [-d]  the gate — paint every Cell; -d/--details prints each spec, code & checks
                              --problems shows only non-green Cells · --no-mutate skips prover mutation grading
   yay plan [--provider anthropic|openai|custom] [--model m] [--base-url url]

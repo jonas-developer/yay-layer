@@ -49,6 +49,13 @@ h1{font-size:1.3rem;margin:4px 0 0}.sub{color:var(--mut);font-size:.85rem;font-f
 #status.ok{color:var(--green)}#status.err{color:var(--red)}
 .btn.alt{background:transparent;color:var(--accent);border:1px solid var(--rule);margin-top:10px}
 .link{display:inline-block;margin-top:14px;color:var(--accent);text-decoration:underline;cursor:pointer;font-size:.9rem}
+.mcard{border:2px solid var(--accent);border-radius:14px;padding:14px 16px;margin:0 0 18px;background:var(--card2)}
+.mcard .mlab{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px}
+.mcard .mtag{font-weight:800;letter-spacing:.11em;font-size:.72rem;color:var(--accent)}
+.mcard .medit{font-size:.8rem;background:none;border:0;color:var(--accent);text-decoration:underline;cursor:pointer;padding:0}
+.mcard .mtxt{font-size:1.08rem;line-height:1.45;color:var(--ink)}
+.mcard .marea{width:100%;font-size:1.02rem;line-height:1.45;padding:10px;border-radius:10px;border:1px solid var(--rule);background:var(--bg);color:var(--ink);font-family:var(--sans);min-height:88px}
+.mcard .msub{font-size:.78rem;color:var(--mut);margin-top:8px}
 .words{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin:12px 0}
 .word{font-family:var(--mono);font-size:.95rem;padding:9px 11px;background:var(--card2);border:1px solid var(--rule);border-radius:9px}
 .word i{color:var(--mut);font-style:normal;margin-right:8px;display:inline-block;min-width:1.4em;text-align:right}
@@ -277,15 +284,32 @@ function approveFlow(sess){
   var key=loadKey();
   if(!key){ h('<div class="msg">This phone has no key on this page yet — restore it from your recovery phrase, or run <b>yay pair</b>.</div><button id="rst" class="btn">Restore from recovery phrase</button>'); document.getElementById('rst').onclick=function(){restoreFlow(sess);}; return; }
   var rows=(sess.summary||[]).map(function(c,i){var ed=(c.diff&&c.diff.length)?' <span class="edited">edited</span>':'';return '<div class="crow"><div class="cell tap" data-i="'+i+'"><span class="dot" style="background:'+(c.color||'#888')+'"></span><div><div class="cid">'+esc(c.id)+' · '+esc(c.unit||'')+ed+'</div><div class="cin">'+esc(c.intent||'')+'</div></div><span class="col">'+esc(c.state||'')+'<span class="caret">▸</span></span></div><div class="detailwrap" id="d'+i+'" style="display:none">'+detailHTML(c)+'</div></div>';}).join('');
-  h('<div class="msg">Approve these <b>'+((sess.summary||[]).length)+'</b> change(s) — tap a Cell to see its spec:</div>'+rows+'<button id="go" class="btn" style="margin-top:16px">Approve &amp; sign</button>');
+  // MISSION header (Standard §5): the human-owned headline over these parts. Editable
+  // before signing so the wording is the human's, not the AI's paraphrase; the edited
+  // text is what gets signed (canonical(approval) is rebuilt with it below).
+  var mission=sess.approval&&sess.approval.mission;
+  var missionCard=mission?('<div class="mcard"><div class="mlab"><span class="mtag">MISSION</span><button id="medit" class="medit">Edit</button></div>'
+    +'<div id="mtxt" class="mtxt">'+esc(mission.text)+'</div>'
+    +'<div class="msub">covers '+((sess.summary||[]).length)+' part(s) · you are approving this</div></div>'):'';
+  h(missionCard+'<div class="msg">Approve these <b>'+((sess.summary||[]).length)+'</b> change(s) — tap a Cell to see its spec:</div>'+rows+'<button id="go" class="btn" style="margin-top:16px">Approve &amp; sign</button>');
+  var editing=false;
+  if(mission){document.getElementById('medit').onclick=function(){
+    var box=document.getElementById('mtxt');
+    if(!editing){editing=true;this.textContent='Done';var t=box.textContent;box.outerHTML='<textarea id="mtxt" class="marea">'+esc(t)+'</textarea>';document.getElementById('mtxt').focus();}
+    else{editing=false;this.textContent='Edit';var v=document.getElementById('mtxt').value;box.outerHTML='<div id="mtxt" class="mtxt">'+esc(v)+'</div>';}
+  };}
+  function missionValue(){var el=document.getElementById('mtxt');if(!el)return null;return editing?el.value:el.textContent;}
   var taps=document.querySelectorAll('.cell.tap');
   for(var ti=0;ti<taps.length;ti++){(function(el){el.onclick=function(){var d=document.getElementById('d'+el.getAttribute('data-i'));var open=d.style.display!=='none';d.style.display=open?'none':'block';var car=el.querySelector('.caret');if(car)car.textContent=open?'▸':'▾';};})(taps[ti]);}
   document.getElementById('go').onclick=async function(){
     try{
       var sec=await getSecret(key);
       setStatus('Signing…');
-      var sig=signStr(sec,canonical(sess.approval));
-      var res=await api('/api/submit',{signature:sig});
+      var toSign=sess.approval;
+      var mv=missionValue();
+      if(mission&&mv!=null){mv=String(mv).trim();toSign=JSON.parse(JSON.stringify(sess.approval));toSign.mission.text=mv;}
+      var sig=signStr(sec,canonical(toSign));
+      var res=await api('/api/submit',mission?{signature:sig,mission:(mv!=null?String(mv).trim():mission.text)}:{signature:sig});
       if(res.error){ setStatus('Rejected: '+res.error,'err'); return; }
       h('<div class="ok-big">✓ Signed</div><div class="msg">Done — you can close this. The laptop has the seal.</div>');
       setStatus('Signed','ok');
