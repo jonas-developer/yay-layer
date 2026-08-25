@@ -64,6 +64,10 @@ function serve(mode, project, sessionData, onPost, opts) {
   let final = null, resolveSettled;
   const settled = new Promise((r) => { resolveSettled = r; });
   const html = signerHTML({ mode, project });
+  // Auto-close if nobody completes it, so an abandoned server can't linger holding
+  // the stable port (which would push the next sign onto a new origin → lost key).
+  const timeoutMs = (opts && opts.timeoutMs) || Number(process.env.YAY_PHONE_TIMEOUT_MS) || 600000;
+  let timer = null;
 
   const handler = async (req, res) => {
     const url = req.url.split('?')[0];
@@ -94,8 +98,11 @@ function serve(mode, project, sessionData, onPost, opts) {
   return new Promise((resolve, reject) => {
     const mk = (port) => ({
       url: `${scheme}://${lanIP()}:${port}`, local: `${scheme}://localhost:${port}`, port, done, settled,
+      // fellBack: we could not get the stable port → the phone address changed and
+      // its saved key may be invisible (caller warns the user).
+      fellBack: PHONE_PORT !== 0 && port !== PHONE_PORT,
       setFinal: (f) => { final = f; },
-      close: () => server.close(),
+      close: () => { if (timer) clearTimeout(timer); server.close(); },
     });
     const bind = (port, triesLeft) => {
       const onErr = (e) => {
@@ -103,7 +110,12 @@ function serve(mode, project, sessionData, onPost, opts) {
         else reject(e);
       };
       server.once('error', onErr);
-      server.listen(port, '0.0.0.0', () => { server.removeListener('error', onErr); resolve(mk(server.address().port)); });
+      server.listen(port, '0.0.0.0', () => {
+        server.removeListener('error', onErr);
+        timer = setTimeout(() => { resolveDone({ timedOut: true }); try { server.close(); } catch (_) {} }, timeoutMs);
+        if (timer.unref) timer.unref();
+        resolve(mk(server.address().port));
+      });
     };
     bind(PHONE_PORT, 6);
   });

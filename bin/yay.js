@@ -499,9 +499,11 @@ async function cmdSign(flags) {
     console.log('\n' + U.c.bold('Approve on your phone') + ' — scan with your phone camera (same Wi-Fi):');
     console.log('   ' + U.c.accent(s.url) + U.c.dim('   (or ' + s.local + ' on this computer)'));
     printQR(s.url);
+    if (s.fellBack) console.log(U.c.yellow('   ⚠ port 8787 was busy (another yay sign/serve running?) — using a different address; your phone may ask to Restore.'));
     if (tls) console.log(U.c.dim('   https: tap through the one-time "not private" warning (Advanced → visit).'));
     console.log(U.c.dim(`   reviewing ${summary.length} change(s) as "${name}" · Ctrl-C to cancel`));
     let r; try { r = await s.done; } finally { s.close(); }
+    if (r && r.timedOut) return fail('no approval received in time — nothing was signed. Re-run when ready.');
     approval.signature = r.signature;
   } else {
     const ksPath = path.join(p.keys, `${name}.keystore`);
@@ -536,6 +538,7 @@ async function runPairing(p, config, flags) {
   console.log('\n' + U.c.bold('Pair your phone') + ' — scan with your phone camera (same Wi-Fi):');
   console.log('   ' + U.c.accent(s.url) + U.c.dim('   (or ' + s.local + ' on this computer)'));
   printQR(s.url);
+  if (s.fellBack) console.log(U.c.yellow('   ⚠ port 8787 was busy (another yay sign/serve running?) — using a different address; the phone may ask to Restore.'));
   if (tls) console.log(U.c.dim('   https: tap through the one-time "not private" warning (Advanced → visit).'));
   console.log(U.c.dim('   create your key there; it shows a 6-digit code. (Ctrl-C to cancel.)'));
   // Keep the server alive through confirmation so the phone can poll the outcome
@@ -543,6 +546,7 @@ async function runPairing(p, config, flags) {
   const finishPhone = async (finalMsg) => { s.setFinal(finalMsg); await Promise.race([s.settled, new Promise((res) => setTimeout(res, 8000))]); };
   try {
     const r = await s.done;
+    if (r && r.timedOut) { console.log(U.c.red('  pairing timed out — no phone responded.')); return false; }
     const name = nameFlag || r.name;
     console.log('\n  Your phone should show code: ' + U.c.bold(r.code));
     const ans = await ask('  Does it match exactly? (y/N): ');
@@ -639,9 +643,11 @@ async function authorizeRosterEvent(p, config, log, ev, flags, summary) {
   console.log('\n' + U.c.bold('Authorize on an owner’s phone') + ' — scan (same Wi-Fi):');
   console.log('   ' + U.c.accent(s.url) + U.c.dim('   (or ' + s.local + ' on this computer)'));
   printQR(s.url);
+  if (s.fellBack) console.log(U.c.yellow('   ⚠ port 8787 was busy — using a different address; the phone may ask to Restore.'));
   if (tls) console.log(U.c.dim('   https: tap through the one-time "not private" warning.'));
   console.log(U.c.dim('   review the change on the phone and approve. (Ctrl-C to cancel.)'));
   let r; try { r = await s.done; } finally { s.close(); }
+  if (r && r.timedOut) { console.log(U.c.red('  authorization timed out — no phone responded.')); return null; }
   ev.signature = r.signature;
   return ev;
 }
