@@ -534,7 +534,7 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
   ok(certTrust.includes('Download the certificate') && /iPhone|iPad/.test(certTrust) && /Android/.test(certTrust), 'v2 cert: /trust is a guided install page for iOS + Android');
   certDash.close();
 
-  // Missions (Standard §5): a signed prose headline over a change-set, editable on the
+  // Briefs (Standard §5): a signed prose headline over a change-set, editable on the
   // phone, tamper-evident because it rides inside the signed approval.
   {
     const mkp = C.generateKeypair();
@@ -542,46 +542,47 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     const mbase = 'http://127.0.0.1:' + md.port;
     const mpost = (path, b) => fetch(mbase + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b || {}) });
     const mget = (path) => fetch(mbase + path).then((r) => r.json());
-    const mapproval = { id: 'A-1', project: 'm', prev: 'genesis', nonce: 'n1', at: '2026-01-01', signer: 'Alex', mission: { text: 'Original mission', orderedBy: 'human (AI-drafted, human-approved)' }, items: { 'C-1': 'hash1' } };
-    ok((await fetch(mbase + '/phone').then((r) => r.text())).includes('MISSION'), 'v2 mission: the phone signer page renders a MISSION card');
+    const mapproval = { id: 'A-1', project: 'm', prev: 'genesis', nonce: 'n1', at: '2026-01-01', signer: 'Alex', brief: { text: 'Original brief', orderedBy: 'human (AI-drafted, human-approved)' }, items: { 'C-1': 'hash1' } };
+    ok((await fetch(mbase + '/phone').then((r) => r.text())).includes('BRIEF'), 'v2 brief: the phone signer page renders a BRIEF card');
     await mpost('/api/request', { mode: 'approve', approval: mapproval, summary: 'x', expectPubB64: [mkp.pubB64] });
-    ok((await mget('/api/session')).approval.mission.text === 'Original mission', 'v2 mission: the phone sees the mission inside the approval session');
-    ok((await mpost('/api/submit', { signature: C.sign(canonical(mapproval), mkp.privDer) })).status === 200, 'v2 mission: signing the unedited mission verifies');
+    ok((await mget('/api/session')).approval.brief.text === 'Original brief', 'v2 brief: the phone sees the brief inside the approval session');
+    ok((await mpost('/api/submit', { signature: C.sign(canonical(mapproval), mkp.privDer) })).status === 200, 'v2 brief: signing the unedited brief verifies');
     await mpost('/api/final', { final: { ok: true } });
-    // an EDITED mission
+    // an EDITED brief
     await mpost('/api/request', { mode: 'approve', approval: mapproval, summary: 'x', expectPubB64: [mkp.pubB64] });
-    const medited = { ...mapproval, mission: { ...mapproval.mission, text: 'Edited by the human' } };
+    const medited = { ...mapproval, brief: { ...mapproval.brief, text: 'Edited by the human' } };
     const msigE = C.sign(canonical(medited), mkp.privDer);
-    ok((await mpost('/api/submit', { signature: msigE })).status === 400, 'v2 mission: an edited-text signature is rejected unless the edit is declared (bytes must match)');
-    ok((await mpost('/api/submit', { signature: msigE, mission: 'Edited by the human' }).then((r) => r.json())).ok === true, 'v2 mission: a declared phone edit verifies against the rebuilt approval');
-    ok((await mget('/api/result')).result.mission === 'Edited by the human', 'v2 mission: the relay returns the edited mission text so the seal stores what was signed');
+    ok((await mpost('/api/submit', { signature: msigE })).status === 400, 'v2 brief: an edited-text signature is rejected unless the edit is declared (bytes must match)');
+    ok((await mpost('/api/submit', { signature: msigE, brief: 'Edited by the human' }).then((r) => r.json())).ok === true, 'v2 brief: a declared phone edit verifies against the rebuilt approval');
+    ok((await mget('/api/result')).result.brief === 'Edited by the human', 'v2 brief: the relay returns the edited brief text so the seal stores what was signed');
     md.close();
-    // tamper-evidence: the seal covers the mission (canonical over the whole approval minus signature).
+    // tamper-evidence: the seal covers the brief (canonical over the whole approval minus signature).
     const msig = C.sign(canonical(mapproval), mkp.privDer);
-    ok(C.verify(canonical(mapproval), msig, mkp.pubB64) === true, 'v2 mission: a valid seal over the mission verifies');
-    ok(C.verify(canonical({ ...mapproval, mission: { ...mapproval.mission, text: 'sneaky change' } }), msig, mkp.pubB64) === false, 'v2 mission: editing the sealed mission text breaks the signature (tamper-evident)');
+    ok(C.verify(canonical(mapproval), msig, mkp.pubB64) === true, 'v2 brief: a valid seal over the brief verifies');
+    ok(C.verify(canonical({ ...mapproval, brief: { ...mapproval.brief, text: 'sneaky change' } }), msig, mkp.pubB64) === false, 'v2 brief: editing the sealed brief text breaks the signature (tamper-evident)');
   }
 
   // Dashboard Sign button: human-initiated sign that pushes to the phone (key stays there).
   {
-    let gotMission = null;
-    const sd = await startDashboard({ buildMapHTML: () => ({ html: '<html></html>', count: 0 }), version: () => 'A', signPending: (m) => { gotMission = m; return Promise.resolve({ ok: true, output: 'signed' }); } }, { port: 0 });
+    let gotBrief = null;
+    const sd = await startDashboard({ buildMapHTML: () => ({ html: '<html></html>', count: 0 }), version: () => 'A', signPending: (m) => { gotBrief = m; return Promise.resolve({ ok: true, output: 'signed' }); } }, { port: 0 });
     const sb = 'http://127.0.0.1:' + sd.port;
     const sp = (path, b) => fetch(sb + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b || {}) });
-    ok((await sp('/api/sign/start', {})).status === 400, 'v2 sign-button: /api/sign/start requires a mission (400 without one)');
-    const sres = await sp('/api/sign/start', { mission: 'Do the thing' }).then((r) => r.json());
-    ok(sres.ok === true && gotMission === 'Do the thing', 'v2 sign-button: /api/sign/start invokes signPending with the mission');
+    ok((await sp('/api/sign/start', {})).status === 400, 'v2 sign-button: /api/sign/start requires a brief (400 without one)');
+    const sres = await sp('/api/sign/start', { brief: 'Do the thing' }).then((r) => r.json());
+    ok(sres.ok === true && gotBrief === 'Do the thing', 'v2 sign-button: /api/sign/start invokes signPending with the brief');
     ok((await fetch(sb + '/').then((r) => r.text())).includes('yd-sign'), 'v2 sign-button: the live dashboard bar has a Sign button');
     sd.close();
   }
 
-  // Missions ledger renders as a tab in the map (the readable history of what was ordered).
+  // Briefs ledger renders as a tab in the map (the readable history of what was ordered).
   {
     const { renderMap } = require('../src/map');
     const mhtml = renderMap({ root: '/tmp', cells: {} }, { results: {}, counts: {}, passed: true }, 'demo', [], {}, null, { signedRoster: true, rootFp: 'A', signers: [] }, [{ id: 'A-2', at: '2026-08-25', signer: 'Alex', text: 'Persist the high score between sessions', cells: ['C-1', 'C-2'] }]);
-    ok(mhtml.includes('data-tab="missions"') && mhtml.includes('renderMissions'), 'v2 missions-tab: the map renders a Missions tab');
-    ok(mhtml.includes('Persist the high score between sessions'), 'v2 missions-tab: the ledger embeds the mission text');
-    ok(mhtml.includes("querySelectorAll('.mcell.known')") && mhtml.includes('openDetail(ch.getAttribute'), 'v2 missions-tab: mission cells are clickable chips that open the Cell detail');
+    ok(mhtml.includes('data-tab="briefs"') && mhtml.includes('renderBriefs'), 'v2 briefs-tab: the map renders a Briefs tab');
+    ok(mhtml.includes('Persist the high score between sessions'), 'v2 briefs-tab: the ledger embeds the brief text');
+    ok(mhtml.includes("querySelectorAll('.mcell.known')") && mhtml.includes('openDetail(ch.getAttribute'), 'v2 briefs-tab: brief cells are clickable chips that open the Cell detail');
+    ok(mhtml.includes('seal invalid') && mhtml.includes('✓ signed') && mhtml.includes('m.valid'), 'v2 briefs-tab: the ledger marks each brief valid (✓ signed) or tampered (⚠ seal invalid)');
   }
 
   // spec-only adversary: an LLM sees ONLY the spec (never the code) and tries to break it.

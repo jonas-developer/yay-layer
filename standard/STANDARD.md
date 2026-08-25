@@ -57,24 +57,24 @@ Signatures are **ed25519**. A seal is a signature over the canonical bytes of an
 ```json
 { "id":"A-0007", "project":"…", "prev":"A-0006", "nonce":"…",
   "at":"…", "signer":"alice",
-  "mission": { "text":"Add pause/resume to the game loop and persist the high score between sessions.",
+  "brief": { "text":"Add pause/resume to the game loop and persist the high score between sessions.",
                "orderedBy":"human (AI-drafted, human-approved)" },
   "items": { "C-040":"<specHash>", … } }
 ```
 
-One signature covers a whole change-set (`items` may hold one Cell or a hundred). When the change-set carries a **mission** (§5), its text is part of these signed bytes — so the human's intent is attributed and tamper-evident, cryptographically bound to the exact Cells and hashes approved. The lock (`.yaylayer/lock.json`) is an append-only chain (`prev`), and both it and the roster (`config.json`, holding **public** keys) are committed. Private keys never are.
+One signature covers a whole change-set (`items` may hold one Cell or a hundred). When the change-set carries a **brief** (§5), its text is part of these signed bytes — so the human's intent is attributed and tamper-evident, cryptographically bound to the exact Cells and hashes approved. The lock (`.yaylayer/lock.json`) is an append-only chain (`prev`), and both it and the roster (`config.json`, holding **public** keys) are committed. Private keys never are.
 
-## 5. Missions
+## 5. Briefs
 
-Cell `intent:` is bottom-up and local; it doesn't record **what the human actually ordered**. A **Mission** is that top-down layer: a short prose statement of the human's intent for a change-set, drafted by the AI, edited and approved by the human, and signed as part of the approval (§4).
+Cell `intent:` is bottom-up and local; it doesn't record **what the human actually ordered**. A **Brief** is that top-down layer: a short prose statement of the human's intent for a change-set, drafted by the AI, edited and approved by the human, and signed as part of the approval (§4).
 
-- **Shape.** A mission has `text` (the human's intent, one short paragraph) and covers the exact Cell set + spec-hashes of its approval. It is date-stamped (`at`) and attributed (`signer`) by the seal it rides in. Missions form an append-only log across approvals — the project's plain-English history of what was commissioned, when, by whom.
-- **AI drafts, human owns.** The AI writes the mission as its best understanding of the request — *fine-tuned, not the human's verbatim words* — and the human **must be able to edit it before signing**. The point is that it reflects the human's intent, not the AI's paraphrase. An unedited-but-approved mission is still the human's, because they signed it.
-- **Intent lane, never verification.** A mission is prose: like `intent:`, it is human/AI-judged and **can never earn or lift a color to Green**. It describes and attributes; it does not prove anything. Machine fields still do all verification. This keeps missions clear of "false green."
-- **Scope-bound, so it can't drift.** Because the mission is signed together with its `items` (Cell ids + spec-hashes), the ledger can always show "Mission M covered C-011, C-030 at these hashes." Editing a covered Cell later puts it visibly outside the mission's approved scope (Unsigned), rather than silently riding an old mission.
-- **Default, not optional.** A mission is **required by default** on every approval — the AI must draft one, and `yay sign` prompts a human for it if omitted. The only escape is an explicit `--no-mission` for a trivial re-sign (e.g. re-approving after a pure refactor). Missions feed the System Plan and the decision log; they are a *view* and an *attribution record*, not a gate.
+- **Shape.** A brief has `text` (the human's intent, one short paragraph) and covers the exact Cell set + spec-hashes of its approval. It is date-stamped (`at`) and attributed (`signer`) by the seal it rides in. Briefs form an append-only log across approvals — the project's plain-English history of what was commissioned, when, by whom.
+- **AI drafts, human owns.** The AI writes the brief as its best understanding of the request — *fine-tuned, not the human's verbatim words* — and the human **must be able to edit it before signing**. The point is that it reflects the human's intent, not the AI's paraphrase. An unedited-but-approved brief is still the human's, because they signed it.
+- **Intent lane, never verification.** A brief is prose: like `intent:`, it is human/AI-judged and **can never earn or lift a color to Green**. It describes and attributes; it does not prove anything. Machine fields still do all verification. This keeps briefs clear of "false green."
+- **Scope-bound, so it can't drift.** Because the brief is signed together with its `items` (Cell ids + spec-hashes), the ledger can always show "Brief M covered C-011, C-030 at these hashes." Editing a covered Cell later puts it visibly outside the brief's approved scope (Unsigned), rather than silently riding an old brief.
+- **Default, not optional.** A brief is **required by default** on every approval — the AI must draft one, and `yay sign` prompts a human for it if omitted. The only escape is an explicit `--no-brief` for a trivial re-sign (e.g. re-approving after a pure refactor). Briefs feed the System Plan and the decision log; they are a *view* and an *attribution record*, not a gate.
 
-*(MVP: `yay sign --mission "…"` attaches the mission to the approval; the phone approve screen shows it as an editable header and signs the edited text; it is stored in the seal in `lock.json` and is tamper-evident via the signature. A dedicated Missions view in the map is roadmap.)*
+*(MVP: `yay sign --brief "…"` attaches the brief to the approval; the phone approve screen shows it as an editable header and signs the edited text; it is stored in the seal in `lock.json` and is tamper-evident via the signature. A dedicated Briefs view in the map is roadmap.)*
 
 ## 6. Colors — two axes
 

@@ -157,13 +157,13 @@ async function signOverLan({ project, approval, summary, expectPubB64, tls }) {
   const s = await serve('approve', project, { approval, summary }, (body) => {
     const { signature } = body || {};
     if (!signature) return { error: 'missing signature' };
-    // If the phone edited the Mission (§5), verify against — and return — the edited text.
+    // If the phone edited the Brief (§5), verify against — and return — the edited text.
     let target = approval;
-    const editedMission = (body.mission !== undefined && approval.mission);
-    if (editedMission) target = { ...approval, mission: { ...approval.mission, text: String(body.mission).trim() } };
+    const editedBrief = (body.brief !== undefined && approval.brief);
+    if (editedBrief) target = { ...approval, brief: { ...approval.brief, text: String(body.brief).trim() } };
     const canon = canonical(target);
     if (!pubs.some((pub) => C.verify(canon, signature, pub))) return { error: 'signature did not verify against any enrolled key' };
-    return { ok: true, done: editedMission ? { signature, mission: String(body.mission).trim() } : { signature } };
+    return { ok: true, done: editedBrief ? { signature, brief: String(body.brief).trim() } : { signature } };
   }, { tls });
   return s;
 }

@@ -530,22 +530,26 @@ async function cmdSign(flags) {
     signer: name,
     items,
   };
-  // MISSION (Standard §5): a short prose record of what the human ordered, signed
+  // BRIEF (Standard §5): a short prose record of what the human ordered, signed
   // together with the specs → attributed + tamper-evident. It is the DEFAULT: a human
-  // at a TTY is prompted for it; automation (the AI) passes --mission; --no-mission is
+  // at a TTY is prompted for it; automation (the AI) passes --brief; --no-brief is
   // the explicit escape for a trivial re-sign. Kept in the approval so canonical(approval)
   // covers it on every signing path.
-  let missionText = (flags.mission && flags.mission !== true) ? String(flags.mission).trim()
-    : (flags['mission-file'] && flags['mission-file'] !== true && fs.existsSync(flags['mission-file'])) ? fs.readFileSync(flags['mission-file'], 'utf8').trim()
+  // Accept the old --mission spellings as aliases (a CLAUDE.md written before the rename).
+  const briefFlag = (flags.brief && flags.brief !== true) ? flags.brief : ((flags.mission && flags.mission !== true) ? flags.mission : null);
+  const briefFileFlag = (flags['brief-file'] && flags['brief-file'] !== true) ? flags['brief-file'] : ((flags['mission-file'] && flags['mission-file'] !== true) ? flags['mission-file'] : null);
+  const noBrief = flags['no-brief'] || flags['no-mission'];
+  let briefText = briefFlag ? String(briefFlag).trim()
+    : (briefFileFlag && fs.existsSync(briefFileFlag)) ? fs.readFileSync(briefFileFlag, 'utf8').trim()
       : '';
-  if (!missionText && !flags['no-mission']) {
+  if (!briefText && !noBrief) {
     if (process.stdin.isTTY) {
-      console.log(U.c.accent('▸ ') + U.c.bold('Mission') + U.c.dim(' — in one line, what are you approving here (what you ordered)?'));
-      missionText = await ask('  mission: ');
+      console.log(U.c.accent('▸ ') + U.c.bold('Brief') + U.c.dim(' — in one line, what are you approving here (what you ordered)?'));
+      briefText = await ask('  brief: ');
     }
-    if (!missionText) return fail('a Mission is required (Standard §5) — pass --mission "<what you ordered>", or --no-mission for a trivial re-sign.');
+    if (!briefText) return fail('a Brief is required (Standard §5) — pass --brief "<what you ordered>", or --no-brief for a trivial re-sign.');
   }
-  if (missionText) approval.mission = { text: missionText, orderedBy: 'human (AI-drafted, human-approved)' };
+  if (briefText) approval.brief = { text: briefText, orderedBy: 'human (AI-drafted, human-approved)' };
 
   const method = resolveSignMethod(config, p, name, flags);
   if (method === 'phone') {
@@ -569,7 +573,7 @@ async function cmdSign(flags) {
     const routed = await routeThroughDashboard(p, 'approve', { approval, summary, expectPubB64: pubs });
     if (routed && routed.busy) return;
     if (routed && routed.result) {
-      if (routed.result.mission !== undefined && approval.mission) approval.mission.text = routed.result.mission; // human edited it on the phone
+      if (routed.result.brief !== undefined && approval.brief) approval.brief.text = routed.result.brief; // human edited it on the phone
       approval.signature = routed.result.signature;
       await dashboardFinal(routed.info, { ok: true, message: 'Signed ✓ — you can leave this open for the next request.' });
     } else {
@@ -583,7 +587,7 @@ async function cmdSign(flags) {
       console.log(U.c.dim(`   reviewing ${summary.length} change(s) as "${name}" · Ctrl-C to cancel · tip: run \`yay dashboard\` to scan once and skip the QR each time`));
       let r; try { r = await s.done; } finally { s.close(); }
       if (r && r.timedOut) return fail('no approval received in time — nothing was signed. Re-run when ready.');
-      if (r && r.mission !== undefined && approval.mission) approval.mission.text = r.mission; // human edited it on the phone
+      if (r && r.brief !== undefined && approval.brief) approval.brief.text = r.brief; // human edited it on the phone
       approval.signature = r.signature;
     }
   } else {
@@ -600,7 +604,7 @@ async function cmdSign(flags) {
   lock.approvals.push(approval);
   U.writeJSON(p.lock, lock);
   console.log(U.c.green(`✓ signed ${Object.keys(items).length} Cell(s)`) + ` as "${name}" — approval ${approval.id}`);
-  if (approval.mission) console.log('  ' + U.c.bold('mission: ') + U.c.accent(approval.mission.text));
+  if (approval.brief) console.log('  ' + U.c.bold('brief: ') + U.c.accent(approval.brief.text));
   console.log('  ' + U.c.dim('seal appended to .yaylayer/lock.json (commit this)'));
 }
 
@@ -1055,11 +1059,19 @@ function buildMapHTML(p, config, lock, flags) {
       keys: pubs.map((pub) => ({ fp: rosterMod.fingerprint(pub), kind: (kindByPub[pub] && kindByPub[pub].kind) || '', addedAt: (kindByPub[pub] && kindByPub[pub].addedAt) || null })) };
   });
   const gov = { signedRoster: !!(rlog && rlog.events && rlog.events.length), rootFp: drv.rootFp, problems: drv.problems, signers };
-  // Missions ledger (Standard §5): every approval that carries a mission, newest first.
-  const missions = (lock.approvals || []).filter((a) => a.mission && a.mission.text).map((a) => ({
-    id: a.id, at: a.at, signer: a.signer, text: a.mission.text, orderedBy: (a.mission.orderedBy || ''), cells: Object.keys(a.items || {}),
-  })).reverse();
-  return { html: renderMap(manifest, verified, config && config.project, changes, times, planDoc, gov, missions), count: Object.keys(verified.results).length };
+  // Briefs ledger (Standard §5): every approval that carries a brief, newest first.
+  // `a.mission` is read for back-compat — briefs signed before the rename stored the
+  // field as `mission`; their seals still verify (canonical covers whatever key is stored).
+  // Each brief's seal is re-verified here so the ledger can flag a tampered/forged one.
+  const briefs = (lock.approvals || []).filter((a) => (a.brief && a.brief.text) || (a.mission && a.mission.text)).map((a) => {
+    const b = a.brief || a.mission;
+    const { signature, ...rest } = a;
+    const trustedPubs = (drv.roster && drv.roster[a.signer]) || U.pubKeysOf(cfgSigners[a.signer]) || [];
+    let valid = false;
+    try { valid = !!signature && trustedPubs.some((pub) => pub && C.verify(U.canonical(rest), signature, pub)); } catch (_) { valid = false; }
+    return { id: a.id, at: a.at, signer: a.signer, text: b.text, orderedBy: (b.orderedBy || ''), cells: Object.keys(a.items || {}), valid };
+  }).reverse();
+  return { html: renderMap(manifest, verified, config && config.project, changes, times, planDoc, gov, briefs), count: Object.keys(verified.results).length };
 }
 
 // A cheap fingerprint of the state the map depends on, so the dashboard can tell
@@ -1153,11 +1165,11 @@ async function cmdDashboard(flags) {
         const res = await adversaryManifest(m, auth);
         return { results: Object.keys(res).map((id) => ({ id, unit: (m.cells[id].unitName || ''), ...res[id] })) };
       },
-      // Human-initiated sign from the dashboard: run `yay sign --mission "…"` as a child,
+      // Human-initiated sign from the dashboard: run `yay sign --brief "…"` as a child,
       // which discovers THIS dashboard (via .yaylayer/dashboard.json) and routes the request
-      // to the phone. Reuses the whole sign path (mission, verify summary, seal-writing).
-      signPending: (mission) => new Promise((resolve) => {
-        const child = require('child_process').spawn(process.execPath, [process.argv[1], 'sign', '--mission', mission], { cwd: p.root });
+      // to the phone. Reuses the whole sign path (brief, verify summary, seal-writing).
+      signPending: (brief) => new Promise((resolve) => {
+        const child = require('child_process').spawn(process.execPath, [process.argv[1], 'sign', '--brief', brief], { cwd: p.root });
         let out = '';
         child.stdout.on('data', (d) => { out += d; });
         child.stderr.on('data', (d) => { out += d; });
@@ -1248,8 +1260,8 @@ const HELP = `yay — a protocol for provable, signed AI code
   yay reroot [--phone]        retire the current trust root and establish a new one (key lost/compromised)
   yay sign [--cell IDs]       approve specs using THIS project's method (phone or local) — no flag needed
                              override with --phone / --local · SSL on by default (--no-https) · --cell to sign a subset
-                             a Mission is required by default (Standard §5): --mission "<what you ordered>" supplies it
-                             (editable on the phone) · you're prompted if omitted at a terminal · --no-mission skips a trivial re-sign
+                             a Brief is required by default (Standard §5): --brief "<what you ordered>" supplies it
+                             (editable on the phone) · you're prompted if omitted at a terminal · --no-brief skips a trivial re-sign
   yay verify [--strict] [-d]  the gate — paint every Cell; -d/--details prints each spec, code & checks
                              --problems shows only non-green Cells · --no-mutate skips prover mutation grading
   yay plan [--provider anthropic|openai|custom] [--model m] [--base-url url]

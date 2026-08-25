@@ -87,7 +87,7 @@ function withLiveControls(mapHTML, version) {
     + 'document.getElementById("yd-diffs").onclick=async function(){ptitle.textContent="Spec changes since last commit";pout.style.color="#e6e6e6";pout.textContent="loading…";panel.style.display="block";try{var j=await fetch("/api/diffs").then(function(r){return r.json();});if(!j.diffs||!j.diffs.length){pout.textContent="No spec changes since the last commit (working tree matches HEAD).";return;}pout.innerHTML=j.diffs.map(function(c){var lines=c.diff.map(function(d){var col=d.t==="+"?"#3fbf77":d.t==="-"?"#ff6b6b":"#8a8a8a";var pre=d.t==="+"?"+ ":d.t==="-"?"- ":"  ";return "<div style=\\"color:"+col+"\\">"+esc(pre+d.text)+"</div>";}).join("");return "<div style=\\"margin:0 0 16px\\"><div style=\\"color:#e6e6e6;font-weight:700;margin-bottom:5px\\">"+esc(c.id+(c.unit?" · "+c.unit:"")+"   "+c.file)+"</div>"+lines+"</div>";}).join("");}catch(e){pout.textContent="Could not load diffs: "+e;}};'
     + 'document.getElementById("yd-adv").onclick=async function(){if(!confirm("Run the spec-only adversary? An LLM writes probes from the specs (never the code) and runs them — costs tokens."))return;show("Adversary","Writing probes from the specs and running them… (a few seconds)");try{var r=await fetch("/api/adversary/run",{method:"POST"});if(r.status===403){show("Adversary","Run this on THIS computer (localhost).","err");return;}var j=await r.json();if(j.error){show("Adversary","✗ "+j.error,"err");return;}var rows=(j.results||[]);var broke=rows.filter(function(x){return x.status==="broke";});var html=rows.map(function(x){var col=x.status==="broke"?"#ff6b6b":x.status==="survived"?"#3fbf77":"#c9860f";var msg=x.status==="broke"?("BROKE: "+x.counterexample):x.status==="survived"?"survived":(x.reason||x.status);return "<div style=\\"color:"+col+"\\">"+esc((x.status==="broke"?"✗ ":x.status==="survived"?"✓ ":"– ")+x.id+" "+(x.unit||"")+" — "+msg)+"</div>";}).join("")||"No eligible Cells (need a leaf unit with ensures/out/throws).";ptitle.textContent="Adversary — "+broke.length+" broke / "+rows.length+" probed";pout.style.color="#e6e6e6";pout.innerHTML=html;panel.style.display="block";}catch(e){show("Adversary","Could not run: "+e,"err");}};'
     + 'document.getElementById("yd-tests").onclick=async function(){show("Tests","Running the project test suite…");try{var r=await fetch("/api/tests/run",{method:"POST"});if(r.status===403){show("Tests","Run tests from the dashboard on THIS computer (localhost) — not from the phone.","err");return;}var j=await r.json();show("Tests "+(j.configured?(j.ok?"✓ passed":"✗ failed (exit "+j.code+")"):""),(j.cmd?("$ "+j.cmd+"\\n\\n"):"")+(j.output||""),j.configured?(j.ok?"ok":"err"):"");}catch(e){show("Tests","Could not run: "+e,"err");}};'
-    + 'document.getElementById("yd-sign").onclick=async function(){var m=prompt("Mission — in one line, what are you approving? (what you ordered)");if(m==null)return;m=String(m).trim();if(!m){show("Sign","A mission is required.","err");return;}show("Sign","Sent to your phone — review the mission there (you can edit it) and approve…");try{var r=await fetch("/api/sign/start",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({mission:m})});if(r.status===403){show("Sign","Start signing from the dashboard on THIS computer (localhost).","err");return;}if(r.status===409){show("Sign","A request is already awaiting the phone — approve or cancel that first.","err");return;}var j=await r.json();if(j.ok){show("Sign","✓ Signed. Reloading…","ok");setTimeout(function(){location.reload();},1000);}else{show("Sign","✗ "+(j.error||"failed"),"err");}}catch(e){show("Sign","Could not sign: "+e,"err");}};'
+    + 'document.getElementById("yd-sign").onclick=async function(){var m=prompt("Brief — in one line, what are you approving? (what you ordered)");if(m==null)return;m=String(m).trim();if(!m){show("Sign","A brief is required.","err");return;}show("Sign","Sent to your phone — review the brief there (you can edit it) and approve…");try{var r=await fetch("/api/sign/start",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({brief:m})});if(r.status===403){show("Sign","Start signing from the dashboard on THIS computer (localhost).","err");return;}if(r.status===409){show("Sign","A request is already awaiting the phone — approve or cancel that first.","err");return;}var j=await r.json();if(j.ok){show("Sign","✓ Signed. Reloading…","ok");setTimeout(function(){location.reload();},1000);}else{show("Sign","✗ "+(j.error||"failed"),"err");}}catch(e){show("Sign","Could not sign: "+e,"err");}};'
     + 'document.getElementById("yd-plan").onclick=async function(){if(!confirm("Regenerate the System Plan? This calls your LLM provider and costs tokens."))return;show("System Plan","Regenerating via your LLM provider… (a few seconds)");try{var r=await fetch("/api/plan/regen",{method:"POST"});if(r.status===403){show("System Plan","Regenerate from the dashboard on THIS computer (localhost).","err");return;}var j=await r.json();if(j.ok){show("System Plan","✓ Updated ("+j.provider+"/"+j.model+", "+j.subsystems+" subsystems). Reloading…","ok");setTimeout(function(){location.reload();},900);}else{show("System Plan","✗ "+(j.error||"failed"),"err");}}catch(e){show("System Plan","Could not regenerate: "+e,"err");}};'
     + 'async function poll(){try{var r=await fetch("/api/version",{cache:"no-store"});var j=await r.json();if(j.v&&j.v!==V){live.textContent="● updated — refreshing";live.style.background="#c9860f";setTimeout(function(){location.reload();},500);}}catch(_){live.textContent="● server stopped";live.style.background="#d92d20";}}'
     + 'setInterval(poll,3000);})();</script>';
@@ -118,15 +118,15 @@ function startDashboard(deps, opts) {
       return { code: confirmCode(pubB64), done: { name: String(name), pubB64, proof, code: confirmCode(pubB64) } };
     }
     // approve / authorize: verify the signature over the canonical approval/event.
-    // If the phone edited the Mission text (§5), rebuild the approval with it so the
+    // If the phone edited the Brief text (§5), rebuild the approval with it so the
     // signature is checked against — and the seal stores — exactly what was signed.
     let target = pending.session.approval || pending.session.event;
-    const editedMission = (b && b.mission !== undefined && pending.session.approval && pending.session.approval.mission);
-    if (editedMission) target = { ...pending.session.approval, mission: { ...pending.session.approval.mission, text: String(b.mission).trim() } };
+    const editedBrief = (b && b.brief !== undefined && pending.session.approval && pending.session.approval.brief);
+    if (editedBrief) target = { ...pending.session.approval, brief: { ...pending.session.approval.brief, text: String(b.brief).trim() } };
     const canon = canonical(target);
     if (!b || !b.signature) return { error: 'missing signature' };
     if (!(pending.expectPubs || []).some((pub) => pub && C.verify(canon, b.signature, pub))) return { error: 'not signed by an authorized key on this phone' };
-    return { done: editedMission ? { signature: b.signature, mission: String(b.mission).trim() } : { signature: b.signature } };
+    return { done: editedBrief ? { signature: b.signature, brief: String(b.brief).trim() } : { signature: b.signature } };
   }
   const handler = async (req, res) => {
     const url = req.url.split('?')[0];
@@ -148,7 +148,7 @@ function startDashboard(deps, opts) {
       finalStatus = null;
       return sendJSON(res, 200, { ok: true });
     }
-    if (req.method === 'GET' && url === '/api/result') { // CLI long-poll for the phone's submission
+    if (req.method === 'GET' && url === '/api/result') { // CLI long-poll for the phone's subbrief
       if (!isLocal(req)) return sendJSON(res, 403, { error: 'local only' });
       if (!pending) return sendJSON(res, 200, { result: null, gone: true });
       if (pending.done) return sendJSON(res, 200, { result: pending.done });
@@ -202,14 +202,14 @@ function startDashboard(deps, opts) {
       return sendJSON(res, 200, await deps.regenPlan());
     }
     // Human-initiated sign FROM the dashboard: gather the current change-set under the
-    // given mission and push it to the phone to approve (the key stays on the phone).
+    // given brief and push it to the phone to approve (the key stays on the phone).
     if (req.method === 'POST' && url === '/api/sign/start') {
       if (!isLocal(req)) return sendJSON(res, 403, { error: 'local only' });
       if (!deps.signPending) return sendJSON(res, 200, { ok: false, error: 'signing not available' });
       if (pending) return sendJSON(res, 409, { error: 'a request is already awaiting the phone' });
-      const mission = ((await readBody(req)).mission || '').trim();
-      if (!mission) return sendJSON(res, 400, { error: 'a mission is required' });
-      try { return sendJSON(res, 200, await deps.signPending(mission)); }
+      const brief = ((await readBody(req)).brief || '').trim();
+      if (!brief) return sendJSON(res, 400, { error: 'a brief is required' });
+      try { return sendJSON(res, 200, await deps.signPending(brief)); }
       catch (e) { return sendJSON(res, 200, { ok: false, error: String((e && e.message) || e) }); }
     }
     if (req.method === 'GET' && (url === '/' || url === '/index.html' || url === '/map')) {

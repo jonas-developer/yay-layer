@@ -41,13 +41,13 @@ const COMMANDS = [
   { cmd: 'yay revoke --name X', desc: 'Revoke a compromised/rotated key (or a whole identity) via an owner-signed event. Past approvals stay attributed; refuses if it would leave no owner.', flags: [['--pubkey <b64>', 'revoke just this key (omit to remove the whole identity)'], ['--phone', 'authorize on an owner’s phone']] },
   { cmd: 'yay reroot', desc: 'Retire the current trust root and establish a new one — recovery for a lost/compromised root key. A trust discontinuity: re-sign specs and repoint the CI pin afterward.', flags: [['--phone', 'root the new key on your phone (phone-as-genesis)'], ['--name <you>', 'new local owner name'], ['--force', 'skip the confirmation prompt']] },
   { cmd: 'yay adopt [path]', desc: 'Scaffold draft (unsigned) spec blocks over existing code.', flags: [['--dry', 'preview what would be added']] },
-  { cmd: 'yay sign [--cell IDs]', desc: 'Approve the current specs — appends a signed seal. Uses THIS project’s signing method automatically (phone or local); no flag needed. If a dashboard is running, the request pops up on the phone you already scanned.', flags: [['--phone / --local', 'force the device (default = the project’s method)'], ['--no-https', 'disable TLS for the phone (on by default)'], ['--mission "<text>"', 'the signed Mission — the human-owned headline over this change-set, REQUIRED by default (editable on the phone; you are prompted if omitted at a terminal)'], ['--no-mission', 'skip the Mission for a trivial re-sign'], ['--cell <ids>', 'only these Cells (comma-separated)'], ['--name <signer>', 'which signer']] },
+  { cmd: 'yay sign [--cell IDs]', desc: 'Approve the current specs — appends a signed seal. Uses THIS project’s signing method automatically (phone or local); no flag needed. If a dashboard is running, the request pops up on the phone you already scanned.', flags: [['--phone / --local', 'force the device (default = the project’s method)'], ['--no-https', 'disable TLS for the phone (on by default)'], ['--brief "<text>"', 'the signed Brief — the human-owned headline over this change-set, REQUIRED by default (editable on the phone; you are prompted if omitted at a terminal)'], ['--no-brief', 'skip the Brief for a trivial re-sign'], ['--cell <ids>', 'only these Cells (comma-separated)'], ['--name <signer>', 'which signer']] },
   { cmd: 'yay verify [--strict] [-d]', desc: 'The gate: paint every Cell + run the behavioural prover & mutation grading.', flags: [['--strict', 'non-zero exit if blocked (for CI)'], ['-d, --details', 'print each spec, code & checks'], ['--problems', 'show only non-green Cells'], ['--no-mutate', 'skip mutation grading']] },
   { cmd: 'yay test [--test "cmd"]', desc: 'Run the project’s OWN test suite (package.json "test" / config.test) — the runtime backstop for what per-Cell checks can’t reach. Non-zero exit on failure (for CI).', flags: [['--test "<cmd>"', 'the command to run (else package.json test)']] },
   { cmd: 'yay adversary [--cell IDs]', desc: 'Spec-only adversary: an LLM sees ONLY each Cell’s spec (never the code) and writes probes to BREAK it, run against the real code. A break is a genuine spec↔code violation. Needs an LLM key.', flags: [['--cell <ids>', 'only these Cells'], ['--provider …', 'same provider config as the System Plan']] },
   { cmd: 'yay plan', desc: 'AI-synthesize the high-level System Plan → .yaylayer/plan.json.', flags: [['--provider anthropic|openai|custom', 'LLM provider (key from .env)'], ['--base-url <url>', 'custom / OpenAI-compatible endpoint (Ollama, LM Studio, vLLM — key optional)'], ['--model <m>', 'model id']] },
   { cmd: 'yay map [-o file.html]', desc: 'Write this HTML site (Map / Files / System Plan / Signers / Commands).', flags: [['-o <file>', 'output path'], ['--no-plan', 'omit the System Plan entirely'], ['--replan', 'force plan regeneration']] },
-  { cmd: 'yay dashboard [--port N]', desc: 'Live control panel + phone relay: serves the map (auto-refreshes) with on-demand buttons — ✍ Sign changes (push a mission to your phone to approve), Changes, Run tests, Adversary, Regenerate System Plan — AND routes pair/sign/authorize to the phone you scanned ONCE. Has a Missions tab (the ledger of what was ordered). Leave it running. HTTPS by default; the phone installs the cert from the /trust page for warning-free https.', flags: [['--port <n>', 'port (default 48757)'], ['--open', 'open it in your browser'], ['--no-https', 'disable TLS (default: mkcert-trusted cert if available, else self-signed)']] },
+  { cmd: 'yay dashboard [--port N]', desc: 'Live control panel + phone relay: serves the map (auto-refreshes) with on-demand buttons — ✍ Sign changes (push a brief to your phone to approve), Changes, Run tests, Adversary, Regenerate System Plan — AND routes pair/sign/authorize to the phone you scanned ONCE. Has a Briefs tab (the ledger of what was ordered). Leave it running. HTTPS by default; the phone installs the cert from the /trust page for warning-free https.', flags: [['--port <n>', 'port (default 48757)'], ['--open', 'open it in your browser'], ['--no-https', 'disable TLS (default: mkcert-trusted cert if available, else self-signed)']] },
   { cmd: 'yay gate [dir]', desc: 'Write the CI gate workflow and print the branch-protection steps.', flags: [['--hook', 'also install a local pre-push gate'], ['--scope <dir>', 'gate only a subfolder'], ['--force', 'overwrite existing files']] },
   { cmd: 'yay constitution --for <keys>', desc: 'Write the Constitution where an AI harness auto-reads it.', flags: [['--for <keys|all>', 'claude, agents, copilot, cursor, windsurf, cline, gemini, generic'], ['--list', 'list the harnesses']] },
   { cmd: 'yay status', desc: 'One-line health summary of the project.', flags: [] },
@@ -133,7 +133,7 @@ function detailInner(cell, res, t) {
     ${checks}`;
 }
 
-function renderMap(manifest, verified, project, changes, times, planDoc, gov, missions) {
+function renderMap(manifest, verified, project, changes, times, planDoc, gov, briefs) {
   // Build the hierarchy: system → module → sub-group → unit.
   const nodes = {}; const details = {};
   const ensure = (id, label, kind, parent) => {
@@ -208,7 +208,7 @@ function renderMap(manifest, verified, project, changes, times, planDoc, gov, mi
     if (mc && mc.contains && mc.contains.length) continue; // container Cells aren't file units
     FILES.push({ file: res.file || (mc && mc.file) || 'other', name: (mc && (mc.unitName || (mc.spec && mc.spec.unit))) || res.name || id, id: 'u:' + id, state: res.state, line: res.line || (mc && mc.line) || 0 });
   }
-  const meta = { project: project || 'project', counts: verified.counts, passed: verified.passed, totalUnits, plan: planDoc || null, gov: gov || null, files: FILES, missions: missions || [] };
+  const meta = { project: project || 'project', counts: verified.counts, passed: verified.passed, totalUnits, plan: planDoc || null, gov: gov || null, files: FILES, briefs: briefs || [] };
   const payload = JSON.stringify({ root: 'system', nodes: YLnodes, edges: { system: modEdges }, details, changes: changes || [], needs, meta })
     .replace(/</g, '\\u003c');
 
@@ -389,7 +389,7 @@ pre.code .sp-ensures{color:var(--purple);font-weight:600}
 </style></head><body>
 <header class="nav"><div class="nav-in">
 <div class="brand"><span class="logo"><svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><rect width="26" height="26" rx="7" fill="#3ecf8e"/><path d="M6.5 13.5l4 4L20 7.5" fill="none" stroke="#04231a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="brandname">YayLayer</span><span class="brandsep">/</span><span class="brandproj">${esc(project || 'project')}</span></div>
-<div class="nav-right"><nav class="tabs"><button class="tab active" data-tab="map">Map</button><button class="tab" data-tab="files">Files</button><button class="tab" data-tab="plan" id="tab-plan" style="display:none">System Plan</button><button class="tab" data-tab="missions">Missions</button><button class="tab" data-tab="signers">Signers</button><button class="tab" data-tab="commands">Commands</button></nav><button id="themebtn" class="themebtn" aria-label="Toggle theme">Dark</button></div>
+<div class="nav-right"><nav class="tabs"><button class="tab active" data-tab="map">Map</button><button class="tab" data-tab="files">Files</button><button class="tab" data-tab="plan" id="tab-plan" style="display:none">System Plan</button><button class="tab" data-tab="briefs">Briefs</button><button class="tab" data-tab="signers">Signers</button><button class="tab" data-tab="commands">Commands</button></nav><button id="themebtn" class="themebtn" aria-label="Toggle theme">Dark</button></div>
 </div></header>
 <div class="wrap">
 <div class="pagehead"><h1>System map</h1><p class="sub">${totalUnits} units · ${verified.passed ? 'gate PASS' : 'gate BLOCKED'}${verified.counts.GREEN ? ` · ${verified.counts.proven || 0} proven / ${verified.counts.unproven || 0} unproven` : ''}</p></div>
@@ -400,7 +400,7 @@ pre.code .sp-ensures{color:var(--purple);font-weight:600}
 <div class="stage"><svg id="graph"></svg></div>
 <div class="logwrap"><div class="logh">Recent changes</div><ol id="log" class="log"></ol></div>
 <div id="plan" class="plan" style="display:none"></div>
-<div id="missions" class="signers" style="display:none"></div>
+<div id="briefs" class="signers" style="display:none"></div>
 <div id="signers" class="signers" style="display:none"></div>
 <div id="files" class="files" style="display:none"></div>
 <div id="commands" class="commands" style="display:none">${commandsHTML()}</div>
@@ -597,12 +597,12 @@ pre.code .sp-ensures{color:var(--purple);font-weight:600}
     el.innerHTML=html;
   }
 
-  // ── Missions tab — the plain-English ledger of what was ordered (Standard §5) ──
-  function renderMissions(){
-    var el=document.getElementById('missions'); if(!el) return;
-    var ms=(DATA.meta&&DATA.meta.missions)||[];
-    if(!ms.length){ el.innerHTML='<h1>Missions</h1><div class="snote">No missions yet. A Mission is the plain-English record of what you ordered, signed together with each change-set. Sign with <b>yay sign --mission "…"</b> (your AI supplies it automatically).</div>'; return; }
-    var html='<h1>Missions</h1><div class="snote" style="margin:0 0 16px">What was ordered, in plain language — newest first. Each mission is signed with the Cells it covers, so it is attributed and tamper-evident.</div>';
+  // ── Briefs tab — the plain-English ledger of what was ordered (Standard §5) ──
+  function renderBriefs(){
+    var el=document.getElementById('briefs'); if(!el) return;
+    var ms=(DATA.meta&&DATA.meta.briefs)||[];
+    if(!ms.length){ el.innerHTML='<h1>Briefs</h1><div class="snote">No briefs yet. A Brief is the plain-English record of what you ordered, signed together with each change-set. Sign with <b>yay sign --brief "…"</b> (your AI supplies it automatically).</div>'; return; }
+    var html='<h1>Briefs</h1><div class="snote" style="margin:0 0 16px">What was ordered, in plain language — newest first. Each brief is signed with the Cells it covers, so it is attributed and tamper-evident.</div>';
     ms.forEach(function(m){
       var when=m.at?String(m.at).slice(0,10):'';
       var cells=m.cells||[];
@@ -610,8 +610,13 @@ pre.code .sp-ensures{color:var(--purple);font-weight:600}
         var uid='u:'+c; var known=!!DETAILS[uid];
         return '<span class="mcell'+(known?' known':'')+'"'+(known?(' data-uid="'+esc2(uid)+'"'):'')+' title="'+(known?'Open this Cell':'This Cell is no longer in the codebase')+'">'+esc2(c)+'</span>';
       }).join('');
-      html+='<div style="border:1px solid var(--rule);border-left:3px solid var(--accent);border-radius:12px;padding:14px 16px;margin:0 0 12px;background:var(--card2)">'
-        +'<div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline;margin-bottom:6px"><span style="font-weight:800;letter-spacing:.06em;font-size:.72rem;color:var(--accent)">MISSION '+esc2(m.id||'')+'</span><span style="font-size:.78rem;color:var(--mut)">'+esc2(when)+(m.signer?(' · '+esc2(m.signer)):'')+'</span></div>'
+      var valid=m.valid!==false; // undefined (legacy payloads) treated as ok; false = broken seal
+      var bar=valid?'var(--accent)':'#cf4436';
+      var badge=valid
+        ? '<span style="font-size:.72rem;font-weight:700;color:#1f9d57" title="Signature verifies against a trusted signer">✓ signed</span>'
+        : '<span style="font-size:.72rem;font-weight:700;color:#cf4436" title="This seal does NOT verify — the brief or approval was tampered with, or it was not signed by a trusted key">⚠ seal invalid</span>';
+      html+='<div style="border:1px solid var(--rule);border-left:3px solid '+bar+';border-radius:12px;padding:14px 16px;margin:0 0 12px;background:var(--card2)">'
+        +'<div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline;margin-bottom:6px"><span style="font-weight:800;letter-spacing:.06em;font-size:.72rem;color:var(--accent)">BRIEF '+esc2(m.id||'')+'</span><span style="font-size:.78rem;color:var(--mut)">'+badge+' · '+esc2(when)+(m.signer?(' · '+esc2(m.signer)):'')+'</span></div>'
         +'<div style="font-size:1.02rem;line-height:1.45;color:var(--ink);margin-bottom:8px">'+esc2(m.text||'')+'</div>'
         +'<div style="font-size:.8rem;color:var(--mut)">covers '+cells.length+' part'+(cells.length===1?'':'s')+(cells.length?' — click to open:':'')+'</div>'
         +(cells.length?('<div style="margin-top:2px">'+chips+'</div>'):'')
@@ -651,11 +656,11 @@ pre.code .sp-ensures{color:var(--purple);font-weight:600}
   function setTab(name){
     curTab=name;
     MAP_ELS.forEach(function(s){ showSel(s, name==='map'); });
-    showSel('#plan', name==='plan'); showSel('#signers', name==='signers'); showSel('#files', name==='files'); showSel('#commands', name==='commands'); showSel('#missions', name==='missions');
+    showSel('#plan', name==='plan'); showSel('#signers', name==='signers'); showSel('#files', name==='files'); showSel('#commands', name==='commands'); showSel('#briefs', name==='briefs');
     Array.prototype.forEach.call(document.querySelectorAll('.tab'),function(b){ b.classList.toggle('active', b.getAttribute('data-tab')===name); });
     if(name==='plan') renderPlan();
     if(name==='signers') renderSigners();
-    if(name==='missions') renderMissions();
+    if(name==='briefs') renderBriefs();
     if(name==='files') renderFiles();
   }
   (function(){

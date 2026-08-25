@@ -284,21 +284,21 @@ function approveFlow(sess){
   var key=loadKey();
   if(!key){ h('<div class="msg">This phone has no key on this page yet — restore it from your recovery phrase, or run <b>yay pair</b>.</div><button id="rst" class="btn">Restore from recovery phrase</button>'); document.getElementById('rst').onclick=function(){restoreFlow(sess);}; return; }
   var rows=(sess.summary||[]).map(function(c,i){var ed=(c.diff&&c.diff.length)?' <span class="edited">edited</span>':'';return '<div class="crow"><div class="cell tap" data-i="'+i+'"><span class="dot" style="background:'+(c.color||'#888')+'"></span><div><div class="cid">'+esc(c.id)+' · '+esc(c.unit||'')+ed+'</div><div class="cin">'+esc(c.intent||'')+'</div></div><span class="col">'+esc(c.state||'')+'<span class="caret">▸</span></span></div><div class="detailwrap" id="d'+i+'" style="display:none">'+detailHTML(c)+'</div></div>';}).join('');
-  // MISSION header (Standard §5): the human-owned headline over these parts. Editable
+  // BRIEF header (Standard §5): the human-owned headline over these parts. Editable
   // before signing so the wording is the human's, not the AI's paraphrase; the edited
   // text is what gets signed (canonical(approval) is rebuilt with it below).
-  var mission=sess.approval&&sess.approval.mission;
-  var missionCard=mission?('<div class="mcard"><div class="mlab"><span class="mtag">MISSION</span><button id="medit" class="medit">Edit</button></div>'
-    +'<div id="mtxt" class="mtxt">'+esc(mission.text)+'</div>'
+  var brief=sess.approval&&sess.approval.brief;
+  var briefCard=brief?('<div class="mcard"><div class="mlab"><span class="mtag">BRIEF</span><button id="medit" class="medit">Edit</button></div>'
+    +'<div id="mtxt" class="mtxt">'+esc(brief.text)+'</div>'
     +'<div class="msub">covers '+((sess.summary||[]).length)+' part(s) · you are approving this</div></div>'):'';
-  h(missionCard+'<div class="msg">Approve these <b>'+((sess.summary||[]).length)+'</b> change(s) — tap a Cell to see its spec:</div>'+rows+'<button id="go" class="btn" style="margin-top:16px">Approve &amp; sign</button>');
+  h(briefCard+'<div class="msg">Approve these <b>'+((sess.summary||[]).length)+'</b> change(s) — tap a Cell to see its spec:</div>'+rows+'<button id="go" class="btn" style="margin-top:16px">Approve &amp; sign</button>');
   var editing=false;
-  if(mission){document.getElementById('medit').onclick=function(){
+  if(brief){document.getElementById('medit').onclick=function(){
     var box=document.getElementById('mtxt');
     if(!editing){editing=true;this.textContent='Done';var t=box.textContent;box.outerHTML='<textarea id="mtxt" class="marea">'+esc(t)+'</textarea>';document.getElementById('mtxt').focus();}
     else{editing=false;this.textContent='Edit';var v=document.getElementById('mtxt').value;box.outerHTML='<div id="mtxt" class="mtxt">'+esc(v)+'</div>';}
   };}
-  function missionValue(){var el=document.getElementById('mtxt');if(!el)return null;return editing?el.value:el.textContent;}
+  function briefValue(){var el=document.getElementById('mtxt');if(!el)return null;return editing?el.value:el.textContent;}
   var taps=document.querySelectorAll('.cell.tap');
   for(var ti=0;ti<taps.length;ti++){(function(el){el.onclick=function(){var d=document.getElementById('d'+el.getAttribute('data-i'));var open=d.style.display!=='none';d.style.display=open?'none':'block';var car=el.querySelector('.caret');if(car)car.textContent=open?'▸':'▾';};})(taps[ti]);}
   document.getElementById('go').onclick=async function(){
@@ -306,10 +306,10 @@ function approveFlow(sess){
       var sec=await getSecret(key);
       setStatus('Signing…');
       var toSign=sess.approval;
-      var mv=missionValue();
-      if(mission&&mv!=null){mv=String(mv).trim();toSign=JSON.parse(JSON.stringify(sess.approval));toSign.mission.text=mv;}
+      var mv=briefValue();
+      if(brief&&mv!=null){mv=String(mv).trim();toSign=JSON.parse(JSON.stringify(sess.approval));toSign.brief.text=mv;}
       var sig=signStr(sec,canonical(toSign));
-      var res=await api('/api/submit',mission?{signature:sig,mission:(mv!=null?String(mv).trim():mission.text)}:{signature:sig});
+      var res=await api('/api/submit',brief?{signature:sig,brief:(mv!=null?String(mv).trim():brief.text)}:{signature:sig});
       if(res.error){ setStatus('Rejected: '+res.error,'err'); return; }
       h('<div class="ok-big">✓ Signed</div><div class="msg">Done — you can close this. The laptop has the seal.</div>');
       setStatus('Signed','ok');
