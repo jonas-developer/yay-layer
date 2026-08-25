@@ -19,6 +19,7 @@ const { verifyManifest } = require('../src/verify');
 const { renderMap } = require('../src/map');
 const { adopt } = require('../src/adopt');
 const { HARNESSES, writeConstitution, resolveKeys } = require('../src/constitution');
+const { specDiffForCell } = require('../src/specdiff');
 const gate = require('../src/gate');
 const phone = require('../src/phone');
 const rosterMod = require('../src/roster');
@@ -478,6 +479,7 @@ async function cmdSign(flags) {
         file: c.file || '', line: c.line || 0,
         spec: c.spec || {}, // full parsed spec so the phone can show details on tap
         notes: (r.notes || []).map((nt) => ({ level: nt.level, text: nt.text })),
+        diff: specDiffForCell(p.root, c), // what changed vs the last committed spec (null = new/unchanged)
       };
     });
     const tls = tlsCert(p, flags);

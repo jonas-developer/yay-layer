@@ -118,6 +118,18 @@ const conL = fs.readFileSync(require('path').join(tmpP, 'AGENTS.md'), 'utf8');
 ok(/`yay sign`/.test(conL) && !/--phone/.test(conL), 'constitution: local project → `yay sign` (no --phone)');
 fs.rmSync(tmpP, { recursive: true, force: true });
 
+// 10d) spec diff (what the phone shows before approving): LCS line diff + block extract
+const SD = require('../src/specdiff');
+const dOld = ['intent: add two numbers', 'pure: yes', 'ensures: out == a+b'];
+const dNew = ['intent: add two integers', 'pure: yes', 'ensures: out === a+b', 'throws: never'];
+const dd = SD.lineDiff(dOld, dNew);
+ok(dd && dd.some((x) => x.t === '-') && dd.some((x) => x.t === '+') && dd.some((x) => x.t === ' '), 'specdiff: line diff marks removed / added / unchanged lines');
+ok(SD.lineDiff(dOld, dOld) === null, 'specdiff: identical spec → null (nothing to show)');
+ok(SD.lineDiff(null, dNew) === null, 'specdiff: no previous version → null (new spec, no diff)');
+const dContent = '//∷YAY⟨C-1⟩\n//  intent: foo\n//  pure: yes\n//∷YAY-END⟨C-1⟩\nfunction f(){}';
+ok(JSON.stringify(SD.specLinesFromContent(dContent, 'C-1')).includes('intent: foo'), 'specdiff: extracts a cell spec block from raw content');
+ok(SD.specLinesFromContent(dContent, 'C-9') === null, 'specdiff: a missing cell id → null');
+
 // 11) behavioural prover: satisfied ensures → pass, violated → fail, prose → skip
 const { proveManifest } = require('../src/prove');
 const P = require('path');

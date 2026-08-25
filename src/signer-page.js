@@ -68,6 +68,14 @@ textarea.inp{min-height:96px;resize:vertical;font-family:var(--mono);font-size:.
 .kv .v{white-space:pre-wrap;word-break:break-word}
 .notes{margin-top:8px;padding-top:8px;border-top:1px dashed var(--rule)}
 .note{font-size:.82rem;padding:2px 0}
+.difflbl{font-family:var(--mono);font-size:.72rem;color:var(--mut);margin:10px 0 6px;text-transform:uppercase;letter-spacing:.04em}
+.diff{font-family:var(--mono);font-size:.8rem;border:1px solid var(--rule);border-radius:8px;overflow:hidden}
+.dl{padding:3px 9px;white-space:pre-wrap;word-break:break-word;border-top:1px solid var(--rule)}
+.dl:first-child{border-top:none}
+.dl.add{background:rgba(31,157,87,.13);color:var(--green)}
+.dl.del{background:rgba(217,45,32,.13);color:var(--red)}
+.dl.ctx{color:var(--mut)}
+.edited{font-family:var(--mono);font-size:.58rem;color:#c9860f;border:1px solid currentColor;border-radius:5px;padding:0 5px;margin-left:6px;vertical-align:middle;text-transform:uppercase;letter-spacing:.04em}
 </style></head><body>
 <div class="top"><div class="brandrow"><span class="logo"><svg width="24" height="24" viewBox="0 0 26 26" aria-hidden="true"><rect width="26" height="26" rx="7" fill="#3ecf8e"/><path d="M6.5 13.5l4 4L20 7.5" fill="none" stroke="#04231a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="brand">YayLayer Signer</span></div><h1 id="ttl">Sign</h1><div class="sub" id="proj"></div></div>
 <div id="app"><div class="msg">Loading…</div></div>
@@ -243,13 +251,19 @@ function detailHTML(c){
   order.forEach(add);
   Object.keys(sp).forEach(function(k){ if(!seen[k]) add(k); });
   if(c.file) parts.push('<div class="kv"><span class="k">file</span><span class="v">'+esc(c.file)+(c.line?':'+c.line:'')+'</span></div>');
+  var diff='';
+  if(c.diff&&c.diff.length){
+    diff='<div class="difflbl">changes vs last committed spec</div><div class="diff">'
+      +c.diff.map(function(d){ var cl=d.t==='+'?'add':(d.t==='-'?'del':'ctx'); var pre=d.t==='+'?'+ ':(d.t==='-'?'- ':'  '); return '<div class="dl '+cl+'">'+pre+esc(d.text)+'</div>'; }).join('')
+      +'</div>';
+  }
   var notes=(c.notes||[]).map(function(nt){ var col=nt.level==='red'?'var(--red)':(nt.level==='yellow'?'#c9860f':'var(--mut)'); return '<div class="note" style="color:'+col+'">'+esc(nt.text)+'</div>'; }).join('');
-  return '<div class="detail">'+(parts.join('')||'<div class="kv"><span class="v">No structured spec fields.</span></div>')+(notes?'<div class="notes">'+notes+'</div>':'')+'</div>';
+  return '<div class="detail">'+(parts.join('')||'<div class="kv"><span class="v">No structured spec fields.</span></div>')+diff+(notes?'<div class="notes">'+notes+'</div>':'')+'</div>';
 }
 function approveFlow(sess){
   var key=loadKey();
   if(!key){ h('<div class="msg">This phone has no key on this page yet — restore it from your recovery phrase, or run <b>yay pair</b>.</div><button id="rst" class="btn">Restore from recovery phrase</button>'); document.getElementById('rst').onclick=function(){restoreFlow(sess);}; return; }
-  var rows=(sess.summary||[]).map(function(c,i){return '<div class="crow"><div class="cell tap" data-i="'+i+'"><span class="dot" style="background:'+(c.color||'#888')+'"></span><div><div class="cid">'+esc(c.id)+' · '+esc(c.unit||'')+'</div><div class="cin">'+esc(c.intent||'')+'</div></div><span class="col">'+esc(c.state||'')+'<span class="caret">▸</span></span></div><div class="detailwrap" id="d'+i+'" style="display:none">'+detailHTML(c)+'</div></div>';}).join('');
+  var rows=(sess.summary||[]).map(function(c,i){var ed=(c.diff&&c.diff.length)?' <span class="edited">edited</span>':'';return '<div class="crow"><div class="cell tap" data-i="'+i+'"><span class="dot" style="background:'+(c.color||'#888')+'"></span><div><div class="cid">'+esc(c.id)+' · '+esc(c.unit||'')+ed+'</div><div class="cin">'+esc(c.intent||'')+'</div></div><span class="col">'+esc(c.state||'')+'<span class="caret">▸</span></span></div><div class="detailwrap" id="d'+i+'" style="display:none">'+detailHTML(c)+'</div></div>';}).join('');
   h('<div class="msg">Approve these <b>'+((sess.summary||[]).length)+'</b> change(s) — tap a Cell to see its spec:</div>'+rows+'<button id="go" class="btn" style="margin-top:16px">Approve &amp; sign</button>');
   var taps=document.querySelectorAll('.cell.tap');
   for(var ti=0;ti<taps.length;ti++){(function(el){el.onclick=function(){var d=document.getElementById('d'+el.getAttribute('data-i'));var open=d.style.display!=='none';d.style.display=open?'none':'block';var car=el.querySelector('.caret');if(car)car.textContent=open?'▸':'▾';};})(taps[ti]);}
