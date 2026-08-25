@@ -516,8 +516,23 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
   ok(ares.result && C.verify(canonical(gevent), ares.result.signature, phoneKp.pubB64), 'v2 relay: CLI /api/result returns a valid governance-event signature');
   await dpost('/api/final', { final: { ok: true } });
   ok((await dget('/api/result')).gone === true, 'v2 relay: /api/result reports the slot is gone once cleared');
+  // cert distribution: without a cert configured, nothing to install.
+  ok((await fetch(dbase + '/ca.crt')).status === 404, 'v2 cert: /ca.crt is 404 when no certificate is configured (http run)');
+  ok((await fetch(dbase + '/trust').then((r) => r.text())).includes('nothing to trust'), 'v2 cert: /trust explains there is nothing to trust over http');
   }
   ds.close();
+
+  // cert distribution: the dashboard serves the CA for the phone to install + a guided page.
+  const certDash = await startDashboard({ buildMapHTML: () => ({ html: '<html></html>', count: 0 }), version: () => 'A' }, { port: 0, caPem: '-----BEGIN CERTIFICATE-----\nMIIByay\n-----END CERTIFICATE-----\n', caFilename: 'yaylayer-rootCA.crt' });
+  const certBase = 'http://127.0.0.1:' + certDash.port;
+  const certRes = await fetch(certBase + '/ca.crt');
+  ok(certRes.headers.get('content-type') === 'application/x-x509-ca-cert', 'v2 cert: /ca.crt is served with the x509-ca-cert content-type (so iOS/Android offer to install it)');
+  ok((certRes.headers.get('content-disposition') || '').includes('yaylayer-rootCA.crt'), 'v2 cert: /ca.crt downloads with the configured filename');
+  ok((await certRes.text()).includes('BEGIN CERTIFICATE'), 'v2 cert: /ca.crt returns the certificate PEM');
+  ok((await fetch(certBase + '/ca.pem').then((r) => r.text())).includes('BEGIN CERTIFICATE'), 'v2 cert: /ca.pem is an alias for the same certificate');
+  const certTrust = await fetch(certBase + '/trust').then((r) => r.text());
+  ok(certTrust.includes('Download the certificate') && /iPhone|iPad/.test(certTrust) && /Android/.test(certTrust), 'v2 cert: /trust is a guided install page for iOS + Android');
+  certDash.close();
 
   // spec-only adversary: an LLM sees ONLY the spec (never the code) and tries to break it.
   const A = require('../src/adversary');

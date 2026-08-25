@@ -1097,6 +1097,12 @@ async function cmdDashboard(flags) {
   if (!config) return fail('run `yay init` first');
   const port = (flags.port && flags.port !== true) ? Number(flags.port) : (Number(process.env.YAY_DASHBOARD_PORT) || 48757);
   const tls = tlsCert(p, flags);
+  // The cert the phone should install to trust this dashboard: the mkcert ROOT CA
+  // (so any yay project is trusted), or — for a self-signed run — the leaf cert itself.
+  let caPem = null, caFilename = null;
+  if (tls && tls.trusted && tls.caRoot) {
+    try { caPem = fs.readFileSync(path.join(tls.caRoot, 'rootCA.pem'), 'utf8'); caFilename = 'yaylayer-rootCA.crt'; } catch (_) {}
+  } else if (tls) { caPem = tls.cert; caFilename = 'yaylayer-cert.crt'; }
   let s;
   try {
     s = await dashboardMod.startDashboard({
@@ -1124,7 +1130,7 @@ async function cmdDashboard(flags) {
         const res = await adversaryManifest(m, auth);
         return { results: Object.keys(res).map((id) => ({ id, unit: (m.cells[id].unitName || ''), ...res[id] })) };
       },
-    }, { port, tls });
+    }, { port, tls, caPem, caFilename });
   } catch (e) {
     if (e && e.code === 'EADDRINUSE') return fail(`port ${port} is already in use — a dashboard may already be running (open http://localhost:${port}), or pass --port.`);
     return fail(e.message || String(e));
@@ -1144,10 +1150,10 @@ async function cmdDashboard(flags) {
   printQR(s.url + '/phone');
   if (tls && tls.trusted) {
     console.log(U.c.dim('   https: ') + U.c.green('locally-trusted cert (mkcert)') + U.c.dim(' — no warning on this computer.'));
-    console.log(U.c.dim('   phone warning-free (one-time): install the root CA → ') + U.c.accent(path.join(tls.caRoot, 'rootCA.pem')) + U.c.dim(' (AirDrop/open on the phone → install profile → Settings → General → About → Certificate Trust → enable).'));
+    if (caPem) console.log(U.c.dim('   phone warning-free (one-time): open ') + U.c.accent(s.url + '/trust') + U.c.dim(' on the phone → install + trust the certificate (guided).'));
   } else if (tls) {
     console.log(U.c.dim('   https: self-signed (encrypted) — tap through the one-time "not private" warning on the phone (Advanced → visit).'));
-    console.log(U.c.dim('   want no warning? install mkcert (') + U.c.accent('brew install mkcert') + U.c.dim(' && ') + U.c.accent('mkcert -install') + U.c.dim('), then restart — yay will use a trusted cert.'));
+    if (caPem) console.log(U.c.dim('   or make it warning-free: open ') + U.c.accent(s.url + '/trust') + U.c.dim(' on the phone; better still ') + U.c.accent('brew install mkcert && mkcert -install') + U.c.dim(' then restart.'));
   }
   const tc = resolveTestCmd(p.root, config, flags);
   console.log('   ' + U.c.dim('buttons (this computer): ') + U.c.bold('▶ Run tests') + U.c.dim(tc ? ` (${tc})` : ' (none)') + U.c.dim(' · ') + U.c.bold('⚔ Adversary') + U.c.dim(' · ') + U.c.bold('⟲ System Plan') + U.c.dim(' · ') + U.c.bold('≷ Changes'));

@@ -30,6 +30,38 @@ try { const ifs = os.networkInterfaces(); for (const n of Object.keys(ifs)) for 
 function isLocal(req) { const a = (req.socket.remoteAddress || '').replace(/^::ffff:/, ''); return OWN.has(a); }
 function sendJSON(res, status, obj) { res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(obj)); }
 function sendHTML(res, html) { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); res.end(html); }
+// Serve the (public) CA certificate with the content-type that makes iOS/Android
+// offer to install it as a trusted root. NEVER serve the CA private key.
+function sendCert(res, pem, filename) {
+  res.writeHead(200, { 'content-type': 'application/x-x509-ca-cert', 'content-disposition': 'attachment; filename="' + (filename || 'yaylayer-ca.crt') + '"', 'cache-control': 'no-store', 'access-control-allow-origin': '*' });
+  res.end(pem);
+}
+// A tiny self-contained page that hands the phone the certificate + the exact
+// (non-obvious) trust steps for iOS and Android, so users get the cert from
+// yay-layer itself instead of copying a file off the laptop.
+function trustHTML() {
+  return '<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">'
+    + '<title>Trust this dashboard</title>'
+    + '<style>body{font:16px/1.5 -apple-system,system-ui,sans-serif;margin:0;padding:24px;max-width:640px;color:#1a1a1a;background:#fff}'
+    + 'h1{font-size:20px;margin:0 0 4px}.sub{color:#666;margin:0 0 20px}'
+    + 'a.btn{display:block;text-align:center;background:#2f6f4f;color:#fff;text-decoration:none;padding:14px;border-radius:12px;font-weight:600;margin:16px 0}'
+    + 'ol{padding-left:20px}li{margin:6px 0}h2{font-size:15px;margin:22px 0 6px}.note{color:#666;font-size:14px;margin-top:20px}code{background:#f0f0f0;padding:1px 5px;border-radius:5px}</style>'
+    + '<h1>Trust this dashboard</h1>'
+    + '<p class=sub>One-time setup so your phone shows a secure padlock (no warning) for signing.</p>'
+    + '<a class=btn href="/ca.crt">⬇ Download the certificate</a>'
+    + '<p class=note>Tap through any "not private" warning to download — you\'re about to make it trusted.</p>'
+    + '<h2>iPhone / iPad</h2><ol>'
+    + '<li>After the download, open <b>Settings</b> — you\'ll see <b>Profile Downloaded</b> near the top → tap <b>Install</b> (enter passcode).</li>'
+    + '<li>Go to <b>Settings → General → About</b>, scroll to the very bottom → <b>Certificate Trust Settings</b>.</li>'
+    + '<li>Turn <b>ON</b> the switch next to the <b>mkcert</b> entry (this step is separate — installing the profile alone is not enough).</li>'
+    + '</ol>'
+    + '<h2>Android</h2><ol>'
+    + '<li>Open <b>Settings → Security</b> (or <b>Security &amp; privacy</b>) → <b>More settings / Encryption &amp; credentials</b>.</li>'
+    + '<li>Tap <b>Install a certificate → CA certificate</b>, accept the warning, and pick the downloaded file.</li>'
+    + '<li>Exact menu names vary by phone; search settings for <code>CA certificate</code> if needed.</li>'
+    + '</ol>'
+    + '<p class=note>Then reopen the signing page — it\'ll be a trusted <code>https</code> connection. Menu paths differ slightly by OS version.</p>';
+}
 
 // Inject the live controls (Refresh + Run tests + Regenerate plan) + a results panel
 // + an auto-poller that reloads the page when the underlying state version changes.
@@ -123,6 +155,15 @@ function startDashboard(deps, opts) {
 
     // ── phone-facing ──
     if (req.method === 'GET' && (url === '/phone' || url === '/phone.html')) return sendHTML(res, phoneHTML);
+    // Certificate download + trust guide, so users get the cert FROM yay-layer (not off the laptop).
+    if (req.method === 'GET' && (url === '/ca' || url === '/ca.crt' || url === '/ca.pem' || url === '/ca.cer')) {
+      if (!opts.caPem) return sendJSON(res, 404, { error: 'no certificate to install (running over http, or self-signed cert unavailable)' });
+      return sendCert(res, opts.caPem, opts.caFilename);
+    }
+    if (req.method === 'GET' && (url === '/trust' || url === '/cert')) {
+      if (!opts.caPem) return sendHTML(res, '<meta name=viewport content="width=device-width,initial-scale=1"><p style="font:16px sans-serif;padding:24px">This dashboard is running over plain http (or without an installable certificate), so there is nothing to trust — the phone connects directly.</p>');
+      return sendHTML(res, trustHTML());
+    }
     if (req.method === 'GET' && url === '/api/session') return sendJSON(res, 200, pending ? { ...pending.session } : { mode: 'idle' });
     if (req.method === 'GET' && url === '/api/status') return sendJSON(res, 200, { final: finalStatus });
     if (req.method === 'POST' && url === '/api/submit') {
@@ -162,10 +203,10 @@ function startDashboard(deps, opts) {
   const tls = opts.tls;
   const server = tls ? require('https').createServer({ key: tls.key, cert: tls.cert }, handler) : http.createServer(handler);
   const scheme = tls ? 'https' : 'http';
-  const port = opts.port || 48757;
+  const port = (opts.port !== undefined && opts.port !== null) ? opts.port : 48757; // port 0 = random (tests)
   return new Promise((resolve, reject) => {
     server.once('error', reject);
-    server.listen(port, '0.0.0.0', () => resolve({ url: `${scheme}://${lanIP()}:${port}`, local: `${scheme}://localhost:${port}`, port, close: () => server.close() }));
+    server.listen(port, '0.0.0.0', () => { const bound = server.address().port; resolve({ url: `${scheme}://${lanIP()}:${bound}`, local: `${scheme}://localhost:${bound}`, port: bound, close: () => server.close() }); });
   });
 }
 
