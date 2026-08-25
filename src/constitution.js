@@ -27,25 +27,44 @@ const HARNESSES = [
   { key: 'generic', label: 'CONSTITUTION.md (wire into any tool yourself)', path: 'CONSTITUTION.md', note: 'plain copy; point your tool at it' },
 ];
 
-const HEADER = [
-  '# This project is built under YayLayer',
-  '',
-  'Follow the YayLayer Constitution below **exactly, from the very first file**:',
-  'write the spec first, present the change-set with the colour you expect each',
-  'Cell to earn, then STOP and wait for the human to approve it with `yay sign`',
-  'before writing any implementation code. After it is signed, write code to match,',
-  "then run `yay verify` and report the result. Never sign on the human's behalf.",
-  '',
-  '---',
-  '',
-  '',
-].join('\n');
+// The approval command depends on how THIS project signs (chosen at `yay init`):
+// a phone-signed project must tell the AI to have the human approve on their phone.
+function signGuidance(method) {
+  if (method === 'phone') {
+    return {
+      cmd: '`yay sign --phone`',
+      note: 'This project signs on a **phone** — the signing key lives only on the human’s phone, never on this machine. The human approves by scanning the QR that `yay sign --phone` prints. You cannot sign; never attempt to.',
+    };
+  }
+  if (method === 'local') {
+    return { cmd: '`yay sign`', note: 'This project signs with a **local key** (passphrase-encrypted, on the human’s machine).' };
+  }
+  return { cmd: '`yay sign` (or `yay sign --phone` if this project signs on a phone)', note: '' };
+}
+
+function header(method) {
+  const g = signGuidance(method);
+  return [
+    '# This project is built under YayLayer',
+    '',
+    'Follow the YayLayer Constitution below **exactly, from the very first file**:',
+    'write the spec first, present the change-set with the colour you expect each',
+    `Cell to earn, then STOP and wait for the human to approve it with ${g.cmd}`,
+    'before writing any implementation code. After it is signed, write code to match,',
+    "then run `yay verify` and report the result. Never sign on the human's behalf.",
+    ...(g.note ? ['', g.note] : []),
+    '',
+    '---',
+    '',
+    '',
+  ].join('\n');
+}
 
 function constitutionText() {
   return fs.readFileSync(path.join(__dirname, '..', 'CONSTITUTION.md'), 'utf8').trim();
 }
-function block() {
-  return `${BEGIN}\n${HEADER}${constitutionText()}\n${END}\n`;
+function block(method) {
+  return `${BEGIN}\n${header(method)}${constitutionText()}\n${END}\n`;
 }
 
 function mergeInto(existing, blk) {
@@ -66,8 +85,8 @@ function resolveKeys(spec) {
 
 // Write/merge the constitution into the chosen harness files. Returns a report
 // [{ key, label, path, action:'created'|'updated'|'appended'|'unchanged' } | { key, error }].
-function writeConstitution(root, keys) {
-  const blk = block();
+function writeConstitution(root, keys, method) {
+  const blk = block(method);
   const report = [];
   for (const key of keys) {
     const h = harnessByKey(key);

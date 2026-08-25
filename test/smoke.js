@@ -108,6 +108,13 @@ writeConstitution(tmp, resolveKeys('agents'));
 const agents = fs.readFileSync(require('path').join(tmp, 'AGENTS.md'), 'utf8');
 ok(/keep me/.test(agents) && /YAYLAYER:BEGIN/.test(agents), 'constitution: appends to an existing file without destroying user text');
 fs.rmSync(tmp, { recursive: true, force: true });
+// method-aware: a phone-signed project tells the AI to approve with `yay sign --phone`
+const tmpP = fs.mkdtempSync(require('path').join(require('os').tmpdir(), 'con-'));
+writeConstitution(tmpP, resolveKeys('claude'), 'phone');
+ok(/approve it with `yay sign --phone`/.test(fs.readFileSync(require('path').join(tmpP, 'CLAUDE.md'), 'utf8')), 'constitution: phone project → Constitution says `yay sign --phone`');
+writeConstitution(tmpP, resolveKeys('agents'), 'local');
+ok(/approve it with `yay sign`/.test(fs.readFileSync(require('path').join(tmpP, 'AGENTS.md'), 'utf8')), 'constitution: local project → Constitution says `yay sign`');
+fs.rmSync(tmpP, { recursive: true, force: true });
 
 // 11) behavioural prover: satisfied ensures → pass, violated → fail, prose → skip
 const { proveManifest } = require('../src/prove');

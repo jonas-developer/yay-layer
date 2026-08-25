@@ -60,6 +60,20 @@ function resolvePlanAuth(config, flags) {
 
 function rosterPath(p) { return path.join(path.dirname(p.config), 'roster.json'); }
 function loadRoster(p) { return U.readJSON(rosterPath(p), null); }
+
+// Infer how this project signs, for method-aware Constitution guidance.
+function signMethodOf(config) {
+  const kinds = new Set();
+  for (const n of Object.keys((config && config.signers) || {})) {
+    const list = Array.isArray(config.signers[n]) ? config.signers[n] : [config.signers[n]];
+    for (const k of list) if (k && typeof k === 'object' && k.kind) kinds.add(k.kind);
+  }
+  if (config && config.devices && Object.keys(config.devices).length) kinds.add('phone');
+  const hasPhone = kinds.has('phone'), hasLocal = kinds.has('local');
+  if (hasPhone && !hasLocal) return 'phone';
+  if (hasLocal && !hasPhone) return 'local';
+  return null; // unknown or mixed → generic guidance
+}
 function trustRootPin(flags) { return (flags.root && flags.root !== true) ? flags.root : (process.env.YAY_TRUST_ROOT || null); }
 
 // Print a scannable QR of a URL to the terminal (graceful if the lib is absent).
@@ -294,7 +308,8 @@ async function cmdInit(flags, positional) {
     conSpec = ans.trim() || 'none';
   }
   if (conSpec && conSpec !== 'none') {
-    for (const r of writeConstitution(target, resolveKeys(conSpec))) {
+    const cMethod = keyChoice === 'mobile' ? 'phone' : keyChoice === 'local' ? 'local' : signMethodOf(config);
+    for (const r of writeConstitution(target, resolveKeys(conSpec), cMethod)) {
       if (r.error) console.log(U.c.red('  ✗ ') + r.key + ' — ' + r.error);
       else console.log('  ' + U.c.green('✓ ') + r.action.padEnd(9) + ' ' + r.path + U.c.dim(`  (${r.label})`));
     }
@@ -401,7 +416,8 @@ function cmdConstitution(flags, positional) {
     console.log('Pick harness(es): ' + U.c.bold('yay constitution --for claude,agents') + U.c.dim('  ·  list them with ') + U.c.bold('--list'));
     return;
   }
-  for (const r of writeConstitution(target, resolveKeys(spec))) {
+  const cMethod = signMethodOf(U.readJSON(U.paths(target).config, null));
+  for (const r of writeConstitution(target, resolveKeys(spec), cMethod)) {
     if (r.error) console.log(U.c.red('  ✗ ') + r.key + ' — ' + r.error);
     else console.log('  ' + U.c.green('✓ ') + r.action.padEnd(9) + ' ' + r.path + U.c.dim(`  (${r.label})`));
   }
