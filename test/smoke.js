@@ -147,6 +147,20 @@ try {
   fs.rmSync(gdir, { recursive: true, force: true });
 } catch (e) { ok(false, 'specdiff(e2e): ' + e.message); }
 
+// 10f) parseIn keeps object/array param types intact (bracket-aware split)
+const PI = require('../src/prove').parseIn;
+ok(JSON.stringify(PI({ in: 'paddle: {x,y,w,h}, step: number, w: number' }).map((p) => p.name)) === '["paddle","step","w"]', 'prove: parseIn keeps object params intact (no comma shredding)');
+
+// 10g) scanner ignores the generated map + honours .yaylayerignore
+const igDir = fs.mkdtempSync(require('path').join(os.tmpdir(), 'yay-ig-'));
+fs.writeFileSync(require('path').join(igDir, 'yay-layer-map.html'), '<div>//∷YAY⟨C-900⟩ no end marker here</div>');
+fs.writeFileSync(require('path').join(igDir, 'a.js'), '//∷YAY⟨C-1⟩\n//  intent: x\n//∷YAY-END⟨C-1⟩\nfunction a(){}\n');
+const igMan = buildManifest(igDir);
+ok(!igMan.cells['C-900'] && !igMan.problems.some((p) => /map\.html/.test(p.file || '')), 'manifest: generated yay-layer-map.html is not scanned as source');
+fs.writeFileSync(require('path').join(igDir, '.yaylayerignore'), 'a.js\n');
+ok(!buildManifest(igDir).cells['C-1'], 'manifest: .yaylayerignore excludes listed files');
+fs.rmSync(igDir, { recursive: true, force: true });
+
 // 10e) unit-name mismatch (A) + dangling-reference (B) checks
 const abDir = fs.mkdtempSync(require('path').join(os.tmpdir(), 'yay-ab-'));
 fs.writeFileSync(require('path').join(abDir, 'a.js'),

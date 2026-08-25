@@ -58,9 +58,27 @@ function groupOf(unit, ana) {
   return (ana && ana.namespace && ana.namespace.publicNames && ana.namespace.publicNames.has(short)) ? 'Public API' : 'Internal';
 }
 
+// Files the scanner must NOT treat as source: the generated map output (it embeds
+// spec text → would self-report a missing marker), plus anything in .yaylayerignore
+// (gitignore-ish: basenames, path tails, `*` globs, `dir/` prefixes).
+function makeIgnore(root) {
+  const patterns = ['yay-layer-map.html', 'yay-layer-map.*.html'];
+  try {
+    for (const line of fs.readFileSync(path.join(root, '.yaylayerignore'), 'utf8').split(/\r?\n/)) {
+      const p = line.trim(); if (p && !p.startsWith('#')) patterns.push(p);
+    }
+  } catch (_) {}
+  const res = patterns.map((p) => {
+    const g = p.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*');
+    return new RegExp(p.endsWith('/') ? '(^|/)' + g : '(^|/)' + g + '$');
+  });
+  return (rel) => res.some((re) => re.test(rel));
+}
+
 function buildManifest(targetDir) {
   const root = repoRoot(targetDir);
-  const files = walk(path.resolve(targetDir || root));
+  const ignore = makeIgnore(root);
+  const files = walk(path.resolve(targetDir || root)).filter((f) => !ignore(path.relative(root, f)));
   const cells = {};
   const problems = [];
   const perFile = {};

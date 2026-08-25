@@ -80,14 +80,26 @@ function safeIdent(n) { return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(n) ? n : '__nop
 function hash(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return h; }
 
 // ── inputs ────────────────────────────────────────────────────────────────
+// Split on TOP-LEVEL commas only, so object/array/generic param types keep their
+// internal commas (`paddle: {x,y,w,h}, step: number` → two params, not six).
+function splitTopLevel(s) {
+  const out = []; let depth = 0, cur = '';
+  for (const ch of s) {
+    if (ch === '{' || ch === '[' || ch === '(' || ch === '<') depth++;
+    else if (ch === '}' || ch === ']' || ch === ')' || ch === '>') depth = Math.max(0, depth - 1);
+    if (ch === ',' && depth === 0) { out.push(cur); cur = ''; } else cur += ch;
+  }
+  if (cur.trim()) out.push(cur);
+  return out;
+}
 function parseIn(spec) {
   let raw = (spec && spec.in ? String(spec.in) : '').trim();
   raw = raw.replace(/^\(([\s\S]*)\)$/, '$1').trim(); // tolerate `(a:number, b:number)` wrapping
   if (!raw || /^todo$/i.test(raw)) return [];
-  return raw.split(',').map((part) => {
-    const m = part.split(':');
-    const name = (m[0] || '').trim();
-    const type = (m[1] || 'any').trim().toLowerCase().replace(/\s+/g, '');
+  return splitTopLevel(raw).map((part) => {
+    const i = part.indexOf(':'); // split on the FIRST colon; object types keep theirs
+    const name = (i < 0 ? part : part.slice(0, i)).trim();
+    const type = (i < 0 ? 'any' : part.slice(i + 1)).trim().toLowerCase().replace(/\s+/g, '');
     return { name, type };
   }).filter((p) => p.name);
 }
@@ -119,9 +131,12 @@ function cartesian(lists, cap) {
 
 // ── the ensures expression ──────────────────────────────────────────────────
 function buildChecker(ctx, params, ensuresExpr) {
+  // `;`-separated clauses are conjunctions, not statements — join them so multi-line
+  // ensures compile as one boolean expression.
+  const expr = String(ensuresExpr || '').replace(/;/g, ' && ').replace(/(?:&&\s*)+$/, '').trim() || 'true';
   const decl = params.map((p, i) => `var ${p}=A[${i}];`).join(' ');
   const call = `fn(${params.map((_, i) => `A[${i}]`).join(',')})`;
-  const src = `(function(fn,A){ ${decl} var out=${call}; return {out:out, ok:!!(${ensuresExpr})}; })`;
+  const src = `(function(fn,A){ ${decl} var out=${call}; return {out:out, ok:!!(${expr})}; })`;
   return vm.runInContext(src, ctx, { timeout: 2000 });
 }
 function show(v) { try { return typeof v === 'string' ? JSON.stringify(v) : JSON.stringify(v) ?? String(v); } catch (_) { return String(v); } }
