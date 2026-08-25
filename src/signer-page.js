@@ -56,6 +56,18 @@ h1{font-size:1.3rem;margin:4px 0 0}.sub{color:var(--mut);font-size:.85rem;font-f
 .chk{display:flex;align-items:flex-start;gap:9px;font-size:.9rem;margin:12px 0}
 .chk input{margin-top:3px;width:18px;height:18px;flex:none}
 textarea.inp{min-height:96px;resize:vertical;font-family:var(--mono);font-size:.98rem}
+.crow{border-top:1px solid var(--rule)}
+.crow:first-of-type{border-top:none}
+.crow .cell{border-top:none}
+.cell.tap{cursor:pointer;user-select:none}
+.caret{display:inline-block;margin-left:5px;color:var(--mut);font-size:.7rem}
+.detailwrap{padding:2px 2px 12px 20px}
+.kv{display:flex;gap:10px;padding:5px 0;font-size:.86rem;border-top:1px solid var(--rule)}
+.kv:first-child{border-top:none}
+.kv .k{font-family:var(--mono);color:var(--mut);min-width:62px;flex:none}
+.kv .v{white-space:pre-wrap;word-break:break-word}
+.notes{margin-top:8px;padding-top:8px;border-top:1px dashed var(--rule)}
+.note{font-size:.82rem;padding:2px 0}
 </style></head><body>
 <div class="top"><div class="brandrow"><span class="logo"><svg width="24" height="24" viewBox="0 0 26 26" aria-hidden="true"><rect width="26" height="26" rx="7" fill="#3ecf8e"/><path d="M6.5 13.5l4 4L20 7.5" fill="none" stroke="#04231a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="brand">YayLayer Signer</span></div><h1 id="ttl">Sign</h1><div class="sub" id="proj"></div></div>
 <div id="app"><div class="msg">Loading…</div></div>
@@ -224,11 +236,23 @@ async function pollPairStatus(){
     await sleep(1500);
   }
 }
+// Full spec of a Cell (intent/ensures/in/out/pure/…) + any verify notes, shown on tap.
+function detailHTML(c){
+  var sp=c.spec||{}, order=['intent','ensures','in','out','pure','throws','feeds','contains','lang','unit'], seen={}, parts=[];
+  function add(k){ if(sp[k]!=null && String(sp[k]).trim()!==''){ seen[k]=1; parts.push('<div class="kv"><span class="k">'+esc(k)+'</span><span class="v">'+esc(String(sp[k]))+'</span></div>'); } }
+  order.forEach(add);
+  Object.keys(sp).forEach(function(k){ if(!seen[k]) add(k); });
+  if(c.file) parts.push('<div class="kv"><span class="k">file</span><span class="v">'+esc(c.file)+(c.line?':'+c.line:'')+'</span></div>');
+  var notes=(c.notes||[]).map(function(nt){ var col=nt.level==='red'?'var(--red)':(nt.level==='yellow'?'#c9860f':'var(--mut)'); return '<div class="note" style="color:'+col+'">'+esc(nt.text)+'</div>'; }).join('');
+  return '<div class="detail">'+(parts.join('')||'<div class="kv"><span class="v">No structured spec fields.</span></div>')+(notes?'<div class="notes">'+notes+'</div>':'')+'</div>';
+}
 function approveFlow(sess){
   var key=loadKey();
   if(!key){ h('<div class="msg">This phone has no key on this page yet — restore it from your recovery phrase, or run <b>yay pair</b>.</div><button id="rst" class="btn">Restore from recovery phrase</button>'); document.getElementById('rst').onclick=function(){restoreFlow(sess);}; return; }
-  var rows=(sess.summary||[]).map(function(c){return '<div class="cell"><span class="dot" style="background:'+(c.color||'#888')+'"></span><div><div class="cid">'+esc(c.id)+' · '+esc(c.unit||'')+'</div><div class="cin">'+esc(c.intent||'')+'</div></div><span class="col">'+esc(c.state||'')+'</span></div>';}).join('');
-  h('<div class="msg">Approve these <b>'+((sess.summary||[]).length)+'</b> change(s):</div>'+rows+'<button id="go" class="btn" style="margin-top:16px">Approve &amp; sign</button>');
+  var rows=(sess.summary||[]).map(function(c,i){return '<div class="crow"><div class="cell tap" data-i="'+i+'"><span class="dot" style="background:'+(c.color||'#888')+'"></span><div><div class="cid">'+esc(c.id)+' · '+esc(c.unit||'')+'</div><div class="cin">'+esc(c.intent||'')+'</div></div><span class="col">'+esc(c.state||'')+'<span class="caret">▸</span></span></div><div class="detailwrap" id="d'+i+'" style="display:none">'+detailHTML(c)+'</div></div>';}).join('');
+  h('<div class="msg">Approve these <b>'+((sess.summary||[]).length)+'</b> change(s) — tap a Cell to see its spec:</div>'+rows+'<button id="go" class="btn" style="margin-top:16px">Approve &amp; sign</button>');
+  var taps=document.querySelectorAll('.cell.tap');
+  for(var ti=0;ti<taps.length;ti++){(function(el){el.onclick=function(){var d=document.getElementById('d'+el.getAttribute('data-i'));var open=d.style.display!=='none';d.style.display=open?'none':'block';var car=el.querySelector('.caret');if(car)car.textContent=open?'▸':'▾';};})(taps[ti]);}
   document.getElementById('go').onclick=async function(){
     try{
       var sec=await getSecret(key);

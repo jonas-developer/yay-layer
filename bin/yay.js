@@ -472,7 +472,13 @@ async function cmdSign(flags) {
     const SEALCOLORS = { GREEN: '#1f9d57', YELLOW: '#c9860f', RED: '#cf4436', UNSIGNED: '#7f8796', PINK: '#e0559b' };
     const summary = Object.keys(items).map((id) => {
       const c = manifest.cells[id]; const r = (verified.results[id] || {});
-      return { id, unit: c.unitName || (c.spec && c.spec.unit) || '', intent: (c.spec && c.spec.intent) || '', state: r.state || 'UNSIGNED', color: SEALCOLORS[r.state] || '#7f8796' };
+      return {
+        id, unit: c.unitName || (c.spec && c.spec.unit) || '', intent: (c.spec && c.spec.intent) || '',
+        state: r.state || 'UNSIGNED', color: SEALCOLORS[r.state] || '#7f8796',
+        file: c.file || '', line: c.line || 0,
+        spec: c.spec || {}, // full parsed spec so the phone can show details on tap
+        notes: (r.notes || []).map((nt) => ({ level: nt.level, text: nt.text })),
+      };
     });
     const tls = tlsCert(p, flags);
     const s = await phone.signOverLan({ project: config.project, approval, summary, expectPubB64: U.pubKeysOf(config.signers[name]), tls });
