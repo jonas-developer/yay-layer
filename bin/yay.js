@@ -502,60 +502,75 @@ async function runPairing(p, config, flags) {
   printQR(s.url);
   if (tls) console.log(U.c.dim('   https: tap through the one-time "not private" warning (Advanced → visit).'));
   console.log(U.c.dim('   create your key there; it shows a 6-digit code. (Ctrl-C to cancel.)'));
-  let r; try { r = await s.done; } finally { s.close(); }
-  const name = nameFlag || r.name;
-  console.log('\n  Your phone should show code: ' + U.c.bold(r.code));
-  const ans = await ask('  Does it match exactly? (y/N): ');
-  if (!/^y/i.test(ans)) { console.log(U.c.red('  pairing aborted — code did not match (possible wrong device)')); return false; }
+  // Keep the server alive through confirmation so the phone can poll the outcome
+  // and flip to a "✓ Paired" (or failure) screen instead of hanging on the code.
+  const finishPhone = async (finalMsg) => { s.setFinal(finalMsg); await Promise.race([s.settled, new Promise((res) => setTimeout(res, 8000))]); };
+  try {
+    const r = await s.done;
+    const name = nameFlag || r.name;
+    console.log('\n  Your phone should show code: ' + U.c.bold(r.code));
+    const ans = await ask('  Does it match exactly? (y/N): ');
+    if (!/^y/i.test(ans)) {
+      console.log(U.c.red('  pairing aborted — code did not match (possible wrong device)'));
+      await finishPhone({ ok: false, reason: 'the code did not match on the laptop' });
+      return false;
+    }
 
-  if (!isGenesis) {
-    const rlog = loadRoster(p);
-    // A signed trust root exists → the phone key must be authorized by an existing
-    // OWNER (signed roster event), or the gate won't trust it. Sign with an owner
-    // key held on this machine.
-    const drv = rosterMod.deriveRoster(rlog);
-    if ((drv.roster[name] || []).includes(r.pubB64)) { console.log(U.c.dim(`  this phone key is already enrolled for "${name}".`)); return true; }
-    const owners = Object.keys(drv.roles).filter((n) => drv.roles[n] === 'owner');
-    const byFlag = (flags.by && flags.by !== true) ? flags.by : null;
-    const authOwner = (byFlag && fs.existsSync(path.join(p.keys, `${byFlag}.keystore`))) ? byFlag
-      : owners.find((n) => fs.existsSync(path.join(p.keys, `${n}.keystore`)));
-    if (!authOwner) {
+    if (!isGenesis) {
+      const rlog = loadRoster(p);
+      // A signed trust root exists → the phone key must be authorized by an existing
+      // OWNER (signed roster event), or the gate won't trust it.
+      const drv = rosterMod.deriveRoster(rlog);
+      if ((drv.roster[name] || []).includes(r.pubB64)) {
+        console.log(U.c.dim(`  this phone key is already enrolled for "${name}".`));
+        await finishPhone({ ok: true, message: 'Already paired — you can close this.' });
+        return true;
+      }
+      const owners = Object.keys(drv.roles).filter((n) => drv.roles[n] === 'owner');
+      const byFlag = (flags.by && flags.by !== true) ? flags.by : null;
+      const authOwner = (byFlag && fs.existsSync(path.join(p.keys, `${byFlag}.keystore`))) ? byFlag
+        : owners.find((n) => fs.existsSync(path.join(p.keys, `${n}.keystore`)));
+      if (!authOwner) {
+        addSignerKey(config, name, r.pubB64, 'phone'); U.writeJSON(p.config, config);
+        console.log(U.c.yellow('  ⚠ phone captured, but NOT enrolled in the signed roster') + U.c.dim(' — no owner key on this machine to authorize it.'));
+        console.log('  ' + U.c.dim('From a machine holding an owner key, run: ') + U.c.bold(`yay enroll --name "${name}" --pubkey ${r.pubB64} --phone`));
+        await finishPhone({ ok: false, reason: 'no owner on the laptop authorized this phone yet — run yay enroll' });
+        return true;
+      }
+      const pass = await getPassphrase(flags, `Enter ${authOwner}'s passphrase to authorize adding your phone`);
+      let priv;
+      try { priv = C.decryptKeystore(JSON.parse(fs.readFileSync(path.join(p.keys, `${authOwner}.keystore`), 'utf8')), pass); }
+      catch (e) { console.log(U.c.red('  ' + e.message)); await finishPhone({ ok: false, reason: 'the laptop could not unlock the owner key' }); return false; }
+      const type = drv.roster[name] ? 'add-key' : 'add-signer';
+      const role = drv.roles[name] || (flags.role === 'owner' ? 'owner' : 'signer');
+      const ev = { id: rosterMod.nextEventId(rlog), type, name, pub: r.pubB64, role, by: authOwner, prev: rlog.events[rlog.events.length - 1].id, nonce: C.randomNonce(), at: new Date().toISOString() };
+      ev.signature = C.sign(rosterMod.eventBytes(ev), priv);
+      const test = rosterMod.deriveRoster({ ...rlog, events: rlog.events.concat([ev]) });
+      if (test.problems.length) { console.log(U.c.red('  refusing to write — ' + test.problems.join('; '))); await finishPhone({ ok: false, reason: 'the roster event did not validate' }); return false; }
+      rlog.events.push(ev);
+      U.writeJSON(rosterPath(p), rlog);
       addSignerKey(config, name, r.pubB64, 'phone'); U.writeJSON(p.config, config);
-      console.log(U.c.yellow('  ⚠ phone captured, but NOT enrolled in the signed roster') + U.c.dim(' — no owner key on this machine to authorize it.'));
-      console.log('  ' + U.c.dim('From a machine holding an owner key, run: ') + U.c.bold(`yay enroll --name "${name}" --pubkey ${r.pubB64}`));
+      console.log(U.c.green(`✓ paired "${name}"`) + U.c.dim(` — phone key added to the SIGNED roster (authorized by ${authOwner}). Commit .yaylayer/. Sign with `) + U.c.bold('yay sign --phone') + U.c.dim('.'));
+      await finishPhone({ ok: true, message: 'Paired — you can close this. The laptop has your key.' });
       return true;
     }
-    const pass = await getPassphrase(flags, `Enter ${authOwner}'s passphrase to authorize adding your phone`);
-    let priv;
-    try { priv = C.decryptKeystore(JSON.parse(fs.readFileSync(path.join(p.keys, `${authOwner}.keystore`), 'utf8')), pass); }
-    catch (e) { console.log(U.c.red('  ' + e.message)); return false; }
-    const type = drv.roster[name] ? 'add-key' : 'add-signer';
-    const role = drv.roles[name] || (flags.role === 'owner' ? 'owner' : 'signer');
-    const ev = { id: rosterMod.nextEventId(rlog), type, name, pub: r.pubB64, role, by: authOwner, prev: rlog.events[rlog.events.length - 1].id, nonce: C.randomNonce(), at: new Date().toISOString() };
-    ev.signature = C.sign(rosterMod.eventBytes(ev), priv);
-    const test = rosterMod.deriveRoster({ ...rlog, events: rlog.events.concat([ev]) });
-    if (test.problems.length) { console.log(U.c.red('  refusing to write — ' + test.problems.join('; '))); return false; }
-    rlog.events.push(ev);
-    U.writeJSON(rosterPath(p), rlog);
-    addSignerKey(config, name, r.pubB64, 'phone'); U.writeJSON(p.config, config);
-    console.log(U.c.green(`✓ paired "${name}"`) + U.c.dim(` — phone key added to the SIGNED roster (authorized by ${authOwner}). Commit .yaylayer/. Sign with `) + U.c.bold('yay sign --phone') + U.c.dim('.'));
-    return true;
-  }
 
-  // Phone-as-genesis: the phone self-signed the genesis event. Its signature is
-  // the trust root; the private key never leaves the phone, and no local key exists.
-  const g = r.genesisEvent;
-  if (!g || g.pub !== r.pubB64) { console.log(U.c.red('  pairing failed — no valid genesis signature from the phone.')); return false; }
-  const check = rosterMod.deriveRoster({ project: config.project, events: [g] });
-  if (!check.ok) { console.log(U.c.red('  refusing to establish trust root — ' + check.problems.join('; '))); return false; }
-  U.writeJSON(rosterPath(p), { project: config.project, events: [g] });
-  addSignerKey(config, name, r.pubB64, 'phone');
-  config.devices = config.devices || {}; config.devices[name] = config.devices[name] || {}; config.devices[name].phonePairedAt = new Date().toISOString();
-  U.writeJSON(p.config, config);
-  console.log('\n' + U.c.green(`✓ trust root established on your phone for "${name}"`) + U.c.dim(' — no local key needed.'));
-  console.log('  ' + U.c.dim('root fingerprint → ') + U.c.bold(rosterMod.fingerprint(r.pubB64)) + U.c.dim('  (pin this in CI)'));
-  console.log('  ' + U.c.dim('commit ') + U.c.bold('.yaylayer/') + U.c.dim(', then approve change-sets with ') + U.c.bold('yay sign --phone'));
-  return true;
+    // Phone-as-genesis: the phone self-signed the genesis event. Its signature is
+    // the trust root; the private key never leaves the phone, and no local key exists.
+    const g = r.genesisEvent;
+    if (!g || g.pub !== r.pubB64) { console.log(U.c.red('  pairing failed — no valid genesis signature from the phone.')); await finishPhone({ ok: false, reason: 'no valid genesis signature from the phone' }); return false; }
+    const check = rosterMod.deriveRoster({ project: config.project, events: [g] });
+    if (!check.ok) { console.log(U.c.red('  refusing to establish trust root — ' + check.problems.join('; '))); await finishPhone({ ok: false, reason: 'the genesis event did not validate' }); return false; }
+    U.writeJSON(rosterPath(p), { project: config.project, events: [g] });
+    addSignerKey(config, name, r.pubB64, 'phone');
+    config.devices = config.devices || {}; config.devices[name] = config.devices[name] || {}; config.devices[name].phonePairedAt = new Date().toISOString();
+    U.writeJSON(p.config, config);
+    console.log('\n' + U.c.green(`✓ trust root established on your phone for "${name}"`) + U.c.dim(' — no local key needed.'));
+    console.log('  ' + U.c.dim('root fingerprint → ') + U.c.bold(rosterMod.fingerprint(r.pubB64)) + U.c.dim('  (pin this in CI)'));
+    console.log('  ' + U.c.dim('commit ') + U.c.bold('.yaylayer/') + U.c.dim(', then approve change-sets with ') + U.c.bold('yay sign --phone'));
+    await finishPhone({ ok: true, message: 'You’re the trust root now — you can close this.' });
+    return true;
+  } finally { s.close(); }
 }
 
 // Get an OWNER to sign a governance event `ev` (enroll / revoke / reroot).

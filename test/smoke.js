@@ -278,6 +278,21 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
   const pdone = await ps.done; ps.close();
   ok(pdone.name === 'Jonas' && pdone.pubB64 === kp.pubB64, 'phone: pairing resolves with the device identity');
 
+  // completion ping: after the phone submits, it polls /api/status and the laptop
+  // publishes the outcome so the phone screen flips to ✓ instead of hanging.
+  const cs = await pairOverLan({ project: 'demo' });
+  const cbase = 'http://127.0.0.1:' + cs.port;
+  const csess = await get(cbase);
+  await post(cbase, { name: 'Dev', pubB64: kp.pubB64, proof: C.sign(csess.challenge, kp.privDer) });
+  await cs.done;
+  ok((await fetch(cbase + '/api/status').then((r) => r.json())).final === null, 'phone-status: no final outcome until the laptop confirms');
+  cs.setFinal({ ok: true, message: 'Paired' });
+  const st = await fetch(cbase + '/api/status').then((r) => r.json());
+  ok(st.final && st.final.ok, 'phone-status: after the laptop confirms, the phone polls a ✓ outcome');
+  await cs.settled;
+  ok(true, 'phone-status: settled resolves once the phone has read the final status');
+  cs.close();
+
   const bs = await pairOverLan({ project: 'demo' });
   const bres = await post('http://127.0.0.1:' + bs.port, { name: 'X', pubB64: kp.pubB64, proof: C.sign('wrong', kp.privDer) });
   ok(!!bres.error, 'phone: pairing rejects a bad possession proof'); bs.close();

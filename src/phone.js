@@ -54,6 +54,11 @@ function confirmCode(pubB64) {
 function serve(mode, project, sessionData, onPost, opts) {
   let resolveDone;
   const done = new Promise((r) => { resolveDone = r; });
+  // Final outcome the phone can poll after it submitted (pairing completes on the
+  // laptop, so the phone learns success/failure via GET /api/status). `settled`
+  // resolves once the phone has actually read that final status.
+  let final = null, resolveSettled;
+  const settled = new Promise((r) => { resolveSettled = r; });
   const html = signerHTML({ mode, project });
 
   const handler = async (req, res) => {
@@ -61,6 +66,7 @@ function serve(mode, project, sessionData, onPost, opts) {
     if (req.method === 'OPTIONS') return sendJSON(res, 200, {});
     if (req.method === 'GET' && (url === '/' || url === '/index.html')) return sendHTML(res, html);
     if (req.method === 'GET' && url === '/api/session') return sendJSON(res, 200, { mode, project, ...sessionData });
+    if (req.method === 'GET' && url === '/api/status') { if (final) resolveSettled(); return sendJSON(res, 200, { final }); }
     if (req.method === 'POST' && url === '/api/submit') {
       const body = await readBody(req);
       const result = onPost(body);
@@ -79,7 +85,11 @@ function serve(mode, project, sessionData, onPost, opts) {
   return new Promise((resolve) => {
     server.listen(0, '0.0.0.0', () => {
       const port = server.address().port;
-      resolve({ url: `${scheme}://${lanIP()}:${port}`, local: `${scheme}://localhost:${port}`, port, done, close: () => server.close() });
+      resolve({
+        url: `${scheme}://${lanIP()}:${port}`, local: `${scheme}://localhost:${port}`, port, done, settled,
+        setFinal: (f) => { final = f; },
+        close: () => server.close(),
+      });
     });
   });
 }

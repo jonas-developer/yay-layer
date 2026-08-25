@@ -168,7 +168,24 @@ async function doPair(sess,key){
     if(res.error){ setStatus('Rejected: '+res.error,'err'); return; }
     h('<div class="msg">Confirm this code matches the one on your laptop:</div><div class="code">'+esc(res.code)+'</div><div class="msg">Then approve it on the laptop.</div>');
     setStatus('Waiting for the laptop…','ok');
+    pollPairStatus();
   }catch(e){ setStatus('Pairing failed: '+e,'err'); }
+}
+function sleep(ms){return new Promise(function(r){setTimeout(r,ms);});}
+// After submitting, the phone waits for the laptop to confirm the code; poll the
+// outcome so this screen flips to success/failure instead of hanging forever.
+async function pollPairStatus(){
+  for(var i=0;i<800;i++){
+    try{
+      var s=await api('/api/status');
+      if(s&&s.final){
+        if(s.final.ok){ h('<div class="ok-big">✓ Paired</div><div class="msg">'+esc(s.final.message||'Done — you can close this.')+'</div>'); setStatus('Paired','ok'); }
+        else { h('<div class="msg">Pairing wasn’t completed'+(s.final.reason?': '+esc(s.final.reason):'')+'.</div><div class="msg">Start again with <b>yay pair</b> on the laptop.</div>'); setStatus('Not paired','err'); }
+        return;
+      }
+    }catch(e){ return; } // server closed after finishing — stop quietly
+    await sleep(1500);
+  }
 }
 function approveFlow(sess){
   var key=loadKey();
