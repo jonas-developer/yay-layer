@@ -581,6 +581,7 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     const mhtml = renderMap({ root: '/tmp', cells: {} }, { results: {}, counts: {}, passed: true }, 'demo', [], {}, null, { signedRoster: true, rootFp: 'A', signers: [] }, [{ id: 'A-2', at: '2026-08-25', signer: 'Alex', text: 'Persist the high score between sessions', cells: ['C-1', 'C-2'] }]);
     ok(mhtml.includes('data-tab="missions"') && mhtml.includes('renderMissions'), 'v2 missions-tab: the map renders a Missions tab');
     ok(mhtml.includes('Persist the high score between sessions'), 'v2 missions-tab: the ledger embeds the mission text');
+    ok(mhtml.includes("querySelectorAll('.mcell.known')") && mhtml.includes('openDetail(ch.getAttribute'), 'v2 missions-tab: mission cells are clickable chips that open the Cell detail');
   }
 
   // spec-only adversary: an LLM sees ONLY the spec (never the code) and tries to break it.

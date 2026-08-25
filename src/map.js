@@ -251,6 +251,9 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);l
 .rootlbl{font-family:var(--sans);font-size:.68rem;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--ink2)}
 .rootfp{font-family:var(--mono);font-size:1.05rem;font-weight:700;color:var(--ink);margin-top:2px}
 .srow{display:flex;align-items:flex-start;gap:14px;border:1px solid var(--rule);border-radius:12px;padding:15px 18px;margin:0 0 10px;background:var(--card);box-shadow:var(--shadow)}
+.mcell{display:inline-block;font-family:var(--mono);font-size:.78rem;padding:2px 9px;margin:5px 6px 0 0;border-radius:7px;border:1px solid var(--rule);color:var(--mut)}
+.mcell.known{cursor:pointer;color:var(--accent);border-color:var(--accent)}
+.mcell.known:hover{background:var(--accent);color:#fff}
 .savatar{width:40px;height:40px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-family:var(--sans)}
 .sname{font-family:var(--sans);font-weight:700;font-size:1rem}
 .srole{font-family:var(--mono);font-size:.58rem;text-transform:uppercase;letter-spacing:.08em;font-weight:700;padding:2px 9px;border-radius:100px;margin-left:8px;vertical-align:middle}
@@ -602,13 +605,20 @@ pre.code .sp-ensures{color:var(--purple);font-weight:600}
     var html='<h1>Missions</h1><div class="snote" style="margin:0 0 16px">What was ordered, in plain language — newest first. Each mission is signed with the Cells it covers, so it is attributed and tamper-evident.</div>';
     ms.forEach(function(m){
       var when=m.at?String(m.at).slice(0,10):'';
+      var cells=m.cells||[];
+      var chips=cells.map(function(c){
+        var uid='u:'+c; var known=!!DETAILS[uid];
+        return '<span class="mcell'+(known?' known':'')+'"'+(known?(' data-uid="'+esc2(uid)+'"'):'')+' title="'+(known?'Open this Cell':'This Cell is no longer in the codebase')+'">'+esc2(c)+'</span>';
+      }).join('');
       html+='<div style="border:1px solid var(--rule);border-left:3px solid var(--accent);border-radius:12px;padding:14px 16px;margin:0 0 12px;background:var(--card2)">'
         +'<div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline;margin-bottom:6px"><span style="font-weight:800;letter-spacing:.06em;font-size:.72rem;color:var(--accent)">MISSION '+esc2(m.id||'')+'</span><span style="font-size:.78rem;color:var(--mut)">'+esc2(when)+(m.signer?(' · '+esc2(m.signer)):'')+'</span></div>'
         +'<div style="font-size:1.02rem;line-height:1.45;color:var(--ink);margin-bottom:8px">'+esc2(m.text||'')+'</div>'
-        +'<div style="font-size:.8rem;color:var(--mut)">covers '+(m.cells?m.cells.length:0)+' part'+((m.cells&&m.cells.length===1)?'':'s')+(m.cells&&m.cells.length?(': '+m.cells.map(function(c){return esc2(c);}).join(', ')):'')+'</div>'
+        +'<div style="font-size:.8rem;color:var(--mut)">covers '+cells.length+' part'+(cells.length===1?'':'s')+(cells.length?' — click to open:':'')+'</div>'
+        +(cells.length?('<div style="margin-top:2px">'+chips+'</div>'):'')
         +'</div>';
     });
     el.innerHTML=html;
+    Array.prototype.forEach.call(el.querySelectorAll('.mcell.known'),function(ch){ ch.addEventListener('click',function(){ openDetail(ch.getAttribute('data-uid')); }); });
   }
 
   // ── Files tab — classic file tree, problem states marked in colour ────────
