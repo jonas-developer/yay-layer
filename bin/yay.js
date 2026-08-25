@@ -96,10 +96,11 @@ function printQR(url) {
   try { require('qrcode-terminal').generate(url, { small: true }, (q) => console.log(q)); }
   catch (_) { console.log(U.c.dim('   (install qrcode-terminal for a scannable QR)')); }
 }
-// Opt-in self-signed TLS for phone signing (--https). Cert cached in the gitignored
+// Self-signed TLS for phone signing, ON BY DEFAULT (--no-https opts out). Cert cached in the gitignored
 // keys dir; generated with openssl. Returns { key, cert } or null (→ falls back to http).
 function tlsCert(p, flags) {
-  if (!flags.https) return null;
+  // HTTPS is the default (SSL over the LAN); --no-https opts out for plain http.
+  if (flags['no-https']) return null;
   const keyP = path.join(p.keys, 'tls.key'), crtP = path.join(p.keys, 'tls.crt');
   try {
     fs.mkdirSync(p.keys, { recursive: true });
@@ -1118,7 +1119,8 @@ async function cmdDashboard(flags) {
   process.on('exit', cleanup);
 
   console.log('\n' + U.c.green('✓ yay dashboard is live') + U.c.dim(' — keep this running; scan ONCE, then approvals appear here automatically.'));
-  console.log('   ' + U.c.bold('phone → ') + U.c.accent(s.url + '/phone') + U.c.dim('   (map: ' + s.url + ')'));
+  console.log('   ' + U.c.bold('this computer → ') + U.c.accent(s.local) + U.c.dim('   (the live map + buttons)'));
+  console.log('   ' + U.c.bold('phone → ') + U.c.accent(s.url + '/phone') + U.c.dim('   (scan the QR below — same Wi-Fi as this computer)'));
   printQR(s.url + '/phone');
   if (tls) console.log(U.c.dim('   https: tap through the one-time "not private" warning on the phone (Advanced → visit).'));
   const tc = resolveTestCmd(p.root, config, flags);
@@ -1170,14 +1172,14 @@ const HELP = `yay — a protocol for provable, signed AI code
                              (--for claude,agents,cursor,copilot,windsurf,cline,gemini,generic | all · --list)
   yay keygen --name <you>     create your signing key
   yay adopt [path] [--dry]    scaffold draft specs over existing code
-  yay pair [--name you]      pair your phone as the signer (key stays on the phone; scan the QR) · --https for TLS
+  yay pair [--name you]      pair your phone as the signer (key stays on the phone; scan the QR) · SSL on by default (--no-https)
                              the FIRST pairing makes the phone the trust root — no local key needed
   yay enroll --name X --pubkey <b64>  enroll another signer via an OWNER-signed event (--role owner|signer)
                              authorize with a local owner key, or --phone to approve on an owner's phone
   yay revoke --name X [--pubkey <b64>]  revoke one key (or the whole identity) via an owner-signed event (--phone)
   yay reroot [--phone]        retire the current trust root and establish a new one (key lost/compromised)
   yay sign [--cell IDs]       approve specs using THIS project's method (phone or local) — no flag needed
-                             override with --phone / --local · --https for TLS · --cell to sign a subset
+                             override with --phone / --local · SSL on by default (--no-https) · --cell to sign a subset
   yay verify [--strict] [-d]  the gate — paint every Cell; -d/--details prints each spec, code & checks
                              --problems shows only non-green Cells · --no-mutate skips prover mutation grading
   yay plan [--provider anthropic|openai|custom] [--model m] [--base-url url]
@@ -1186,7 +1188,7 @@ const HELP = `yay — a protocol for provable, signed AI code
                              endpoint via --base-url (Ollama/LM Studio/vLLM/local — key optional)
   yay map [-o file.html]      write the HTML flowchart (default: yay-layer-map.html)
                              if plan generation is enabled it regenerates the System Plan; --no-plan skips it, --replan forces it
-  yay dashboard [--port N]    live control panel: map + auto-refresh + Run-tests & Regenerate-plan buttons (leave running; --open, --https)
+  yay dashboard [--port N]    live control panel: map + auto-refresh + Run-tests & Regenerate-plan buttons (leave running; --open, SSL on by default: --no-https)
   yay test [--test "cmd"]     run the project's own test suite (package.json "test" / config.test); non-zero exit on failure
   yay adversary [--cell IDs]  spec-only adversary: an LLM sees ONLY the specs and writes probes to break the code (needs an LLM key)
   yay gate [dir]              write the CI gate workflow (+ --hook local pre-push) & print the
