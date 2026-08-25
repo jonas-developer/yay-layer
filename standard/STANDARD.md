@@ -56,12 +56,27 @@ Signatures are **ed25519**. A seal is a signature over the canonical bytes of an
 
 ```json
 { "id":"A-0007", "project":"…", "prev":"A-0006", "nonce":"…",
-  "at":"…", "signer":"alice", "items": { "C-040":"<specHash>", … } }
+  "at":"…", "signer":"alice",
+  "mission": { "text":"Add pause/resume to the game loop and persist the high score between sessions.",
+               "orderedBy":"human (AI-drafted, human-approved)" },
+  "items": { "C-040":"<specHash>", … } }
 ```
 
-One signature covers a whole change-set (`items` may hold one Cell or a hundred). The lock (`.yaylayer/lock.json`) is an append-only chain (`prev`), and both it and the roster (`config.json`, holding **public** keys) are committed. Private keys never are.
+One signature covers a whole change-set (`items` may hold one Cell or a hundred). When the change-set carries a **mission** (§5), its text is part of these signed bytes — so the human's intent is attributed and tamper-evident, cryptographically bound to the exact Cells and hashes approved. The lock (`.yaylayer/lock.json`) is an append-only chain (`prev`), and both it and the roster (`config.json`, holding **public** keys) are committed. Private keys never are.
 
-## 5. Colors — two axes
+## 5. Missions
+
+Cell `intent:` is bottom-up and local; it doesn't record **what the human actually ordered**. A **Mission** is that top-down layer: a short prose statement of the human's intent for a change-set, drafted by the AI, edited and approved by the human, and signed as part of the approval (§4).
+
+- **Shape.** A mission has `text` (the human's intent, one short paragraph) and covers the exact Cell set + spec-hashes of its approval. It is date-stamped (`at`) and attributed (`signer`) by the seal it rides in. Missions form an append-only log across approvals — the project's plain-English history of what was commissioned, when, by whom.
+- **AI drafts, human owns.** The AI writes the mission as its best understanding of the request — *fine-tuned, not the human's verbatim words* — and the human **must be able to edit it before signing**. The point is that it reflects the human's intent, not the AI's paraphrase. An unedited-but-approved mission is still the human's, because they signed it.
+- **Intent lane, never verification.** A mission is prose: like `intent:`, it is human/AI-judged and **can never earn or lift a color to Green**. It describes and attributes; it does not prove anything. Machine fields still do all verification. This keeps missions clear of "false green."
+- **Scope-bound, so it can't drift.** Because the mission is signed together with its `items` (Cell ids + spec-hashes), the ledger can always show "Mission M covered C-011, C-030 at these hashes." Editing a covered Cell later puts it visibly outside the mission's approved scope (Unsigned), rather than silently riding an old mission.
+- **When to write one.** Recommended for any multi-Cell or multi-part change-set (the common case: a conversational "build X and Y" that touches several Cells). Optional for a trivial single-Cell tweak. Missions feed the System Plan and the decision log; they are a *view* and an *attribution record*, not a gate.
+
+*(Roadmap — not yet in the reference implementation.)*
+
+## 6. Colors — two axes
 
 State combines **VERIFY** (does code match spec?) and **TRUST** (who approved the spec?):
 
@@ -74,7 +89,7 @@ State combines **VERIFY** (does code match spec?) and **TRUST** (who approved th
 
 A container Cell's color **rolls up** to the worst of its descendants.
 
-## 6. Verification tiers
+## 7. Verification tiers
 
 1. **Static** — spec well-formed; `unit` exists; declared `pure`/`effects` hold. *(A real AST parser (`@babel/parser`, covering JS/TS/JSX/TSX) discovers units and extracts exact bodies; effect analysis is still signal-based. Deeper analysis is roadmap.)*
 2. **Dynamic** — property tests generated from `ensures`, run with fresh seeds; graded by **mutation testing** (low score caps at Yellow). *(Roadmap.)*
@@ -82,31 +97,31 @@ A container Cell's color **rolls up** to the worst of its descendants.
 
 **Test independence** comes from *isolation*, not a second model: tests are generated from the spec (deterministically or by a code-blind agent), never from the implementation.
 
-## 7. Higher-order — flow & Policies
+## 8. Higher-order — flow & Policies
 
 - **Flow:** at every `feeds` edge, `producer.out ⊨ consumer.in`. A Red Cell taints everything downstream. *(MVP checks edges resolve; contract-compat is roadmap.)*
 - **Policies** *(roadmap)* — first-class signed rules: `intent` + selector (which Cells) + a checkable rule, verified as a **"for all matched Cells"** check. Flavors: **mandate / prohibit / grant** (grant carries an inherited effect declaration so minimality stays clean). The concern's mechanism stays a normal Cell the Policy points at.
 
-## 8. Integrity & approval
+## 9. Integrity & approval
 
 - The private key lives only on the owner's phone (Face ID); pair once via QR, then an **encrypted push channel**. The rendezvous server is **untrusted** — relays hashes + timestamps, never sees code.
 - **Nonce** per request kills replay; `prev` chains history (tamper-evident); verify **recomputes hashes from the real files**.
 - **Enforcement:** a local git hook is fast feedback only. The real gate is **CI + branch protection** running `yay verify --strict` — Red/Unsigned fails the check and the merge is blocked. Build/deploy verify is the solo fallback. *(MVP: `yay verify --strict` exit code; local keystore stands in for the phone signer.)*
 - **Key recovery:** back up as a 24-word mnemonic + passphrase, plus a second enrolled key. Lost phone → restore the same key → no re-seal. "Re-seal" (new trust root) is a rare one-signature fallback.
 
-## 9. Freedom mode (auto-approve)
+## 10. Freedom mode (auto-approve)
 
 A **delegation grant** — signed once on the phone (Face ID), scoped and time/count-boxed. Within it the AI auto-approves in-scope Cells with **no further phone contact** (the grant is the authorization; verify checks it). Sensitive/code-pinned Cells are excluded. Everything auto-approved is stamped `AUTO` and queued for **ratification**. Stop early with a signed **revocation**, honored at the CI gate. *(Roadmap.)*
 
-## 10. Teams
+## 11. Teams
 
 Each person holds their own key; a signed **roster** maps keys → names, so every seal attributes to a *named* human. Optional **role-based rights** and **M-of-N multi-sig** for sensitive Cells. Adding a signer is a privileged, signed (owner) action. Merges union per-Cell seals; the CI gate re-proves the merged whole and catches logical merge conflicts git can't. *(Roadmap; the reference impl records `signer` per approval today.)*
 
-## 11. Language reach
+## 12. Language reach
 
 Adapter order: **JS/TS first** (covers JS, TS, React, Node, Next) → **HTML/CSS** (structural Green) → **Python** → **Rust, then Solidity (deferred)**. A language without its full adapter runs "structural-lite" and caps at Yellow.
 
-## 12. Adopt (retrofit)
+## 13. Adopt (retrofit)
 
 `yay adopt` derives *descriptive* draft specs from existing code → the human **prunes** them prescriptive → signs → code that overreaches the pruned spec goes Red → the AI refactors to match. Coverage is reported honestly (uncovered = Pink, never faked). *(AST-based for JS: scaffolds a draft block over every named unit at any depth, with a purity guess. Deriving `intent` prose from behaviour needs an LLM — roadmap.)*
 
