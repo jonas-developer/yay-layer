@@ -562,6 +562,27 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     ok(C.verify(canonical({ ...mapproval, mission: { ...mapproval.mission, text: 'sneaky change' } }), msig, mkp.pubB64) === false, 'v2 mission: editing the sealed mission text breaks the signature (tamper-evident)');
   }
 
+  // Dashboard Sign button: human-initiated sign that pushes to the phone (key stays there).
+  {
+    let gotMission = null;
+    const sd = await startDashboard({ buildMapHTML: () => ({ html: '<html></html>', count: 0 }), version: () => 'A', signPending: (m) => { gotMission = m; return Promise.resolve({ ok: true, output: 'signed' }); } }, { port: 0 });
+    const sb = 'http://127.0.0.1:' + sd.port;
+    const sp = (path, b) => fetch(sb + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b || {}) });
+    ok((await sp('/api/sign/start', {})).status === 400, 'v2 sign-button: /api/sign/start requires a mission (400 without one)');
+    const sres = await sp('/api/sign/start', { mission: 'Do the thing' }).then((r) => r.json());
+    ok(sres.ok === true && gotMission === 'Do the thing', 'v2 sign-button: /api/sign/start invokes signPending with the mission');
+    ok((await fetch(sb + '/').then((r) => r.text())).includes('yd-sign'), 'v2 sign-button: the live dashboard bar has a Sign button');
+    sd.close();
+  }
+
+  // Missions ledger renders as a tab in the map (the readable history of what was ordered).
+  {
+    const { renderMap } = require('../src/map');
+    const mhtml = renderMap({ root: '/tmp', cells: {} }, { results: {}, counts: {}, passed: true }, 'demo', [], {}, null, { signedRoster: true, rootFp: 'A', signers: [] }, [{ id: 'A-2', at: '2026-08-25', signer: 'Alex', text: 'Persist the high score between sessions', cells: ['C-1', 'C-2'] }]);
+    ok(mhtml.includes('data-tab="missions"') && mhtml.includes('renderMissions'), 'v2 missions-tab: the map renders a Missions tab');
+    ok(mhtml.includes('Persist the high score between sessions'), 'v2 missions-tab: the ledger embeds the mission text');
+  }
+
   // spec-only adversary: an LLM sees ONLY the spec (never the code) and tries to break it.
   const A = require('../src/adversary');
   const advDir = fs.mkdtempSync(require('path').join(os.tmpdir(), 'yay-adv-'));

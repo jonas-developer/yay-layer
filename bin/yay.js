@@ -1153,6 +1153,19 @@ async function cmdDashboard(flags) {
         const res = await adversaryManifest(m, auth);
         return { results: Object.keys(res).map((id) => ({ id, unit: (m.cells[id].unitName || ''), ...res[id] })) };
       },
+      // Human-initiated sign from the dashboard: run `yay sign --mission "…"` as a child,
+      // which discovers THIS dashboard (via .yaylayer/dashboard.json) and routes the request
+      // to the phone. Reuses the whole sign path (mission, verify summary, seal-writing).
+      signPending: (mission) => new Promise((resolve) => {
+        const child = require('child_process').spawn(process.execPath, [process.argv[1], 'sign', '--mission', mission], { cwd: p.root });
+        let out = '';
+        child.stdout.on('data', (d) => { out += d; });
+        child.stderr.on('data', (d) => { out += d; });
+        child.on('error', (e) => resolve({ ok: false, error: String((e && e.message) || e) }));
+        child.on('exit', (code) => resolve(code === 0
+          ? { ok: true, output: out.replace(/\x1b\[[0-9;]*m/g, '').trim() }
+          : { ok: false, error: (out.replace(/\x1b\[[0-9;]*m/g, '').trim() || ('sign exited ' + code)) }));
+      }),
     }, { port, tls, caPem, caFilename });
   } catch (e) {
     if (e && e.code === 'EADDRINUSE') return fail(`port ${port} is already in use — a dashboard may already be running (open http://localhost:${port}), or pass --port.`);
