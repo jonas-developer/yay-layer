@@ -31,11 +31,14 @@ function normalizedToSpecLines(normalized) {
 }
 
 // The committed (HEAD) content of a file, or null if not in git / not tracked.
+// Uses git's own `--show-prefix` (repo-root → file's dir) instead of path.relative,
+// which would break when the toplevel resolves symlinks (e.g. macOS /var → /private/var).
 function gitHeadContent(root, absFile) {
   try {
     const cp = require('child_process'), opt = { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] };
-    const top = cp.execFileSync('git', ['-C', root, 'rev-parse', '--show-toplevel'], opt).trim();
-    return cp.execFileSync('git', ['-C', top, 'show', 'HEAD:' + path.relative(top, absFile)], opt);
+    const dir = path.dirname(absFile), base = path.basename(absFile);
+    const prefix = cp.execFileSync('git', ['-C', dir, 'rev-parse', '--show-prefix'], opt).trim();
+    return cp.execFileSync('git', ['-C', dir, 'show', 'HEAD:' + prefix + base], opt);
   } catch (_) { return null; }
 }
 
@@ -57,7 +60,9 @@ function specDiffForCell(root, cell) {
   try {
     const head = gitHeadContent(root, path.resolve(root, cell.file));
     if (head == null) return null;
-    return lineDiff(specLinesFromContent(head, cell.id), normalizedToSpecLines(cell.normalized));
+    // manifest cells carry the block as `specBlock` (extract calls it `normalized`).
+    const current = normalizedToSpecLines(cell.specBlock || cell.normalized);
+    return lineDiff(specLinesFromContent(head, cell.id), current);
   } catch (_) { return null; }
 }
 

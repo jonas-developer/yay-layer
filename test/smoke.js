@@ -130,6 +130,22 @@ ok(SD.lineDiff(null, dNew) === null, 'specdiff: no previous version → null (ne
 const dContent = '//∷YAY⟨C-1⟩\n//  intent: foo\n//  pure: yes\n//∷YAY-END⟨C-1⟩\nfunction f(){}';
 ok(JSON.stringify(SD.specLinesFromContent(dContent, 'C-1')).includes('intent: foo'), 'specdiff: extracts a cell spec block from raw content');
 ok(SD.specLinesFromContent(dContent, 'C-9') === null, 'specdiff: a missing cell id → null');
+// end-to-end: specDiffForCell against a REAL git HEAD (guards the cell.specBlock wiring)
+try {
+  const cp = require('child_process');
+  const gdir = fs.mkdtempSync(require('path').join(os.tmpdir(), 'yay-gd-'));
+  const gf = require('path').join(gdir, 'x.js');
+  fs.writeFileSync(gf, '//∷YAY⟨C-9⟩\n//  unit: f\n//  intent: old intent\n//  pure: yes\n//∷YAY-END⟨C-9⟩\nfunction f(){ return 1; }\n');
+  cp.execFileSync('git', ['-C', gdir, 'init', '-q']);
+  cp.execFileSync('git', ['-C', gdir, 'add', '-A']);
+  cp.execFileSync('git', ['-C', gdir, '-c', 'user.email=x@y.z', '-c', 'user.name=x', 'commit', '-qm', 'base']);
+  fs.writeFileSync(gf, '//∷YAY⟨C-9⟩\n//  unit: f\n//  intent: NEW intent\n//  pure: yes\n//∷YAY-END⟨C-9⟩\nfunction f(){ return 1; }\n');
+  const gm = buildManifest(gdir);
+  const gd = SD.specDiffForCell(gdir, gm.cells['C-9']);
+  ok(gd && gd.some((d) => d.t === '-' && /old intent/.test(d.text)) && gd.some((d) => d.t === '+' && /NEW intent/.test(d.text)),
+    'specdiff(e2e): specDiffForCell diffs working spec vs committed HEAD (uses cell.specBlock)');
+  fs.rmSync(gdir, { recursive: true, force: true });
+} catch (e) { ok(false, 'specdiff(e2e): ' + e.message); }
 
 // 10e) unit-name mismatch (A) + dangling-reference (B) checks
 const abDir = fs.mkdtempSync(require('path').join(os.tmpdir(), 'yay-ab-'));
@@ -398,6 +414,7 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     testInfo: () => ({ configured: true, cmd: 'echo hi' }),
     runTests: () => Promise.resolve({ configured: true, ok: true, code: 0, output: 'ran', cmd: 'echo hi' }),
     regenPlan: () => Promise.resolve({ ok: true, provider: 'openai', model: 'gpt-4o', subsystems: 2 }),
+    diffs: () => [{ id: 'C-1', unit: 'add', file: 'a.js', diff: [{ t: ' ', text: 'intent: x' }, { t: '-', text: 'ensures: a' }, { t: '+', text: 'ensures: b' }] }],
   }, { port: 0 });
   const dbase = 'http://127.0.0.1:' + ds.port;
   ok((await fetch(dbase + '/api/ping').then((r) => r.json())).yay === 'dashboard', 'dashboard: /api/ping identifies a running dashboard');
@@ -410,6 +427,9 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
   ok(dtres.ok === true && dtres.output === 'ran', 'dashboard: /api/tests/run runs the suite and returns the result');
   const pres2 = await fetch(dbase + '/api/plan/regen', { method: 'POST' }).then((r) => r.json());
   ok(pres2.ok === true && pres2.subsystems === 2, 'dashboard: /api/plan/regen regenerates the System Plan on demand');
+  const dfs = await fetch(dbase + '/api/diffs').then((r) => r.json());
+  ok(dfs.diffs && dfs.diffs[0].id === 'C-1' && dfs.diffs[0].diff.some((d) => d.t === '+'), 'dashboard: /api/diffs returns per-Cell spec changes vs last commit');
+  ok(dpage.includes('yd-diffs'), 'dashboard: has a Changes button');
   ds.close();
 
   // recovery: BIP39 mnemonic → ed25519 key (the phone's key-backup layer), roster-compatible.

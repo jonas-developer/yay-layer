@@ -1001,6 +1001,17 @@ async function cmdDashboard(flags) {
       testInfo: () => { const st = loadState(); return { configured: !!resolveTestCmd(st.p.root, st.config, flags), cmd: resolveTestCmd(st.p.root, st.config, flags) }; },
       runTests: () => { const st = loadState(); return runTests(st.p.root, resolveTestCmd(st.p.root, st.config, flags)); },
       regenPlan: () => { const st = loadState(); return regeneratePlan(st.p, st.config, st.lock, flags); },
+      diffs: () => {
+        const st = loadState();
+        const m = buildManifest(flags.dir || st.p.root);
+        const out = [];
+        for (const id of Object.keys(m.cells)) {
+          const c = m.cells[id];
+          const d = specDiffForCell(st.p.root, c);
+          if (d && d.length) out.push({ id, unit: c.unitName || '', file: c.file, diff: d });
+        }
+        return out;
+      },
     }, { port, tls });
   } catch (e) {
     if (e && e.code === 'EADDRINUSE') return fail(`port ${port} is already in use — a dashboard may already be running (open http://localhost:${port}), or pass --port.`);

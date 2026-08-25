@@ -28,6 +28,7 @@ function sendHTML(res, html) { res.writeHead(200, { 'content-type': 'text/html; 
 function withLiveControls(mapHTML, version) {
   const bar = '<div id="yd-bar" style="position:fixed;right:14px;bottom:14px;z-index:99999;display:flex;gap:8px;align-items:center;font-family:ui-monospace,Menlo,monospace;font-size:12px">'
     + '<span id="yd-live" style="padding:5px 11px;border-radius:100px;background:#1f9d57;color:#fff;box-shadow:0 6px 20px -8px rgba(0,0,0,.4)">● live</span>'
+    + '<button class="yd-btn" id="yd-diffs">≷ Changes</button>'
     + '<button class="yd-btn" id="yd-tests">▶ Run tests</button>'
     + '<button class="yd-btn" id="yd-plan">⟲ System Plan</button>'
     + '<button class="yd-btn yd-primary" id="yd-refresh">⟳ Refresh</button></div>'
@@ -37,9 +38,11 @@ function withLiveControls(mapHTML, version) {
     + '<style>.yd-btn{padding:6px 12px;border-radius:100px;border:1px solid #3ecf8e;background:transparent;color:#159a63;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px;box-shadow:0 6px 20px -10px rgba(0,0,0,.4)}.yd-btn.yd-primary{background:#3ecf8e;color:#04231a;border-color:#3ecf8e}.yd-btn:active{filter:brightness(.93)}</style>';
   const js = '<script>(function(){var V=' + JSON.stringify(version) + ';'
     + 'var live=document.getElementById("yd-live"),panel=document.getElementById("yd-panel"),pout=document.getElementById("yd-pout"),ptitle=document.getElementById("yd-ptitle");'
+    + 'function esc(s){return String(s==null?"":s).replace(/[&<>]/g,function(m){return m==="&"?"&amp;":m==="<"?"&lt;":"&gt;";});}'
     + 'function show(t,txt,cls){ptitle.textContent=t;pout.textContent=txt;pout.style.color=cls==="ok"?"#3fbf77":cls==="err"?"#ff6b6b":"#e6e6e6";panel.style.display="block";}'
     + 'document.getElementById("yd-close").onclick=function(){panel.style.display="none";};'
     + 'document.getElementById("yd-refresh").onclick=function(){location.reload();};'
+    + 'document.getElementById("yd-diffs").onclick=async function(){ptitle.textContent="Spec changes since last commit";pout.style.color="#e6e6e6";pout.textContent="loading…";panel.style.display="block";try{var j=await fetch("/api/diffs").then(function(r){return r.json();});if(!j.diffs||!j.diffs.length){pout.textContent="No spec changes since the last commit (working tree matches HEAD).";return;}pout.innerHTML=j.diffs.map(function(c){var lines=c.diff.map(function(d){var col=d.t==="+"?"#3fbf77":d.t==="-"?"#ff6b6b":"#8a8a8a";var pre=d.t==="+"?"+ ":d.t==="-"?"- ":"  ";return "<div style=\\"color:"+col+"\\">"+esc(pre+d.text)+"</div>";}).join("");return "<div style=\\"margin:0 0 16px\\"><div style=\\"color:#e6e6e6;font-weight:700;margin-bottom:5px\\">"+esc(c.id+(c.unit?" · "+c.unit:"")+"   "+c.file)+"</div>"+lines+"</div>";}).join("");}catch(e){pout.textContent="Could not load diffs: "+e;}};'
     + 'document.getElementById("yd-tests").onclick=async function(){show("Tests","Running the project test suite…");try{var r=await fetch("/api/tests/run",{method:"POST"});if(r.status===403){show("Tests","Run tests from the dashboard on THIS computer (localhost) — not from the phone.","err");return;}var j=await r.json();show("Tests "+(j.configured?(j.ok?"✓ passed":"✗ failed (exit "+j.code+")"):""),(j.cmd?("$ "+j.cmd+"\\n\\n"):"")+(j.output||""),j.configured?(j.ok?"ok":"err"):"");}catch(e){show("Tests","Could not run: "+e,"err");}};'
     + 'document.getElementById("yd-plan").onclick=async function(){if(!confirm("Regenerate the System Plan? This calls your LLM provider and costs tokens."))return;show("System Plan","Regenerating via your LLM provider… (a few seconds)");try{var r=await fetch("/api/plan/regen",{method:"POST"});if(r.status===403){show("System Plan","Regenerate from the dashboard on THIS computer (localhost).","err");return;}var j=await r.json();if(j.ok){show("System Plan","✓ Updated ("+j.provider+"/"+j.model+", "+j.subsystems+" subsystems). Reloading…","ok");setTimeout(function(){location.reload();},900);}else{show("System Plan","✗ "+(j.error||"failed"),"err");}}catch(e){show("System Plan","Could not regenerate: "+e,"err");}};'
     + 'async function poll(){try{var r=await fetch("/api/version",{cache:"no-store"});var j=await r.json();if(j.v&&j.v!==V){live.textContent="● updated — refreshing";live.style.background="#c9860f";setTimeout(function(){location.reload();},500);}}catch(_){live.textContent="● server stopped";live.style.background="#d92d20";}}'
@@ -56,6 +59,7 @@ function startDashboard(deps, opts) {
     const url = req.url.split('?')[0];
     if (req.method === 'GET' && url === '/api/ping') return sendJSON(res, 200, { yay: 'dashboard' });
     if (req.method === 'GET' && url === '/api/version') { try { return sendJSON(res, 200, { v: deps.version() }); } catch (e) { return sendJSON(res, 200, { v: 'err' }); } }
+    if (req.method === 'GET' && url === '/api/diffs') { try { return sendJSON(res, 200, { diffs: deps.diffs ? deps.diffs() : [] }); } catch (e) { return sendJSON(res, 200, { diffs: [], error: String(e && e.message || e) }); } }
     if (req.method === 'GET' && url === '/api/tests') return sendJSON(res, 200, { ...(deps.testInfo ? deps.testInfo() : { configured: false }), last: lastTest });
     if (req.method === 'POST' && url === '/api/tests/run') {
       if (!isLocal(req)) return sendJSON(res, 403, { error: 'local only' });
