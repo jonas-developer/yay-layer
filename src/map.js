@@ -133,7 +133,7 @@ function detailInner(cell, res, t) {
     ${checks}`;
 }
 
-function renderMap(manifest, verified, project, changes, times, planDoc, gov) {
+function renderMap(manifest, verified, project, changes, times, planDoc, gov, missions) {
   // Build the hierarchy: system → module → sub-group → unit.
   const nodes = {}; const details = {};
   const ensure = (id, label, kind, parent) => {
@@ -154,7 +154,7 @@ function renderMap(manifest, verified, project, changes, times, planDoc, gov) {
     const module = (mc && mc.module) || res.module || base(file);
     const group = (mc && mc.group) || res.group || 'Internal';
     const modId = 'm:' + module;
-    const grpId = 'g:' + module + ' ' + group;
+    const grpId = 'g:' + module + '\u0000' + group;
     const unitId = 'u:' + id;
     const m = ensure(modId, module, 'module', 'system');
     if (!nodes.system.children.includes(modId)) nodes.system.children.push(modId);
@@ -208,7 +208,7 @@ function renderMap(manifest, verified, project, changes, times, planDoc, gov) {
     if (mc && mc.contains && mc.contains.length) continue; // container Cells aren't file units
     FILES.push({ file: res.file || (mc && mc.file) || 'other', name: (mc && (mc.unitName || (mc.spec && mc.spec.unit))) || res.name || id, id: 'u:' + id, state: res.state, line: res.line || (mc && mc.line) || 0 });
   }
-  const meta = { project: project || 'project', counts: verified.counts, passed: verified.passed, totalUnits, plan: planDoc || null, gov: gov || null, files: FILES };
+  const meta = { project: project || 'project', counts: verified.counts, passed: verified.passed, totalUnits, plan: planDoc || null, gov: gov || null, files: FILES, missions: missions || [] };
   const payload = JSON.stringify({ root: 'system', nodes: YLnodes, edges: { system: modEdges }, details, changes: changes || [], needs, meta })
     .replace(/</g, '\\u003c');
 
@@ -386,7 +386,7 @@ pre.code .sp-ensures{color:var(--purple);font-weight:600}
 </style></head><body>
 <header class="nav"><div class="nav-in">
 <div class="brand"><span class="logo"><svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><rect width="26" height="26" rx="7" fill="#3ecf8e"/><path d="M6.5 13.5l4 4L20 7.5" fill="none" stroke="#04231a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="brandname">YayLayer</span><span class="brandsep">/</span><span class="brandproj">${esc(project || 'project')}</span></div>
-<div class="nav-right"><nav class="tabs"><button class="tab active" data-tab="map">Map</button><button class="tab" data-tab="files">Files</button><button class="tab" data-tab="plan" id="tab-plan" style="display:none">System Plan</button><button class="tab" data-tab="signers">Signers</button><button class="tab" data-tab="commands">Commands</button></nav><button id="themebtn" class="themebtn" aria-label="Toggle theme">Dark</button></div>
+<div class="nav-right"><nav class="tabs"><button class="tab active" data-tab="map">Map</button><button class="tab" data-tab="files">Files</button><button class="tab" data-tab="plan" id="tab-plan" style="display:none">System Plan</button><button class="tab" data-tab="missions">Missions</button><button class="tab" data-tab="signers">Signers</button><button class="tab" data-tab="commands">Commands</button></nav><button id="themebtn" class="themebtn" aria-label="Toggle theme">Dark</button></div>
 </div></header>
 <div class="wrap">
 <div class="pagehead"><h1>System map</h1><p class="sub">${totalUnits} units · ${verified.passed ? 'gate PASS' : 'gate BLOCKED'}${verified.counts.GREEN ? ` · ${verified.counts.proven || 0} proven / ${verified.counts.unproven || 0} unproven` : ''}</p></div>
@@ -397,6 +397,7 @@ pre.code .sp-ensures{color:var(--purple);font-weight:600}
 <div class="stage"><svg id="graph"></svg></div>
 <div class="logwrap"><div class="logh">Recent changes</div><ol id="log" class="log"></ol></div>
 <div id="plan" class="plan" style="display:none"></div>
+<div id="missions" class="signers" style="display:none"></div>
 <div id="signers" class="signers" style="display:none"></div>
 <div id="files" class="files" style="display:none"></div>
 <div id="commands" class="commands" style="display:none">${commandsHTML()}</div>
@@ -593,6 +594,23 @@ pre.code .sp-ensures{color:var(--purple);font-weight:600}
     el.innerHTML=html;
   }
 
+  // ── Missions tab — the plain-English ledger of what was ordered (Standard §5) ──
+  function renderMissions(){
+    var el=document.getElementById('missions'); if(!el) return;
+    var ms=(DATA.meta&&DATA.meta.missions)||[];
+    if(!ms.length){ el.innerHTML='<h1>Missions</h1><div class="snote">No missions yet. A Mission is the plain-English record of what you ordered, signed together with each change-set. Sign with <b>yay sign --mission "…"</b> (your AI supplies it automatically).</div>'; return; }
+    var html='<h1>Missions</h1><div class="snote" style="margin:0 0 16px">What was ordered, in plain language — newest first. Each mission is signed with the Cells it covers, so it is attributed and tamper-evident.</div>';
+    ms.forEach(function(m){
+      var when=m.at?String(m.at).slice(0,10):'';
+      html+='<div style="border:1px solid var(--rule);border-left:3px solid var(--accent);border-radius:12px;padding:14px 16px;margin:0 0 12px;background:var(--card2)">'
+        +'<div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline;margin-bottom:6px"><span style="font-weight:800;letter-spacing:.06em;font-size:.72rem;color:var(--accent)">MISSION '+esc2(m.id||'')+'</span><span style="font-size:.78rem;color:var(--mut)">'+esc2(when)+(m.signer?(' · '+esc2(m.signer)):'')+'</span></div>'
+        +'<div style="font-size:1.02rem;line-height:1.45;color:var(--ink);margin-bottom:8px">'+esc2(m.text||'')+'</div>'
+        +'<div style="font-size:.8rem;color:var(--mut)">covers '+(m.cells?m.cells.length:0)+' part'+((m.cells&&m.cells.length===1)?'':'s')+(m.cells&&m.cells.length?(': '+m.cells.map(function(c){return esc2(c);}).join(', ')):'')+'</div>'
+        +'</div>';
+    });
+    el.innerHTML=html;
+  }
+
   // ── Files tab — classic file tree, problem states marked in colour ────────
   var SEVN={GREEN:0,YELLOW:2,UNSIGNED:3,PINK:4,RED:5};
   function worse(a,b){ return (SEVN[b]||0)>(SEVN[a]||0)?b:a; }
@@ -623,10 +641,11 @@ pre.code .sp-ensures{color:var(--purple);font-weight:600}
   function setTab(name){
     curTab=name;
     MAP_ELS.forEach(function(s){ showSel(s, name==='map'); });
-    showSel('#plan', name==='plan'); showSel('#signers', name==='signers'); showSel('#files', name==='files'); showSel('#commands', name==='commands');
+    showSel('#plan', name==='plan'); showSel('#signers', name==='signers'); showSel('#files', name==='files'); showSel('#commands', name==='commands'); showSel('#missions', name==='missions');
     Array.prototype.forEach.call(document.querySelectorAll('.tab'),function(b){ b.classList.toggle('active', b.getAttribute('data-tab')===name); });
     if(name==='plan') renderPlan();
     if(name==='signers') renderSigners();
+    if(name==='missions') renderMissions();
     if(name==='files') renderFiles();
   }
   (function(){

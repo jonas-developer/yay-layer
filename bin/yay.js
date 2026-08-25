@@ -1055,7 +1055,11 @@ function buildMapHTML(p, config, lock, flags) {
       keys: pubs.map((pub) => ({ fp: rosterMod.fingerprint(pub), kind: (kindByPub[pub] && kindByPub[pub].kind) || '', addedAt: (kindByPub[pub] && kindByPub[pub].addedAt) || null })) };
   });
   const gov = { signedRoster: !!(rlog && rlog.events && rlog.events.length), rootFp: drv.rootFp, problems: drv.problems, signers };
-  return { html: renderMap(manifest, verified, config && config.project, changes, times, planDoc, gov), count: Object.keys(verified.results).length };
+  // Missions ledger (Standard §5): every approval that carries a mission, newest first.
+  const missions = (lock.approvals || []).filter((a) => a.mission && a.mission.text).map((a) => ({
+    id: a.id, at: a.at, signer: a.signer, text: a.mission.text, orderedBy: (a.mission.orderedBy || ''), cells: Object.keys(a.items || {}),
+  })).reverse();
+  return { html: renderMap(manifest, verified, config && config.project, changes, times, planDoc, gov, missions), count: Object.keys(verified.results).length };
 }
 
 // A cheap fingerprint of the state the map depends on, so the dashboard can tell
