@@ -43,8 +43,11 @@ const COMMANDS = [
   { cmd: 'yay adopt [path]', desc: 'Scaffold draft (unsigned) spec blocks over existing code.', flags: [['--dry', 'preview what would be added']] },
   { cmd: 'yay sign [--cell IDs]', desc: 'Approve the current specs — appends a signed seal. Uses THIS project’s signing method automatically (phone or local); no flag needed.', flags: [['--phone / --local', 'force the device (default = the project’s method)'], ['--https', 'phone over self-signed TLS'], ['--cell <ids>', 'only these Cells (comma-separated)'], ['--name <signer>', 'which signer']] },
   { cmd: 'yay verify [--strict] [-d]', desc: 'The gate: paint every Cell + run the behavioural prover & mutation grading.', flags: [['--strict', 'non-zero exit if blocked (for CI)'], ['-d, --details', 'print each spec, code & checks'], ['--problems', 'show only non-green Cells'], ['--no-mutate', 'skip mutation grading']] },
+  { cmd: 'yay test [--test "cmd"]', desc: 'Run the project’s OWN test suite (package.json "test" / config.test) — the runtime backstop for what per-Cell checks can’t reach. Non-zero exit on failure (for CI).', flags: [['--test "<cmd>"', 'the command to run (else package.json test)']] },
+  { cmd: 'yay adversary [--cell IDs]', desc: 'Spec-only adversary: an LLM sees ONLY each Cell’s spec (never the code) and writes probes to BREAK it, run against the real code. A break is a genuine spec↔code violation. Needs an LLM key.', flags: [['--cell <ids>', 'only these Cells'], ['--provider …', 'same provider config as the System Plan']] },
   { cmd: 'yay plan', desc: 'AI-synthesize the high-level System Plan → .yaylayer/plan.json.', flags: [['--provider anthropic|openai|custom', 'LLM provider (key from .env)'], ['--base-url <url>', 'custom / OpenAI-compatible endpoint (Ollama, LM Studio, vLLM — key optional)'], ['--model <m>', 'model id']] },
   { cmd: 'yay map [-o file.html]', desc: 'Write this HTML site (Map / Files / System Plan / Signers / Commands).', flags: [['-o <file>', 'output path'], ['--no-plan', 'omit the System Plan entirely'], ['--replan', 'force plan regeneration']] },
+  { cmd: 'yay dashboard [--port N]', desc: 'Live control panel: serves the map and auto-refreshes on changes, with on-demand buttons — Changes (spec diffs), Run tests, Adversary, Regenerate System Plan. Leave it running.', flags: [['--port <n>', 'port (default 48756)'], ['--open', 'open it in your browser'], ['--https', 'serve over self-signed TLS']] },
   { cmd: 'yay gate [dir]', desc: 'Write the CI gate workflow and print the branch-protection steps.', flags: [['--hook', 'also install a local pre-push gate'], ['--scope <dir>', 'gate only a subfolder'], ['--force', 'overwrite existing files']] },
   { cmd: 'yay constitution --for <keys>', desc: 'Write the Constitution where an AI harness auto-reads it.', flags: [['--for <keys|all>', 'claude, agents, copilot, cursor, windsurf, cline, gemini, generic'], ['--list', 'list the harnesses']] },
   { cmd: 'yay status', desc: 'One-line health summary of the project.', flags: [] },
@@ -109,9 +112,17 @@ function detailInner(cell, res, t) {
     <li>▲ <b>${res.blast || 0}</b> Cell(s) depend on this${res.dependents ? ` — ${res.dependents} directly` : ''}${(res.blast || 0) === 0 ? ' (nothing breaks downstream)' : ''}</li>
     ${res.isEntry ? '<li class="ck-info">• public entry point — external callers expected</li>' : ''}
     ${res.bloat ? '<li class="ck-yellow">⚠ no callers found — possible dead code (or called dynamically)</li>' : ''}</ul>`;
+  // What changed in THIS Cell's spec since the last commit (old red / new green).
+  const diffSection = (cell.diff && cell.diff.length)
+    ? `<div class="dh">Changes since last commit</div><pre class="code diff">${cell.diff.map((d) => {
+      const cls = d.t === '+' ? 'dl-add' : d.t === '-' ? 'dl-del' : 'dl-ctx';
+      return `<span class="${cls}">${esc((d.t === '+' ? '+ ' : d.t === '-' ? '- ' : '  ') + d.text)}</span>`;
+    }).join('\n')}</pre>`
+    : '';
   return `<div class="mhead"><span class="mid">${esc(cell.id)}</span><span class="mname">${esc(cell.unitName || cell.spec.unit || cell.id)}</span><span class="mpill" style="color:${col}">${label}</span></div>
     <div class="dmeta">${meta.map((m) => `<span>${m}</span>`).join('')}</div>
     <div class="dh">Sealed spec</div><pre class="code">${colorizeSpec(cell.specBlock)}</pre>
+    ${diffSection}
     ${body}
     ${history}
     ${impact}
@@ -362,6 +373,7 @@ h1{font-family:var(--sans);font-size:1.5rem;font-weight:700;letter-spacing:-.02e
 .dh{font-family:var(--sans);font-size:.66rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--ink2);margin:16px 0 6px}
 pre.code{margin:0;background:var(--codebg);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:14px 16px;overflow-x:auto;font-family:var(--mono);font-size:.8rem;line-height:1.65;white-space:pre;color:var(--codeink)}
 .badline{display:block;background:rgba(255,90,80,.18);color:#ff8f86;font-weight:700;border-radius:4px;margin:0 -6px;padding:0 6px}
+pre.code.diff .dl-add{color:#54d98c}pre.code.diff .dl-del{color:#ff8f86}pre.code.diff .dl-ctx{color:var(--codeink);opacity:.65}
 pre.code .sp-intent{color:var(--blue);font-weight:600}
 pre.code .sp-ensures{color:var(--purple);font-weight:600}
 .checks{margin:0;padding:0;list-style:none;font-size:.84rem}.checks li{margin:5px 0;line-height:1.5}

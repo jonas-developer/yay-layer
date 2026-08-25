@@ -941,6 +941,8 @@ async function maybePlanForMap(p, config, manifest, verified, flags) {
 // never regenerates the plan (that costs an LLM call; only `yay map`/`yay plan` do).
 function buildMapHTML(p, config, lock, flags) {
   const manifest = buildManifest(flags.dir || p.root);
+  // Per-Cell spec diff vs last commit, so each Cell's detail can show what changed there.
+  for (const id of Object.keys(manifest.cells)) { manifest.cells[id].diff = specDiffForCell(p.root, manifest.cells[id]); }
   const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), root: trustRootPin(flags) });
   const { changes, times } = cellChanges(manifest.root, lock, manifest.cells);
   const planDoc = flags['no-plan'] ? null : U.readJSON(path.join(path.dirname(p.config), 'plan.json'), null);
