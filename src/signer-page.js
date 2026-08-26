@@ -34,12 +34,7 @@ function signerHTML({ mode, project }) {
   --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
   --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
 }
-@media(prefers-color-scheme:dark){:root{
-  --ground:#101311;--panel:#181b19;--card:#1c201d;--card-tint:#16241d;
-  --ink:#e9ede9;--ink-2:#aab3ac;--mut:#7f887f;--rule:#2a302c;
-  --accent:#41cd88;--accent-ink:#062017;--green:#43c47f;--amber:#e0a54a;--red:#f0705d;
-  --shadow:0 24px 50px -28px rgba(0,0,0,.7);
-}}
+/* Light by default on every phone (matches the site + mockups), regardless of the phone's OS theme. */
 *{box-sizing:border-box}
 body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--sans);line-height:1.55;-webkit-font-smoothing:antialiased;
   min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:26px 18px}
