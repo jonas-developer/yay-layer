@@ -621,6 +621,7 @@ async function routeThroughRelay(p, mode, payload, flags) {
   ['approval', 'event', 'summary', 'challenge', 'genesis', 'project', 'signer', 'signerPubs'].forEach((k) => { if (payload[k] !== undefined) wire[k] = payload[k]; });
   try {
     const rq = await relayFetch(sess, '/api/request', { method: 'POST', body: JSON.stringify({ ch: sess.channel, blob: E2E.seal(sess.keyBytes, wire) }) });
+    if (rq.status === 409) { const j = await rq.json().catch(() => ({})); console.log(U.c.yellow('  ' + (j.error || 'a request is already awaiting approval on this phone — finish or cancel it first.'))); return null; }
     if (!rq.ok) { console.log(U.c.red('  relay rejected the request (HTTP ' + rq.status + ').')); return null; }
   } catch (e) { console.log(U.c.red('  could not reach the relay (' + sess.base + '): ' + (e && e.message || e))); return null; }
   if (sess.fresh) {
