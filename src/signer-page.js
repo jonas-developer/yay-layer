@@ -9,6 +9,10 @@
 // Uses PURE-JS crypto (not WebCrypto), so it works over a plain http LAN address —
 // no secure-context / HTTPS requirement. (TweetNaCl only needs crypto.getRandomValues,
 // which is available over http.) HTTPS is an opt-in transport, not a requirement.
+//
+// Visual design: a calm, card-led look matching relay.yaylayer.com — accent-bordered
+// cards, uppercase micro-labels, muted helper text, one clear primary action per screen.
+// System fonts only (no web-font fetch), so it renders fully offline on the LAN.
 
 const fs = require('fs');
 const path = require('path');
@@ -22,69 +26,92 @@ function signerHTML({ mode, project }) {
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>YayLayer Signer</title>
 <style>
-:root{--bg:#ffffff;--card:#ffffff;--card2:#f7f8f9;--ink:#141414;--mut:#8a939b;--rule:#e6e8eb;--accent:#1a8f5f;--brand:#3ecf8e;--green:#1f9d57;--red:#d92d20;--mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;--sans:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
-@media(prefers-color-scheme:dark){:root{--bg:#171717;--card:#1e1e1e;--card2:#212121;--ink:#ededed;--mut:#8a8a8a;--rule:#2b2b2b;--accent:#3ecf8e;--green:#3fbf77;--red:#ff6b6b}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.5;
-  min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:24px 18px}
-.top{width:100%;max-width:460px;margin-bottom:16px}
-.brandrow{display:flex;align-items:center;gap:8px;margin-bottom:2px}
+:root{
+  --ground:#f6f8f6;--panel:#ffffff;--card:#ffffff;--card-tint:#eef5f0;
+  --ink:#131714;--ink-2:#5a635c;--mut:#8b948d;--rule:#e4e9e5;
+  --accent:#177f52;--accent-ink:#0a2c1d;--green:#1f9d57;--amber:#b7791f;--red:#c8402f;
+  --shadow:0 18px 40px -24px rgba(16,40,28,.40);
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+@media(prefers-color-scheme:dark){:root{
+  --ground:#101311;--panel:#181b19;--card:#1c201d;--card-tint:#16241d;
+  --ink:#e9ede9;--ink-2:#aab3ac;--mut:#7f887f;--rule:#2a302c;
+  --accent:#41cd88;--accent-ink:#062017;--green:#43c47f;--amber:#e0a54a;--red:#f0705d;
+  --shadow:0 24px 50px -28px rgba(0,0,0,.7);
+}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--sans);line-height:1.55;-webkit-font-smoothing:antialiased;
+  min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:26px 18px}
+.top{width:100%;max-width:460px;margin-bottom:14px}
+.brandrow{display:flex;align-items:center;gap:9px;margin-bottom:10px}
 .logo{display:inline-flex;flex:none}
-.brand{font-weight:700;font-size:.98rem;color:var(--ink)}
-h1{font-size:1.3rem;margin:4px 0 0}.sub{color:var(--mut);font-size:.85rem;font-family:var(--mono)}
-#app{width:100%;max-width:460px;background:var(--card);border:1px solid var(--rule);border-radius:16px;padding:20px}
-.lbl{display:block;font-size:.8rem;color:var(--mut);margin:0 0 6px}
-.inp{width:100%;font-size:1.05rem;padding:13px 14px;border-radius:11px;border:1px solid var(--rule);background:var(--bg);color:var(--ink);margin-bottom:14px}
-.btn{width:100%;font-size:1.05rem;font-weight:700;padding:15px;border:none;border-radius:12px;background:var(--brand);color:#04231a;cursor:pointer}
-.btn:active{filter:brightness(.92)}
-.msg{color:var(--ink);font-size:.95rem;margin:0 0 14px}
-.code{font-family:var(--mono);font-size:2.6rem;font-weight:700;letter-spacing:.12em;text-align:center;margin:6px 0 12px;color:var(--accent)}
-.ok-big{font-size:1.6rem;font-weight:700;color:var(--green);text-align:center;margin:8px 0}
-.cell{display:flex;align-items:flex-start;gap:10px;padding:11px 0;border-top:1px solid var(--rule)}
+.brand{font-weight:700;font-size:.92rem;color:var(--ink)}
+h1{font-weight:800;font-size:1.5rem;letter-spacing:-.01em;margin:2px 0 0}
+.sub{color:var(--mut);font-size:.76rem;font-family:var(--mono);letter-spacing:.02em;margin-top:3px}
+#app{width:100%;max-width:460px;background:var(--panel);border:1px solid var(--rule);border-radius:20px;padding:22px;box-shadow:var(--shadow)}
+.msg{color:var(--ink);font-size:.98rem;margin:0 0 14px}
+.help{color:var(--mut);font-size:.85rem;line-height:1.5;margin:0 0 14px}
+.lab{font-family:var(--mono);font-size:.64rem;font-weight:600;letter-spacing:.15em;text-transform:uppercase;color:var(--accent);margin:0 0 8px}
+.lbl{display:block;font-size:.8rem;color:var(--mut);margin:0 0 7px}
+.inp{width:100%;font-size:1.05rem;padding:13px 14px;border-radius:12px;border:1px solid var(--rule);background:var(--card);color:var(--ink);font-family:var(--sans);margin-bottom:14px}
+.inp:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:var(--accent)}
+textarea.inp{min-height:96px;resize:vertical;font-family:var(--mono);font-size:.95rem}
+.btn{width:100%;font-family:var(--sans);font-size:1rem;font-weight:700;padding:15px;border:none;border-radius:13px;background:var(--accent);color:var(--accent-ink);cursor:pointer}
+.btn:active{filter:brightness(.94)}
+.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn.alt,.btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--rule);margin-top:10px}
+.btnrow{display:flex;gap:10px}.btnrow .btn{flex:1;margin-top:0}
+.link{display:block;text-align:center;margin-top:15px;color:var(--accent);text-decoration:underline;cursor:pointer;font-size:.9rem}
+.code{font-family:var(--mono);font-size:clamp(1.7rem,8.5vw,2.3rem);font-weight:600;letter-spacing:.12em;text-align:center;color:var(--accent);margin:4px 0;white-space:nowrap;overflow-x:auto}
+.bigok{display:grid;place-items:center;gap:13px;text-align:center;padding:20px 0}
+.check{width:64px;height:64px;border-radius:50%;background:var(--card-tint);display:grid;place-items:center}
+.check svg{width:32px;height:32px;stroke:var(--green);stroke-width:3;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.bigok .t{font-weight:800;font-size:1.4rem;color:var(--green)}
+.bigok .h{font-weight:700;font-size:1.15rem;color:var(--ink)}
+.bigok .help{margin:0;max-width:27ch}
+.ok-big{font-weight:800;font-size:1.4rem;color:var(--green);text-align:center;margin:6px 0}
+.spin{width:38px;height:38px;border-radius:50%;border:3px solid var(--rule);border-top-color:var(--accent);animation:sp 1s linear infinite}
+@media(prefers-reduced-motion:reduce){.spin{animation:none}}
+@keyframes sp{to{transform:rotate(360deg)}}
+.crow{border-top:1px solid var(--rule)}.crow:first-of-type{border-top:none}.crow .cell{border-top:none}
+.cell{display:flex;align-items:flex-start;gap:11px;padding:12px 2px;border-top:1px solid var(--rule)}
 .cell:first-of-type{border-top:none}
-.dot{width:10px;height:10px;border-radius:50%;flex:none;margin-top:5px}
-.cid{font-family:var(--mono);font-size:.82rem;font-weight:600}
-.cin{color:var(--mut);font-size:.85rem}
-.col{margin-left:auto;font-family:var(--mono);font-size:.62rem;text-transform:uppercase;color:var(--mut)}
-#status{width:100%;max-width:460px;margin-top:14px;font-family:var(--mono);font-size:.8rem;color:var(--mut);text-align:center;min-height:1.2em}
-#status.ok{color:var(--green)}#status.err{color:var(--red)}
-.btn.alt{background:transparent;color:var(--accent);border:1px solid var(--rule);margin-top:10px}
-.link{display:inline-block;margin-top:14px;color:var(--accent);text-decoration:underline;cursor:pointer;font-size:.9rem}
-.mcard{border:2px solid var(--accent);border-radius:14px;padding:14px 16px;margin:0 0 18px;background:var(--card2)}
-.mcard .mlab{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px}
-.mcard .mtag{font-weight:800;letter-spacing:.11em;font-size:.72rem;color:var(--accent)}
-.mcard .medit{font-size:.8rem;background:none;border:0;color:var(--accent);text-decoration:underline;cursor:pointer;padding:0}
-.mcard .mtxt{font-size:1.08rem;line-height:1.45;color:var(--ink)}
-.mcard .marea{width:100%;font-size:1.02rem;line-height:1.45;padding:10px;border-radius:10px;border:1px solid var(--rule);background:var(--bg);color:var(--ink);font-family:var(--sans);min-height:88px}
-.mcard .msub{font-size:.78rem;color:var(--mut);margin-top:8px}
-.words{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin:12px 0}
-.word{font-family:var(--mono);font-size:.95rem;padding:9px 11px;background:var(--card2);border:1px solid var(--rule);border-radius:9px}
-.word i{color:var(--mut);font-style:normal;margin-right:8px;display:inline-block;min-width:1.4em;text-align:right}
-.warn{color:var(--red);font-size:.85rem;line-height:1.45;margin:10px 0}
-.chk{display:flex;align-items:flex-start;gap:9px;font-size:.9rem;margin:12px 0}
-.chk input{margin-top:3px;width:18px;height:18px;flex:none}
-textarea.inp{min-height:96px;resize:vertical;font-family:var(--mono);font-size:.98rem}
-.crow{border-top:1px solid var(--rule)}
-.crow:first-of-type{border-top:none}
-.crow .cell{border-top:none}
 .cell.tap{cursor:pointer;user-select:none}
-.caret{display:inline-block;margin-left:5px;color:var(--mut);font-size:.7rem}
+.dot{width:9px;height:9px;border-radius:50%;flex:none;margin-top:6px}
+.cid{font-family:var(--mono);font-size:.79rem;font-weight:600}
+.cin{color:var(--ink-2);font-size:.84rem;line-height:1.4}
+.col{margin-left:auto;font-family:var(--mono);font-size:.58rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);border:1px solid var(--rule);border-radius:99px;padding:3px 8px;white-space:nowrap;display:inline-flex;align-items:center;gap:4px}
+.caret{color:var(--mut);font-size:.7rem}
 .detailwrap{padding:2px 2px 12px 20px}
-.kv{display:flex;gap:10px;padding:5px 0;font-size:.86rem;border-top:1px solid var(--rule)}
-.kv:first-child{border-top:none}
+.kv{display:flex;gap:10px;padding:5px 0;font-size:.85rem;border-top:1px solid var(--rule)}.kv:first-child{border-top:none}
 .kv .k{font-family:var(--mono);color:var(--mut);min-width:62px;flex:none}
 .kv .v{white-space:pre-wrap;word-break:break-word}
-.notes{margin-top:8px;padding-top:8px;border-top:1px dashed var(--rule)}
-.note{font-size:.82rem;padding:2px 0}
-.difflbl{font-family:var(--mono);font-size:.72rem;color:var(--mut);margin:10px 0 6px;text-transform:uppercase;letter-spacing:.04em}
-.diff{font-family:var(--mono);font-size:.8rem;border:1px solid var(--rule);border-radius:8px;overflow:hidden}
-.dl{padding:3px 9px;white-space:pre-wrap;word-break:break-word;border-top:1px solid var(--rule)}
-.dl:first-child{border-top:none}
-.dl.add{background:rgba(31,157,87,.13);color:var(--green)}
-.dl.del{background:rgba(217,45,32,.13);color:var(--red)}
+.notes{margin-top:8px;padding-top:8px;border-top:1px dashed var(--rule)}.note{font-size:.82rem;padding:2px 0}
+.difflbl{font-family:var(--mono);font-size:.7rem;color:var(--mut);margin:10px 0 6px;text-transform:uppercase;letter-spacing:.06em}
+.diff{font-family:var(--mono);font-size:.8rem;border:1px solid var(--rule);border-radius:9px;overflow:hidden}
+.dl{padding:3px 9px;white-space:pre-wrap;word-break:break-word;border-top:1px solid var(--rule)}.dl:first-child{border-top:none}
+.dl.add{background:rgba(31,157,87,.14);color:var(--green)}
+.dl.del{background:rgba(200,64,47,.14);color:var(--red)}
 .dl.ctx{color:var(--mut)}
-.edited{font-family:var(--mono);font-size:.58rem;color:#c9860f;border:1px solid currentColor;border-radius:5px;padding:0 5px;margin-left:6px;vertical-align:middle;text-transform:uppercase;letter-spacing:.04em}
+.mcard{background:var(--card-tint);border:1px solid var(--rule);border-left:3px solid var(--accent);border-radius:14px;padding:14px 15px;margin:0 0 16px}
+.mcard .mlab{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.mcard .mtag{font-family:var(--mono);font-weight:600;letter-spacing:.15em;font-size:.64rem;text-transform:uppercase;color:var(--accent)}
+.mcard .medit{font-size:.8rem;font-weight:600;background:none;border:0;color:var(--accent);cursor:pointer;padding:0}
+.mcard .mtxt{font-size:1.04rem;line-height:1.45;color:var(--ink)}
+.mcard .marea{width:100%;font-size:1rem;line-height:1.45;padding:10px;border-radius:10px;border:1px solid var(--rule);background:var(--card);color:var(--ink);font-family:var(--sans);min-height:88px}
+.mcard .msub{color:var(--mut);font-size:.75rem;margin-top:9px}
+.words{display:grid;grid-template-columns:1fr 1fr;gap:8px 10px;margin:12px 0}
+.word{font-family:var(--mono);font-size:.85rem;padding:8px 10px;background:var(--card);border:1px solid var(--rule);border-radius:9px;display:flex;gap:8px}
+.word i{color:var(--mut);font-style:normal;min-width:1.3em;text-align:right}
+.warn{color:var(--red);font-size:.84rem;line-height:1.45;margin:12px 0}
+.chk{display:flex;align-items:flex-start;gap:9px;font-size:.9rem;margin:14px 0}
+.chk input{margin-top:3px;width:18px;height:18px;flex:none;accent-color:var(--accent)}
+.edited{font-family:var(--mono);font-size:.56rem;color:var(--amber);border:1px solid currentColor;border-radius:5px;padding:0 5px;margin-left:6px;vertical-align:middle;text-transform:uppercase;letter-spacing:.04em}
+#status{width:100%;max-width:460px;margin-top:13px;font-family:var(--mono);font-size:.78rem;color:var(--mut);text-align:center;min-height:1.2em}
+#status.ok{color:var(--green)}#status.err{color:var(--red)}
 </style></head><body>
-<div class="top"><div class="brandrow"><span class="logo"><svg width="24" height="24" viewBox="0 0 26 26" aria-hidden="true"><rect width="26" height="26" rx="7" fill="#3ecf8e"/><path d="M6.5 13.5l4 4L20 7.5" fill="none" stroke="#04231a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="brand">YayLayer Signer</span></div><h1 id="ttl">Sign</h1><div class="sub" id="proj"></div></div>
+<div class="top"><div class="brandrow"><span class="logo"><svg width="24" height="24" viewBox="0 0 26 26" aria-hidden="true"><rect width="26" height="26" rx="7" fill="#177f52"/><path d="M6.5 13.5l4 4L20 7.5" fill="none" stroke="#eef5f0" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="brand">YayLayer Signer</span></div><h1 id="ttl">Sign</h1><div class="sub" id="proj"></div></div>
 <div id="app"><div class="msg">Loading…</div></div>
 <div id="status"></div>
 <script>${NACL}</script>
@@ -98,6 +125,8 @@ document.getElementById('ttl').textContent=(MODE==='pair'?'Pair this phone':MODE
 function setStatus(t,cls){statusEl.textContent=t;statusEl.className=cls||'';}
 function h(html){app.innerHTML=html;}
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+// Calm success screen (check circle + title + one muted line) — matches the mockup.
+function okScreen(title,msg){h('<div class="bigok"><div class="check"><svg viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5"/></svg></div><div class="t">'+esc(title)+'</div><div class="help">'+esc(msg||'')+'</div></div>');}
 var SPKI=new Uint8Array([48,42,48,5,6,3,43,101,112,3,33,0]); // ed25519 SPKI header (so the raw key matches Node's SPKI-DER)
 function b64(buf){var b=new Uint8Array(buf),s='';for(var i=0;i<b.length;i++)s+=String.fromCharCode(b[i]);return btoa(s);}
 function unb64(s){var bin=atob(s),a=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)a[i]=bin.charCodeAt(i);return a;}
@@ -117,7 +146,7 @@ function restoreIdentity(name,phrase){var kp=YayRecovery.mnemonicToKeypair(phras
 var unlocked=null; // {pub,sec} after a successful unlock this page-load
 function askPin(title,sub){
   return new Promise(function(resolve){
-    h('<div class="msg"><b>'+esc(title)+'</b></div>'+(sub?'<div class="warn" style="color:var(--mut)">'+esc(sub)+'</div>':'')+'<input id="pin" class="inp" type="password" autocomplete="off" autocapitalize="off" placeholder="PIN or passphrase (6+ characters)"><button id="go" class="btn">OK</button>');
+    h('<div class="msg"><b>'+esc(title)+'</b></div>'+(sub?'<div class="help">'+esc(sub)+'</div>':'')+'<input id="pin" class="inp" type="password" autocomplete="off" autocapitalize="off" placeholder="PIN or passphrase (6+ characters)"><button id="go" class="btn">Continue</button>');
     document.getElementById('pin').focus();
     document.getElementById('go').onclick=function(){var v=document.getElementById('pin').value||'';if(v.length<6){setStatus('At least 6 characters','err');return;}setStatus('');resolve(v);};
   });
@@ -158,7 +187,7 @@ async function main(){
 }
 // Dashboard mode: idle here until the laptop sends a request, handle it, then wait
 // for the next — the human only ever scans the QR once, at the start of the session.
-function idleScreen(msg){ h('<div class="msg" style="color:var(--mut)">'+esc(msg||'Waiting for a request from the laptop…')+'</div><div class="msg" style="color:var(--mut);font-size:.85rem">Keep this page open. Approvals will appear here automatically.</div>'); setStatus('● connected','ok'); }
+function idleScreen(msg){ h('<div class="bigok"><div class="spin"></div><div class="h">'+esc(msg||'Waiting for a request')+'</div><div class="help">You’re connected. When your AI asks for approval, the brief shows up here.</div></div>'); setStatus('● connected','ok'); }
 async function waitCleared(){ for(var i=0;i<4000;i++){ await sleep(1500); try{ var s=await api('/api/session'); if(!s||!s.mode||s.mode==='idle') return; }catch(e){ return; } } }
 async function dashLoop(){
   idleScreen();
@@ -172,7 +201,7 @@ async function dashLoop(){
 }
 function pairFlow(sess){
   var key=loadKey();
-  var note=sess.genesis?'<div class="msg" style="color:var(--accent)">This phone will become the project’s <b>trust root</b> — no key is stored on the computer.</div>':'';
+  var note=sess.genesis?'<div class="help" style="color:var(--accent)">This phone will become the project’s <b>trust root</b> — no key is stored on the computer.</div>':'';
   if(key){ h(note+'<div class="msg">Key ready for <b>'+esc(key.name)+'</b> on this device.</div><button id="go" class="btn">'+(sess.genesis?'Become trust root &amp; pair':'Pair this device')+'</button>'); document.getElementById('go').onclick=function(){doPair(sess,key);}; return; }
   h(note+'<label class="lbl">Your name (shown on every signature)</label><input id="nm" class="inp" placeholder="e.g. Alex Doe" autocapitalize="words"><button id="go" class="btn">Create key &amp; pair</button><span id="rst" class="link">Restore from recovery phrase</span>');
   document.getElementById('go').onclick=function(){
@@ -187,7 +216,8 @@ function pairFlow(sess){
 function showBackup(sess,k){
   var words=k.mnemonic.split(' ');
   var grid=words.map(function(w,i){return '<div class="word"><i>'+(i+1)+'</i>'+esc(w)+'</div>';}).join('');
-  h('<div class="msg"><b>Your recovery phrase</b> — write these 24 words down on paper, in order.</div>'
+  h('<div class="lab">Recovery phrase</div>'
+    +'<div class="msg">Write these 24 words down on paper, in order.</div>'
     +'<div class="words">'+grid+'</div>'
     +'<div class="warn">This is the ONLY way to restore your key if you lose this phone. Anyone who has it can sign as you. Never photograph it, type it into a website, or store it online.</div>'
     +'<label class="chk"><input type="checkbox" id="ack"><span>I have written down my recovery phrase and stored it safely.</span></label>'
@@ -214,7 +244,8 @@ function dispatch(sess){ if(sess.mode==='approve') return approveFlow(sess); if(
 // Restore an existing identity by pasting its written-down phrase. Works from ANY
 // mode (pair / approve / authorize) — after restoring it continues that flow.
 function restoreFlow(sess){
-  h('<div class="msg"><b>Restore your key</b> — paste your 24-word recovery phrase.</div>'
+  h('<div class="lab">Restore your key</div>'
+    +'<div class="msg">Paste your 24-word recovery phrase.</div>'
     +'<label class="lbl">Your name (as shown on your signatures)</label><input id="nm" class="inp" placeholder="e.g. Alex Doe" autocapitalize="words">'
     +'<label class="lbl">Recovery phrase</label><textarea id="ph" class="inp" autocapitalize="none" autocomplete="off" placeholder="word1 word2 … word24"></textarea>'
     +'<button id="go" class="btn">Restore key</button><span id="bk" class="link">Back</span>');
@@ -243,7 +274,7 @@ async function doPair(sess,key){
     }
     var res=await api('/api/submit',{name:key.name,pubB64:key.pub,proof:proof});
     if(res.error){ setStatus('Rejected: '+res.error,'err'); return; }
-    h('<div class="msg">Confirm this code matches the one on your laptop:</div><div class="code">'+esc(res.code)+'</div><div class="msg">Then approve it on the laptop.</div>');
+    h('<div class="lab" style="text-align:center">Code on this phone</div><div class="code">'+esc(res.code)+'</div><div class="help" style="text-align:center;margin:0">Your laptop should show this exact code. If it matches, approve it there.</div>');
     setStatus('Waiting for the laptop…','ok');
     pollPairStatus();
   }catch(e){ setStatus('Pairing failed: '+e,'err'); }
@@ -256,8 +287,8 @@ async function pollPairStatus(){
     try{
       var s=await api('/api/status');
       if(s&&s.final){
-        if(s.final.ok){ h('<div class="ok-big">✓ Paired</div><div class="msg">'+esc(s.final.message||'Done — you can close this.')+'</div>'); setStatus('Paired','ok'); }
-        else { h('<div class="msg">Pairing wasn’t completed'+(s.final.reason?': '+esc(s.final.reason):'')+'.</div><div class="msg">Start again with <b>yay pair</b> on the laptop.</div>'); setStatus('Not paired','err'); }
+        if(s.final.ok){ okScreen('Paired', s.final.message||'Done — you can close this.'); setStatus('Paired','ok'); }
+        else { h('<div class="msg">Pairing wasn’t completed'+(s.final.reason?': '+esc(s.final.reason):'')+'.</div><div class="help" style="margin:0">Start again with <b>yay pair</b> on the laptop.</div>'); setStatus('Not paired','err'); }
         return;
       }
     }catch(e){ return; } // server closed after finishing — stop quietly
@@ -277,7 +308,7 @@ function detailHTML(c){
       +c.diff.map(function(d){ var cl=d.t==='+'?'add':(d.t==='-'?'del':'ctx'); var pre=d.t==='+'?'+ ':(d.t==='-'?'- ':'  '); return '<div class="dl '+cl+'">'+pre+esc(d.text)+'</div>'; }).join('')
       +'</div>';
   }
-  var notes=(c.notes||[]).map(function(nt){ var col=nt.level==='red'?'var(--red)':(nt.level==='yellow'?'#c9860f':'var(--mut)'); return '<div class="note" style="color:'+col+'">'+esc(nt.text)+'</div>'; }).join('');
+  var notes=(c.notes||[]).map(function(nt){ var col=nt.level==='red'?'var(--red)':(nt.level==='yellow'?'var(--amber)':'var(--mut)'); return '<div class="note" style="color:'+col+'">'+esc(nt.text)+'</div>'; }).join('');
   return '<div class="detail">'+(parts.join('')||'<div class="kv"><span class="v">No structured spec fields.</span></div>')+diff+(notes?'<div class="notes">'+notes+'</div>':'')+'</div>';
 }
 function approveFlow(sess){
@@ -288,10 +319,10 @@ function approveFlow(sess){
   // before signing so the wording is the human's, not the AI's paraphrase; the edited
   // text is what gets signed (canonical(approval) is rebuilt with it below).
   var brief=sess.approval&&sess.approval.brief;
-  var briefCard=brief?('<div class="mcard"><div class="mlab"><span class="mtag">BRIEF</span><button id="medit" class="medit">Edit</button></div>'
+  var briefCard=brief?('<div class="mcard"><div class="mlab"><span class="mtag">Brief</span><button id="medit" class="medit">Edit</button></div>'
     +'<div id="mtxt" class="mtxt">'+esc(brief.text)+'</div>'
     +'<div class="msub">covers '+((sess.summary||[]).length)+' part(s) · you are approving this</div></div>'):'';
-  h(briefCard+'<div class="msg">Approve these <b>'+((sess.summary||[]).length)+'</b> change(s) — tap a Cell to see its spec:</div>'+rows+'<button id="go" class="btn" style="margin-top:16px">Approve &amp; sign</button>');
+  h(briefCard+'<div class="help">Approve these <b>'+((sess.summary||[]).length)+'</b> change(s) — tap a part to see its spec.</div>'+rows+'<button id="go" class="btn" style="margin-top:16px">Approve &amp; sign</button>');
   var editing=false;
   if(brief){document.getElementById('medit').onclick=function(){
     var box=document.getElementById('mtxt');
@@ -311,7 +342,7 @@ function approveFlow(sess){
       var sig=signStr(sec,canonical(toSign));
       var res=await api('/api/submit',brief?{signature:sig,brief:(mv!=null?String(mv).trim():brief.text)}:{signature:sig});
       if(res.error){ setStatus('Rejected: '+res.error,'err'); return; }
-      h('<div class="ok-big">✓ Signed</div><div class="msg">Done — you can close this. The laptop has the seal.</div>');
+      okScreen('Signed','The seal is on your laptop. Leave this open — the next request appears here automatically.');
       setStatus('Signed','ok');
     }catch(e){ setStatus('Signing failed: '+e,'err'); }
   };
@@ -331,7 +362,7 @@ function authorizeFlow(sess){
       var sig=signStr(sec,canonical(sess.event));
       var res=await api('/api/submit',{signature:sig});
       if(res.error){ setStatus('Rejected: '+res.error,'err'); return; }
-      h('<div class="ok-big">✓ Authorized</div><div class="msg">Done — you can close this. The laptop has the signed event.</div>');
+      okScreen('Authorized','Done — the laptop has the signed event.');
       setStatus('Authorized','ok');
     }catch(e){ setStatus('Signing failed: '+e,'err'); }
   };
