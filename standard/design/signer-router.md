@@ -25,13 +25,11 @@ Every signer's public key is already in the roster (public), so anyone can addre
 - **Inbox channel** = `hash("yay-inbox:v1:" + signPub)` — deterministic, public. Anyone can compute Sara's inbox from her roster pubkey; only Sara can *read* it (below).
 - **Sealed to the recipient.** A request for Sara is encrypted with an **anonymous sealed box (X25519)** to Sara's **box key**, so only Sara's phone can open it. The relay only ever sees ciphertext.
 
-### Two keys per signer, both from the 24 words
+### One identity key, converted for encryption (DECIDED — Option B)
 
-A signer's device derives two keys from the same BIP-39 seed:
-- **Ed25519 signing key** (today) — signs approvals; roster stores its pubkey.
-- **X25519 box key** (new) — receives sealed requests; derived via a domain-separated hash of the same seed (`X25519seed = SHA-256("yay-box:v1" || seed)`), so it round-trips from the 24 words with no extra backup.
+We do **not** add a second key. A request is sealed to the recipient's **existing Ed25519 signing key, converted to X25519** via the standard birational Ed25519↔X25519 map (as libsodium sealed boxes / `age` / Signal do). The conversion is public and deterministic, so **anyone can derive Sara's X25519 pubkey from her roster signing pubkey** — no `boxPub` field, no roster change, and **existing signers are addressable immediately** (no re-pair). On the phone, the matching X25519 secret is derived from the same Ed25519 secret (already unlocked from the 24 words).
 
-The roster/enrollment must therefore also record the signer's **box pubkey** alongside the signing pubkey. (Enrollment/invite/pair payloads gain one field: `boxPub`.)
+Security note: reusing the Curve25519 identity for both signing and encryption is safe for our flow — the human taps every signature (no blind signing oracle) and DH results are never returned to a sender (no DH oracle), so the theoretical cross-use conditions don't arise; and every key already shares one seed/phone/PIN, so separate derivation would add negligible real isolation. Strict key-separation (a distinct derived box key + a roster `boxPub`) remains a possible future hardening if ever wanted.
 
 ## Flow
 
@@ -85,7 +83,7 @@ The queue/anti-clobber/reply-sealing live in **one** inbox engine that both path
 2. **Cap the queue** — a bounded number of pending requests per inbox (e.g. 20) + short TTL, so an inbox can't be flooded.
 3. **Enrolled signers only** — a request may be posted to an inbox only by an authenticated roster member; randoms can't spam an inbox.
 4. **Fire-and-return for cross-signer** — `yay sign --name "Sara"` drops the request in Sara's inbox and returns a **request id** immediately (the sender keeps working; the Cells stay Unsigned and gate-blocked until Sara signs, then complete out-of-band). **Self-sign stays blocking** (you're at your own phone).
-5. **`boxPub` rollout** — new enrollments/invites/pairs capture the X25519 box pubkey automatically; existing signers add theirs on their **next `yay pair`** (owner-signed roster update). Until then they can still sign their own work; they just can't be *addressed by name* yet.
+5. **No extra key (Option B)** — encryption uses the recipient's existing Ed25519 roster key, converted to X25519 (standard birational map). No `boxPub` field, no rollout: **every existing signer is addressable immediately**, and recovery is unchanged (same 24 words).
 
 ## Constitution (AI harness) — delegation guidance
 
@@ -100,9 +98,8 @@ Add a short §12-bis (Routing) to STANDARD.md, and note the two-key (sign + box)
 
 ## Build order
 
-1. **Crypto foundation** — derive the X25519 box key from the seed (recovery.js, both repos); helpers to seal/open to a box pubkey.
-2. **`boxPub` capture** — carry it through pair/invite/enroll into the roster.
-3. **Relay** — per-request queue endpoints keyed by inbox + request id (additive to the current single-pending path).
-4. **CLI** — `yay sign --name "<other>"` seals to their inbox + returns an id; `yay sign --check <id>`; `yay inbox` prints the on-duty link.
-5. **Phone** — inbox mode (poll, decrypt, queue, approve) reusing the approve/gate UI.
-6. **Constitution + Standard** — the delegation guidance above.
+1. **Crypto foundation** — Ed25519↔X25519 conversion + anonymous sealed-box (seal to a signing pubkey / open with the signing secret) on both sides (node `e2e.js` + browser `recovery.js`); inbox-channel = `hash("yay-inbox:v1:"+signPub)`. Tests: seal(node)→open(phone) round-trip, and that it round-trips from the 24 words.
+2. **Relay** — per-request queue endpoints keyed by inbox + request id (additive to the current single-pending path); bounded depth + TTL.
+3. **CLI** — `yay sign --name "<other>"` seals to their inbox + returns an id; `yay sign --check <id>`; `yay inbox` prints the on-duty link.
+4. **Phone** — inbox mode (poll, decrypt, queue, approve) reusing the approve/gate UI.
+5. **Constitution + Standard** — the delegation guidance above.
