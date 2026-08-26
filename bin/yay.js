@@ -535,14 +535,10 @@ async function cmdSign(flags) {
   // at a TTY is prompted for it; automation (the AI) passes --brief; --no-brief is
   // the explicit escape for a trivial re-sign. Kept in the approval so canonical(approval)
   // covers it on every signing path.
-  // Accept the old --mission spellings as aliases (a CLAUDE.md written before the rename).
-  const briefFlag = (flags.brief && flags.brief !== true) ? flags.brief : ((flags.mission && flags.mission !== true) ? flags.mission : null);
-  const briefFileFlag = (flags['brief-file'] && flags['brief-file'] !== true) ? flags['brief-file'] : ((flags['mission-file'] && flags['mission-file'] !== true) ? flags['mission-file'] : null);
-  const noBrief = flags['no-brief'] || flags['no-mission'];
-  let briefText = briefFlag ? String(briefFlag).trim()
-    : (briefFileFlag && fs.existsSync(briefFileFlag)) ? fs.readFileSync(briefFileFlag, 'utf8').trim()
+  let briefText = (flags.brief && flags.brief !== true) ? String(flags.brief).trim()
+    : (flags['brief-file'] && flags['brief-file'] !== true && fs.existsSync(flags['brief-file'])) ? fs.readFileSync(flags['brief-file'], 'utf8').trim()
       : '';
-  if (!briefText && !noBrief) {
+  if (!briefText && !flags['no-brief']) {
     if (process.stdin.isTTY) {
       console.log(U.c.accent('▸ ') + U.c.bold('Brief') + U.c.dim(' — in one line, what are you approving here (what you ordered)?'));
       briefText = await ask('  brief: ');
@@ -1060,11 +1056,9 @@ function buildMapHTML(p, config, lock, flags) {
   });
   const gov = { signedRoster: !!(rlog && rlog.events && rlog.events.length), rootFp: drv.rootFp, problems: drv.problems, signers };
   // Briefs ledger (Standard §5): every approval that carries a brief, newest first.
-  // `a.mission` is read for back-compat — briefs signed before the rename stored the
-  // field as `mission`; their seals still verify (canonical covers whatever key is stored).
   // Each brief's seal is re-verified here so the ledger can flag a tampered/forged one.
-  const briefs = (lock.approvals || []).filter((a) => (a.brief && a.brief.text) || (a.mission && a.mission.text)).map((a) => {
-    const b = a.brief || a.mission;
+  const briefs = (lock.approvals || []).filter((a) => a.brief && a.brief.text).map((a) => {
+    const b = a.brief;
     const { signature, ...rest } = a;
     const trustedPubs = (drv.roster && drv.roster[a.signer]) || U.pubKeysOf(cfgSigners[a.signer]) || [];
     let valid = false;
