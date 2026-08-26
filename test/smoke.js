@@ -638,6 +638,17 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     v = V([autoAp('2026-06-01T00:00:00Z'), human], [grant]);
     ok(v.results['C-1'].trust.auto === false && v.results['C-1'].trust.signed === true, 'grants: a human ratification supersedes the AUTO seal (trust becomes human)');
     fs.rmSync(gdir, { recursive: true, force: true });
+
+    // The in-code AUTO stamp lives ABOVE the marker (outside the block), so it must not
+    // change the specHash — otherwise stamping would break the very seal it describes.
+    const sd = fs.mkdtempSync(require('path').join(os.tmpdir(), 'yay-stamp-'));
+    const block = '//∷YAY⟨C-1⟩\n//  unit: add\n//  intent: x\n//  ensures: out === a + b\n//∷YAY-END⟨C-1⟩\nfunction add(a,b){return a+b;}\n';
+    fs.writeFileSync(require('path').join(sd, 'm.js'), block);
+    const h1 = buildManifest(sd).cells['C-1'].specHash;
+    fs.writeFileSync(require('path').join(sd, 'm.js'), '//∷YAY-AUTO⟨C-1⟩ auto-approved · grant G-001 · not human-reviewed\n' + block);
+    const m2 = buildManifest(sd);
+    ok(m2.cells['C-1'] && m2.cells['C-1'].specHash === h1, 'auto-stamp: a //∷YAY-AUTO line above the marker does NOT change the specHash (the seal survives stamping)');
+    fs.rmSync(sd, { recursive: true, force: true });
   }
 
   // spec-only adversary: an LLM sees ONLY the spec (never the code) and tries to break it.

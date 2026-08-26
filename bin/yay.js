@@ -77,6 +77,36 @@ function parseDuration(s) {
   const mult = { s: 1e3, m: 6e4, h: 36e5, d: 864e5 }[m[2].toLowerCase()];
   return Number(m[1]) * mult;
 }
+// Stamp a Cell's SOURCE (a `//∷YAY-AUTO⟨id⟩` comment ABOVE its opening marker, so it never
+// touches the spec block / specHash) to mark it auto-approved, and remove it on ratify. So
+// the file itself says "delegated, not human-reviewed" — visible in the code, not just the seal.
+function stampAutoCell(p, cell, grant) {
+  try {
+    const abs = path.join(p.root, cell.file);
+    if (!fs.existsSync(abs)) return;
+    const lines = fs.readFileSync(abs, 'utf8').split('\n');
+    const idRe = cell.id.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&');
+    const openRe = new RegExp('∷YAY⟨\\s*' + idRe + '\\s*⟩');
+    const autoRe = new RegExp('∷YAY-AUTO⟨\\s*' + idRe + '\\s*⟩');
+    const i = lines.findIndex((l) => openRe.test(l));
+    if (i < 0) return;
+    const indent = (lines[i].match(/^\s*/) || [''])[0];
+    const stamp = indent + '//∷YAY-AUTO⟨' + cell.id + '⟩ auto-approved · grant ' + grant + ' · not human-reviewed — run `yay ratify`';
+    if (i > 0 && autoRe.test(lines[i - 1])) lines[i - 1] = stamp; else lines.splice(i, 0, stamp);
+    fs.writeFileSync(abs, lines.join('\n'));
+  } catch (_) { /* best effort — the seal in lock.json is the source of truth */ }
+}
+function unstampAutoCell(p, cell) {
+  try {
+    const abs = path.join(p.root, cell.file);
+    if (!fs.existsSync(abs)) return;
+    const lines = fs.readFileSync(abs, 'utf8').split('\n');
+    const idRe = cell.id.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&');
+    const autoRe = new RegExp('∷YAY-AUTO⟨\\s*' + idRe + '\\s*⟩');
+    const i = lines.findIndex((l) => autoRe.test(l));
+    if (i >= 0) { lines.splice(i, 1); fs.writeFileSync(abs, lines.join('\n')); }
+  } catch (_) { /* best effort */ }
+}
 
 // Infer how this project signs, for method-aware Constitution guidance.
 function signMethodOf(config) {
@@ -666,6 +696,7 @@ async function cmdSign(flags) {
           approval.autoApproved = true; approval.grant = g.id; approval.signer = g.by || config.owners[0] || 'owner';
           approval.signature = C.sign(U.canonical(approval), Buffer.from(rec.priv, 'base64'));
           lock.approvals = lock.approvals || []; lock.approvals.push(approval); U.writeJSON(p.lock, lock);
+          Object.keys(items).forEach((id) => { if (manifest.cells[id]) stampAutoCell(p, manifest.cells[id], g.id); }); // in-code AUTO stamp
           console.log(U.c.yellow(`⚡ auto-approved ${Object.keys(items).length} Cell(s)`) + U.c.dim(` under grant ${g.id} — approval ${approval.id} (freedom mode).`));
           if (approval.brief) console.log('  ' + U.c.dim('brief: ') + approval.brief.text);
           const left = g.remaining != null ? Math.max(0, g.remaining - 1) : '∞';
@@ -738,6 +769,7 @@ async function cmdSign(flags) {
   lock.approvals = lock.approvals || [];
   lock.approvals.push(approval);
   U.writeJSON(p.lock, lock);
+  Object.keys(items).forEach((id) => { if (manifest.cells[id]) unstampAutoCell(p, manifest.cells[id]); }); // human sign clears any AUTO stamp (ratified)
   console.log(U.c.green(`✓ signed ${Object.keys(items).length} Cell(s)`) + ` as "${name}" — approval ${approval.id}`);
   if (approval.brief) console.log('  ' + U.c.bold('brief: ') + U.c.accent(approval.brief.text));
   console.log('  ' + U.c.dim('seal appended to .yaylayer/lock.json (commit this)'));
