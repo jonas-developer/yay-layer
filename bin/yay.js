@@ -1563,20 +1563,30 @@ async function cmdDashboard(flags) {
   process.on('SIGTERM', () => { cleanup(); process.exit(0); });
   process.on('exit', cleanup);
 
-  console.log('\n' + U.c.green('✓ yay dashboard is live') + U.c.dim(' — keep this running; scan ONCE, then approvals appear here automatically.'));
+  const transport = phoneTransport(config, flags);
+  console.log('\n' + U.c.green('✓ yay dashboard is live') + U.c.dim(' — keep this running; scan ONCE, then approvals appear on your phone automatically.'));
   console.log('   ' + U.c.bold('this computer → ') + U.c.accent(s.local) + U.c.dim('   (the live map + buttons)'));
-  console.log('   ' + U.c.bold('phone → ') + U.c.accent(s.url + '/phone') + U.c.dim('   (scan the QR below — same Wi-Fi as this computer)'));
-  printQR(s.url + '/phone');
-  if (tls && tls.trusted) {
-    console.log(U.c.dim('   https: ') + U.c.green('locally-trusted cert (mkcert)') + U.c.dim(' — no warning on this computer.'));
-    if (caPem) console.log(U.c.dim('   phone warning-free (one-time): open ') + U.c.accent(s.url + '/trust') + U.c.dim(' on the phone → install + trust the certificate (guided).'));
-  } else if (tls) {
-    console.log(U.c.dim('   https: self-signed (encrypted) — tap through the one-time "not private" warning on the phone (Advanced → visit).'));
-    if (caPem) console.log(U.c.dim('   or make it warning-free: open ') + U.c.accent(s.url + '/trust') + U.c.dim(' on the phone; better still ') + U.c.accent('brew install mkcert && mkcert -install') + U.c.dim(' then restart.'));
+  if (transport === 'relay') {
+    // This project signs over the relay, so the phone page is the RELAY page (not the
+    // dashboard's LAN /phone, which only sees LAN-routed requests). Show that instead.
+    const rs = ensureRelaySession(p, flags);
+    console.log('   ' + U.c.bold('phone (relay) → ') + U.c.accent(rs.url) + U.c.dim('   (this project signs via relay.yaylayer.com — approve here, from any network)'));
+    printQR(rs.url);
+    console.log('   ' + U.c.dim('scan ONCE; ') + U.c.bold('yay sign') + U.c.dim(' and ') + U.c.bold('yay invite') + U.c.dim(' route to this relay page automatically. Ctrl-C to stop.'));
+  } else {
+    console.log('   ' + U.c.bold('phone → ') + U.c.accent(s.url + '/phone') + U.c.dim('   (scan the QR below — same Wi-Fi as this computer)'));
+    printQR(s.url + '/phone');
+    if (tls && tls.trusted) {
+      console.log(U.c.dim('   https: ') + U.c.green('locally-trusted cert (mkcert)') + U.c.dim(' — no warning on this computer.'));
+      if (caPem) console.log(U.c.dim('   phone warning-free (one-time): open ') + U.c.accent(s.url + '/trust') + U.c.dim(' on the phone → install + trust the certificate (guided).'));
+    } else if (tls) {
+      console.log(U.c.dim('   https: self-signed (encrypted) — tap through the one-time "not private" warning on the phone (Advanced → visit).'));
+      if (caPem) console.log(U.c.dim('   or make it warning-free: open ') + U.c.accent(s.url + '/trust') + U.c.dim(' on the phone; better still ') + U.c.accent('brew install mkcert && mkcert -install') + U.c.dim(' then restart.'));
+    }
+    console.log('   ' + U.c.dim('`yay sign` now routes here — the request pops up on your phone. Ctrl-C to stop.'));
   }
   const tc = resolveTestCmd(p.root, config, flags);
   console.log('   ' + U.c.dim('buttons (this computer): ') + U.c.bold('▶ Run tests') + U.c.dim(tc ? ` (${tc})` : ' (none)') + U.c.dim(' · ') + U.c.bold('⚔ Adversary') + U.c.dim(' · ') + U.c.bold('⟲ System Plan') + U.c.dim(' · ') + U.c.bold('≷ Changes'));
-  console.log('   ' + U.c.dim('`yay sign` now routes here — the request pops up on your phone. Ctrl-C to stop.'));
   if (flags.open) { try { require('child_process').exec((process.platform === 'darwin' ? 'open ' : 'xdg-open ') + JSON.stringify(s.local)); } catch (_) {} }
   await new Promise(() => {}); // run until Ctrl-C
 }
