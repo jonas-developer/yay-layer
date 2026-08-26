@@ -64,24 +64,45 @@ function pubKeysOf(entry) {
 }
 
 const SKIP_DIRS = new Set(['node_modules', '.git', '.yaylayer', 'docs', 'dist', 'build', 'coverage']);
-const CODE_EXT = new Set(['.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx', '.css', '.html', '.py', '.cs', '.sol', '.rs']);
+// Every extension we scan for spec blocks. Spec fields are comment-agnostic (see
+// extract.parseSpec), so any of these can carry a spec block. Verification depth
+// then depends on the language's tier (see below).
+const CODE_EXT = new Set([
+  // JS/TS — fully analyzed + behaviourally proven
+  '.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx',
+  // brace-family (C-style) — spec-mirror + sign + gate + map, capped at Yellow
+  '.cs', '.sol', '.rs', '.go', '.java', '.c', '.h', '.cpp', '.cc', '.cxx', '.hpp', '.hh',
+  '.kt', '.kts', '.swift', '.php', '.scala', '.dart', '.pl', '.pm', '.sh', '.bash',
+  // indentation-scoped
+  '.py', '.pyw',
+  // def…end-scoped
+  '.rb', '.ex', '.exs',
+  // shallow (marker blocks only, no unit analysis)
+  '.css', '.html',
+]);
 
-// Language family for a file, used to pick the right (comment-agnostic) body
-// grabber and the honest verification tier. JS/TS get full analysis + proof;
-// python/csharp/solidity/rust get spec-mirror + sign + gate + map (Tier A/B),
-// but are never machine-proven yet, so verify caps them at Yellow (never Green).
+// Body-delimiting FAMILY for a file — selects how the unit body is grabbed:
+//   js    → JS/TS declaration + brace matcher (full analysis + proof)
+//   brace → generic C-family brace matcher (Go, Java, C/C++, Kotlin, Swift, …)
+//   python→ indentation
+//   ruby  → def…end (Ruby, Elixir)
+//   css/html/other → shallow (no unit body)
+const BRACE_EXT = new Set(['.cs', '.sol', '.rs', '.go', '.java', '.c', '.h', '.cpp', '.cc', '.cxx', '.hpp', '.hh', '.kt', '.kts', '.swift', '.php', '.scala', '.dart', '.pl', '.pm', '.sh', '.bash']);
 function langOf(file) {
-  switch (path.extname(String(file)).toLowerCase()) {
-    case '.py': return 'python';
-    case '.cs': return 'csharp';
-    case '.sol': return 'solidity';
-    case '.rs': return 'rust';
-    case '.js': case '.jsx': case '.mjs': case '.cjs': case '.ts': case '.tsx': return 'js';
-    case '.css': return 'css';
-    case '.html': return 'html';
-    default: return 'other';
-  }
+  const e = path.extname(String(file)).toLowerCase();
+  if (['.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx'].includes(e)) return 'js';
+  if (e === '.py' || e === '.pyw') return 'python';
+  if (e === '.rb' || e === '.ex' || e === '.exs') return 'ruby';
+  if (BRACE_EXT.has(e)) return 'brace';
+  if (e === '.css') return 'css';
+  if (e === '.html') return 'html';
+  return 'other';
 }
+// The comment lead used when `yay adopt` scaffolds a block: '#' for hash-comment
+// languages, '//' otherwise. (Reading is comment-agnostic; only writing needs this.)
+const HASH_EXT = new Set(['.py', '.pyw', '.rb', '.ex', '.exs', '.pl', '.pm', '.sh', '.bash']);
+function commentLeadOf(file) { return HASH_EXT.has(path.extname(String(file)).toLowerCase()) ? '#' : '//'; }
+
 // The only languages YayLayer currently analyzes (AST) and can behaviourally
 // prove. Everything else is signed-but-unverified. `lang` here is the manifest's
 // per-Cell value (a file extension slice like 'ts', or a spec `lang:` override).
@@ -126,5 +147,5 @@ const STATE = {
 module.exports = {
   MARK_BEGIN, MARK_END, YAY_DIR,
   repoRoot, paths, readJSON, writeJSON, canonical, pubKeysOf, walk, c, STATE,
-  langOf, isJsLang,
+  langOf, isJsLang, commentLeadOf,
 };

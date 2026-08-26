@@ -11,7 +11,13 @@ function parseSpec(blockLines) {
   const fields = {};
   let last = null;
   for (const raw of blockLines) {
-    const line = raw.replace(/^\s*\/\/+/, '').replace(/^\s*#/, '').trim(); // strip // or # comment lead
+    // Comment-agnostic: strip ANY leading comment punctuation (// # -- ; % ! ' (* <!-- *)
+    // and any trailing block-comment closer (*/ *) -->). This is what lets a spec
+    // block live in essentially any language's comments, not just // and #.
+    const line = raw
+      .replace(/^\s*(?:\/\/+|#+|--+|;+|%+|!+|'+|\(\*|<!--|\*+)\s?/, '')
+      .replace(/\s*(?:\*\/|\*\)|-->)\s*$/, '')
+      .trim();
     if (!line || line.startsWith('∷YAY')) continue;
     const m = line.match(/^([A-Za-z][A-Za-z0-9_-]*)\s*:\s*(.*)$/);
     if (m) {
@@ -24,42 +30,69 @@ function parseSpec(blockLines) {
   return fields;
 }
 
-// Per-language declaration patterns for the lightweight body grabber. The name is
-// captured in whichever group matches. Brace-family languages (JS/TS, C#, Solidity,
-// Rust) share the brace matcher below; Python uses the indentation grabber. This is
-// deliberately shallow — the full per-language AST adapter is the roadmap milestone.
-const DECL = {
-  js: /(?:export\s+)?(?:async\s+)?function\s+([A-Za-z0-9_$]+)|(?:export\s+)?(?:const|let|var)\s+([A-Za-z0-9_$]+)\s*=/,
-  csharp: /(?:public|private|protected|internal|static|virtual|override|sealed|abstract|partial|async|new|readonly|unsafe|extern|\s)*?[A-Za-z_][A-Za-z0-9_<>[\],.?]*\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:<[^>]*>)?\s*\(|(?:class|struct|interface|enum|record)\s+([A-Za-z_][A-Za-z0-9_]*)/,
-  solidity: /function\s+([A-Za-z_][A-Za-z0-9_]*)|(?:contract|library|interface)\s+([A-Za-z_][A-Za-z0-9_]*)/,
-  rust: /(?:pub\s+)?(?:async\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)|(?:struct|enum|trait|impl|mod)\s+([A-Za-z_][A-Za-z0-9_]*)/,
-};
+// The JS/TS declaration pattern (unchanged): function decls and const/let/var
+// (arrow/function) assignments. Kept precise so JS/TS analysis behaves exactly as before.
+const JS_DECL = /(?:export\s+)?(?:async\s+)?function\s+([A-Za-z0-9_$]+)|(?:export\s+)?(?:const|let|var)\s+([A-Za-z0-9_$]+)\s*=/;
 
-// Brace-matched body (C-family: JS/TS, C#, Solidity, Rust). Returns { name, body }.
-function grabBraceBody(lines, fromLine, declRe) {
-  for (let i = fromLine; i < Math.min(lines.length, fromLine + 6); i++) {
-    const m = lines[i].match(declRe);
-    if (!m) continue;
-    const name = m[1] || m[2] || m[3];
-    // brace-match from the declaration line to the matching close; body includes
-    // the signature so line numbers line up with the file. `startLine` is 0-based.
-    let depth = 0, started = false, end = i;
-    for (let j = i; j < lines.length; j++) {
-      for (const ch of lines[j]) {
-        if (ch === '{') { depth++; started = true; }
-        else if (ch === '}') { depth--; }
-      }
-      end = j;
-      if (started && depth <= 0) break;
-      if (!started && j >= i + 2) break; // no block body (e.g. arrow one-liner)
+// For the generic brace grabber: a keyword that introduces a unit by name, a
+// type/container keyword, and identifier-before-`(` (a definition or a call). We
+// EXCLUDE control-flow keywords from the identifier-before-`(` case so `if (`,
+// `for (`, `return foo(` etc. are never mistaken for a unit.
+const FN_KW = /\b(?:fn|def|defp|func|fun|function|sub)\s+(?:self\.)?([A-Za-z_][A-Za-z0-9_]*)/;
+const TYPE_KW = /\b(?:class|struct|interface|enum|record|trait|impl|contract|library|module|namespace|object|protocol|actor)\s+([A-Za-z_][A-Za-z0-9_]*)/;
+const CALLISH = /([A-Za-z_][A-Za-z0-9_]*)\s*\(/g;
+const CONTROL = new Set(['if', 'for', 'while', 'switch', 'catch', 'foreach', 'return', 'new', 'sizeof', 'typeof', 'nameof', 'await', 'throw', 'using', 'lock', 'fixed', 'with', 'do', 'else', 'when', 'unless', 'case', 'elif', 'elsif', 'match', 'require', 'import', 'package', 'use', 'and', 'or', 'not', 'in', 'is', 'as']);
+
+// Brace-match from line `i` to the line closing its first `{` block; returns the
+// end line index. `body` includes the signature so file line numbers line up.
+function braceEnd(lines, i) {
+  let depth = 0, started = false, end = i;
+  for (let j = i; j < lines.length; j++) {
+    for (const ch of lines[j]) {
+      if (ch === '{') { depth++; started = true; }
+      else if (ch === '}') { depth--; }
     }
+    end = j;
+    if (started && depth <= 0) break;
+    if (!started && j >= i + 2) break; // no block body on this decl
+  }
+  return end;
+}
+
+// JS/TS grabber (declaration + brace) — unchanged behaviour.
+function grabJsBody(lines, fromLine) {
+  for (let i = fromLine; i < Math.min(lines.length, fromLine + 6); i++) {
+    const m = lines[i].match(JS_DECL);
+    if (!m) continue;
+    const end = braceEnd(lines, i);
+    return { name: m[1] || m[2], startLine: i, body: lines.slice(i, end + 1).join('\n') };
+  }
+  return null;
+}
+
+// Generic C-family grabber (Go, Java, C/C++, Kotlin, Swift, PHP, Scala, Dart, C#,
+// Solidity, Rust, …). Body content isn't used for non-JS checks, so precision of
+// the body doesn't matter — we only need the unit's NAME and that it EXISTS.
+function grabGenericBraceBody(lines, fromLine) {
+  for (let i = fromLine; i < Math.min(lines.length, fromLine + 6); i++) {
+    const line = lines[i];
+    let name = null;
+    const fk = line.match(FN_KW);
+    if (fk) name = fk[1];
+    if (!name) {
+      CALLISH.lastIndex = 0; let m;
+      while ((m = CALLISH.exec(line))) { if (!CONTROL.has(m[1])) { name = m[1]; break; } }
+    }
+    if (!name) { const tk = line.match(TYPE_KW); if (tk) name = tk[1]; }
+    if (!name) continue;
+    const end = braceEnd(lines, i);
     return { name, startLine: i, body: lines.slice(i, end + 1).join('\n') };
   }
   return null;
 }
 
-// Indentation-matched body (Python): the block continues while indented deeper
-// than the `def`/`class` line; blank lines belong to the block.
+// Indentation grabber (Python): block continues while indented deeper than the
+// `def`/`class` line; blank lines belong to the block.
 function grabPythonBody(lines, fromLine) {
   const decl = /^(\s*)(?:async\s+)?def\s+([A-Za-z_][A-Za-z0-9_]*)|^(\s*)class\s+([A-Za-z_][A-Za-z0-9_]*)/;
   for (let i = fromLine; i < Math.min(lines.length, fromLine + 6); i++) {
@@ -79,12 +112,29 @@ function grabPythonBody(lines, fromLine) {
   return null;
 }
 
-// Grab the body of the first unit declared at or after `fromLine`. `lang` selects
-// the strategy; unknown/JS langs fall back to the JS declaration + brace matcher,
-// so JS/TS (and css/html) behave exactly as before.
-function grabUnitBody(lines, fromLine, lang) {
-  if (lang === 'python') return grabPythonBody(lines, fromLine);
-  return grabBraceBody(lines, fromLine, DECL[lang] || DECL.js);
+// def…end grabber (Ruby, Elixir): from `def name` to the matching `end` at the
+// same-or-lower indent. Best-effort — body precision isn't needed for these langs.
+function grabEndBody(lines, fromLine) {
+  const decl = /^(\s*)(?:def|defp)\s+(?:self\.)?([A-Za-z_][A-Za-z0-9_?!]*)/;
+  for (let i = fromLine; i < Math.min(lines.length, fromLine + 6); i++) {
+    const m = lines[i].match(decl);
+    if (!m) continue;
+    const indent = m[1].length;
+    const endRe = new RegExp('^\\s{0,' + indent + '}end\\b');
+    let end = i;
+    for (let j = i + 1; j < lines.length; j++) { end = j; if (endRe.test(lines[j])) break; }
+    return { name: m[2], startLine: i, body: lines.slice(i, end + 1).join('\n') };
+  }
+  return null;
+}
+
+// Grab the body of the first unit at or after `fromLine`, by body-FAMILY. JS keeps
+// its precise grabber; css/html/other reuse it (same as before, matches nothing new).
+function grabUnitBody(lines, fromLine, family) {
+  if (family === 'python') return grabPythonBody(lines, fromLine);
+  if (family === 'ruby') return grabEndBody(lines, fromLine);
+  if (family === 'brace') return grabGenericBraceBody(lines, fromLine);
+  return grabJsBody(lines, fromLine);
 }
 
 // Extract every Cell from one file.

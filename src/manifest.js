@@ -49,18 +49,20 @@ function untrackedRegex(file, rel, coveredNames, out) {
 
 // Conservative, keyword-led unit detection for non-JS languages, used only to find
 // UNTRACKED (un-specced) units → PINK. Deliberately under-detects rather than risk a
-// FALSE Pink (which would wrongly block the gate): every pattern is anchored on an
-// unambiguous keyword (def / fn / function) or, for C#, a required access modifier —
-// none of which match control-flow (if/for/while/…). Comment lines are skipped so
-// commented-out code and spec fields never register.
+// FALSE Pink (which would wrongly block the gate): KW_FN is anchored on an unambiguous
+// declaration keyword (fn/def/func/fun/function/sub), and MOD_METHOD requires an access
+// modifier — neither matches control-flow (if/for/while/…). Languages with no safe
+// pattern (plain C, Dart, bare shell fns) are simply not scanned here (safe under-detect).
+// Comment lines are skipped so commented-out code and spec fields never register.
+const KW_FN = /^\s*(?:pub\s+|export\s+|public\s+|private\s+|protected\s+|internal\s+|static\s+|final\s+|open\s+|override\s+|async\s+)*(?:fn|def|defp|func|fun|function|sub)\s+(?:self\.)?([A-Za-z_][A-Za-z0-9_]*)/;
+const MOD_METHOD = /(?:^|\s)(?:public|private|protected|internal)(?:\s+(?:static|virtual|override|sealed|abstract|async|partial|new|readonly|unsafe|extern|final))*\s+[A-Za-z_][A-Za-z0-9_<>[\],.?]*\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:<[^>]*>)?\s*\(/;
 const LANG_UNTRACKED = {
-  python: [/^(?:async\s+)?def\s+([A-Za-z_][A-Za-z0-9_]*)/],
-  csharp: [/(?:^|\s)(?:public|private|protected|internal)(?:\s+(?:static|virtual|override|sealed|abstract|async|partial|new|readonly|unsafe|extern))*\s+[A-Za-z_][A-Za-z0-9_<>[\],.?]*\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:<[^>]*>)?\s*\(/],
-  solidity: [/\bfunction\s+([A-Za-z_][A-Za-z0-9_]*)/],
-  rust: [/\b(?:pub\s+)?(?:async\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)/],
+  python: [KW_FN],
+  ruby: [KW_FN],
+  brace: [KW_FN, MOD_METHOD],
 };
-function untrackedLangRegex(file, rel, lang, coveredNames, out) {
-  const pats = LANG_UNTRACKED[lang];
+function untrackedLangRegex(file, rel, family, coveredNames, out) {
+  const pats = LANG_UNTRACKED[family];
   if (!pats) return;
   let lines;
   try { lines = fs.readFileSync(file, 'utf8').split(/\r?\n/); } catch (_) { return; }
@@ -74,7 +76,7 @@ function untrackedLangRegex(file, rel, lang, coveredNames, out) {
       const name = m[1];
       if (!name || coveredNames.has(name)) break;
       if (/∷YAY-END|∷YAY⟨/.test(lines[i - 1] || '')) break;
-      out.push({ name, file: rel, line: i + 1, kind: 'function', lang });
+      out.push({ name, file: rel, line: i + 1, kind: 'function', lang: path.extname(file).slice(1) });
       break;
     }
   }

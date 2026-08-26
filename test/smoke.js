@@ -709,12 +709,16 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
   {
     const langDir = path.join(__dirname, 'fixtures', 'langs');
     const lm = buildManifest(langDir);
-    const ids = ['PY-1', 'CS-1', 'SOL-1', 'RS-1'];
+    const specced = { 'PY-1': 'add', 'CS-1': 'Add', 'SOL-1': 'deposit', 'RS-1': 'add', 'GO-1': 'Add', 'JAVA-1': 'add', 'RB-1': 'add' };
+    const ids = Object.keys(specced);
     for (const id of ids) ok(lm.cells[id], `lang: extracts ${id} spec block`);
-    ok(lm.cells['PY-1'].unitName === 'add' && lm.cells['PY-1'].unitFound, 'lang(py): finds the def body by indentation');
-    ok(lm.cells['CS-1'].unitName === 'Add' && lm.cells['CS-1'].unitFound, 'lang(cs): finds the method body by braces');
-    ok(lm.cells['SOL-1'].unitName === 'deposit' && lm.cells['SOL-1'].unitFound, 'lang(sol): finds the function body');
-    ok(lm.cells['RS-1'].unitName === 'add' && lm.cells['RS-1'].unitFound, 'lang(rs): finds the fn body');
+    ok(lm.cells['PY-1'].unitFound && lm.cells['PY-1'].unitName === 'add', 'lang(py): finds the def body by indentation');
+    ok(lm.cells['CS-1'].unitFound && lm.cells['CS-1'].unitName === 'Add', 'lang(cs): finds the method body by braces');
+    ok(lm.cells['SOL-1'].unitFound && lm.cells['SOL-1'].unitName === 'deposit', 'lang(sol): finds the function body');
+    ok(lm.cells['RS-1'].unitFound && lm.cells['RS-1'].unitName === 'add', 'lang(rs): finds the fn body');
+    ok(lm.cells['GO-1'].unitFound && lm.cells['GO-1'].unitName === 'Add', 'lang(go): finds the func body');
+    ok(lm.cells['JAVA-1'].unitFound && lm.cells['JAVA-1'].unitName === 'add', 'lang(java): finds the method body');
+    ok(lm.cells['RB-1'].unitFound && lm.cells['RB-1'].unitName === 'add', 'lang(rb): finds the def…end body');
 
     const lapp = { id: 'A-LANG', project: 'langs', prev: 'genesis', nonce: 'n', at: 't', signer: 'tester', items: {} };
     for (const id of ids) lapp.items[id] = lm.cells[id].specHash;
@@ -727,9 +731,16 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
 
     const pinks = Object.values(lv.results).filter((r) => r.state === 'PINK');
     const pinkNames = pinks.map((r) => r.name);
-    ok(pinkNames.includes('undocumented'), 'lang(py/sol/rs): un-specced unit → PINK');
-    ok(pinkNames.includes('Undocumented'), 'lang(cs): un-specced method → PINK');
-    ok(pinks.length === 4, `lang: exactly 4 PINK units — no false Pink from control flow/class/pragma (got ${pinks.length}: ${pinkNames.join(', ')})`);
+    ok(pinkNames.filter((x) => x.toLowerCase() === 'undocumented').length === 7, 'lang: every un-specced unit across all 7 languages → PINK');
+    ok(pinkNames.includes('Undocumented'), 'lang(cs): case preserved in the reported name');
+    ok(pinks.length === 7, `lang: exactly 7 PINK units — no false Pink from control flow/class/pragma/package (got ${pinks.length}: ${pinkNames.join(', ')})`);
+
+    // comment-agnostic field parsing: spec fields work with any comment lead, not just // and #
+    const { parseSpec } = require('../src/extract');
+    const sql = parseSpec(['-- ∷YAY⟨X⟩', '--  unit: foo', '--  intent: does a thing', '-- ∷YAY-END⟨X⟩']);
+    ok(sql.unit === 'foo' && /does a thing/.test(sql.intent), 'parseSpec: SQL/Lua/Haskell -- comment leads parse');
+    const misc = parseSpec(['; unit: bar', '% intent: erlang or matlab style', '(* out: number *)']);
+    ok(misc.unit === 'bar' && misc.out === 'number' && /erlang/.test(misc.intent), 'parseSpec: ; % and (* *) comment leads parse');
   }
 
   // 14) yay adopt on non-JS: correct comment lead per language, skips specced units.
