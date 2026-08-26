@@ -19,9 +19,10 @@ const path = require('path');
 const NACL = fs.readFileSync(path.join(__dirname, 'vendor', 'tweetnacl.min.js'), 'utf8');
 const RECOVERY = fs.readFileSync(path.join(__dirname, 'vendor', 'recovery.js'), 'utf8');
 
-function signerHTML({ mode, project }) {
+function signerHTML({ mode, project, token }) {
   const M = JSON.stringify(mode || 'pair');
   const P = JSON.stringify(project || 'project');
+  const T = JSON.stringify(token || '');
   return `<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>YayLayer Signer</title>
@@ -113,10 +114,10 @@ textarea.inp{min-height:96px;resize:vertical;font-family:var(--mono);font-size:.
 <script>${RECOVERY}</script>
 <script>
 (function(){
-var MODE=${M}, PROJECT=${P};
+var MODE=${M}, PROJECT=${P}, TOKEN=${T};
 var app=document.getElementById('app'), statusEl=document.getElementById('status');
 document.getElementById('proj').textContent=PROJECT;
-document.getElementById('ttl').textContent=(MODE==='pair'?'Pair this phone':MODE==='authorize'?'Authorize change':MODE==='dashboard'?'YayLayer Signer':'Approve changes');
+document.getElementById('ttl').textContent=(MODE==='pair'?'Pair this phone':MODE==='authorize'?'Authorize change':MODE==='dashboard'?'YayLayer Signer':MODE==='join'?'Join the team':'Approve changes');
 function setStatus(t,cls){statusEl.textContent=t;statusEl.className=cls||'';}
 function h(html){app.innerHTML=html;}
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
@@ -174,6 +175,7 @@ async function api(path,body){var r=await fetch(path,{method:body?'POST':'GET',h
 async function main(){
   if(!hasCrypto()){ h('<div class="msg">This browser is too old to sign here — it lacks <b>crypto.getRandomValues</b>. Try a current mobile browser.</div>'); return; }
   if(MODE==='dashboard') return dashLoop();   // persistent: scan once, requests appear
+  if(MODE==='join') return joinFlow();        // new teammate: make a key, request to join
   try{
     var sess=await api('/api/session');
     if(sess.mode==='pair'||sess.mode==='approve'||sess.mode==='authorize') return dispatch(sess);
@@ -361,6 +363,78 @@ function authorizeFlow(sess){
       setStatus('Authorized','ok');
     }catch(e){ setStatus('Signing failed: '+e,'err'); }
   };
+}
+// ── Join flow: a new teammate makes their key and requests to join. The owner
+// approves on their phone; nothing here is trust-critical (only the PUBLIC key is
+// sent — the private key and 24 words never leave this device).
+async function joinFlow(){
+  var info; try{ info=await api('/api/invite/info?t='+encodeURIComponent(TOKEN)); }catch(e){ info=null; }
+  if(!info || !info.valid){ h('<div class="msg">This invite link is invalid or has expired.</div><div class="help" style="margin:0">Ask a project owner to send you a fresh <b>yay invite</b> link.</div>'); setStatus('Invite expired','err'); return; }
+  if(info.used){ h('<div class="msg">This invite has already been used.</div><div class="help" style="margin:0">Ask for a new one if you still need to join.</div>'); setStatus('Already used','err'); return; }
+  var roleLbl=info.role==='owner'?'owner — can manage the team':'signer';
+  var key=loadKey();
+  var head='<div class="help">You’re joining <b>'+esc(info.project||PROJECT)+'</b> as <b>'+esc(info.name)+'</b> ('+esc(roleLbl)+'). Your signing key is made here and never leaves this phone.</div>';
+  if(key){ h(head+'<div class="msg">A key already exists on this phone for <b>'+esc(key.name)+'</b>.</div><button id="go" class="btn">Use this key &amp; request to join</button>'); document.getElementById('go').onclick=function(){ doJoin(info,key); }; return; }
+  h(head+'<button id="go" class="btn">Create my key &amp; request to join</button><span id="rst" class="link">Restore from recovery phrase</span>');
+  document.getElementById('go').onclick=function(){
+    setStatus('Generating your key…');
+    try{ var k=newIdentity(info.name); joinBackup(info,k); setStatus(''); }catch(e){ setStatus('Key generation failed: '+e,'err'); }
+  };
+  document.getElementById('rst').onclick=function(){ joinRestore(info); };
+}
+function joinBackup(info,k){
+  var words=k.mnemonic.split(' ');
+  var grid=words.map(function(w,i){return '<div class="word"><i>'+(i+1)+'</i>'+esc(w)+'</div>';}).join('');
+  h('<div class="lab">Recovery phrase</div><div class="msg">Write these 24 words down on paper, in order.</div><div class="words">'+grid+'</div>'
+    +'<div class="warn">This is the ONLY way to restore your key if you lose this phone. Anyone who has it can sign as you. Never photograph it or store it online.</div>'
+    +'<label class="chk"><input type="checkbox" id="ack"><span>I have written down my recovery phrase and stored it safely.</span></label>'
+    +'<button id="go" class="btn">Continue</button>');
+  document.getElementById('go').onclick=function(){ if(!document.getElementById('ack').checked){setStatus('Confirm you saved your phrase','err');return;} joinVerify(info,k,words); };
+}
+function joinVerify(info,k,words){
+  var pos=(window.crypto.getRandomValues(new Uint32Array(1))[0])%words.length;
+  h('<div class="msg">Quick check — type word <b>#'+(pos+1)+'</b> of your recovery phrase.</div><input id="wv" class="inp" autocapitalize="none" autocomplete="off" placeholder="word #'+(pos+1)+'"><button id="go" class="btn">Confirm</button><span id="sk" class="link">Show my phrase again</span>');
+  document.getElementById('go').onclick=async function(){
+    var v=(document.getElementById('wv').value||'').trim().toLowerCase();
+    if(v!==words[pos]){setStatus('That word doesn’t match #'+(pos+1),'err');return;}
+    setStatus(''); delete k.mnemonic; await setPinAndSave(k); await doJoin(info,{name:k.name,sec:k.sec,pub:k.pub});
+  };
+  document.getElementById('sk').onclick=function(){ joinBackup(info,k); };
+}
+function joinRestore(info){
+  h('<div class="lab">Restore your key</div><div class="msg">Paste your 24-word recovery phrase.</div><textarea id="ph" class="inp" autocapitalize="none" autocomplete="off" placeholder="word1 word2 … word24"></textarea><button id="go" class="btn">Restore &amp; request to join</button><span id="bk" class="link">Back</span>');
+  document.getElementById('go').onclick=async function(){
+    var phrase=(document.getElementById('ph').value||'').trim(); if(!phrase){setStatus('Paste your phrase','err');return;}
+    setStatus('Restoring…');
+    try{ var k=restoreIdentity(info.name,phrase); await setPinAndSave(k); await doJoin(info,k); }
+    catch(e){ setStatus(String(e&&e.message||e).replace(/^Error:\s*/,''),'err'); }
+  };
+  document.getElementById('bk').onclick=function(){ joinFlow(); };
+}
+async function doJoin(info,key){
+  try{
+    var sec=await getSecret(key);
+    setStatus('Sending your request…');
+    var proof=signStr(sec, TOKEN);
+    var res=await api('/api/invite/join',{token:TOKEN,name:info.name,pubB64:key.pub,proof:proof});
+    if(res.error){ h('<div class="msg">Couldn’t join: '+esc(res.error)+'</div>'); setStatus('Not joined','err'); return; }
+    h('<div class="lab" style="text-align:center">Read this code to the approver</div><div class="code">'+esc(res.code)+'</div><div class="help" style="text-align:center;margin:0">They’ll see the same code on their phone and approve you.</div>');
+    setStatus('Waiting for approval…','ok');
+    pollJoin();
+  }catch(e){ setStatus('Join failed: '+e,'err'); }
+}
+async function pollJoin(){
+  for(var i=0;i<800;i++){
+    try{
+      var s=await api('/api/invite/status?t='+encodeURIComponent(TOKEN));
+      if(s&&s.done){
+        if(s.result&&s.result.ok){ okScreen('You’re in!','You’re now a signer on this project. Keep this phone — your approvals will appear here.'); setStatus('Joined','ok'); }
+        else { h('<div class="msg">Not approved'+(s.result&&s.result.error?': '+esc(s.result.error):'')+'.</div><div class="help" style="margin:0">Ask the owner to try again, or for a fresh invite.</div>'); setStatus('Not approved','err'); }
+        return;
+      }
+    }catch(e){ /* keep waiting */ }
+    await sleep(1500);
+  }
 }
 main();
 })();

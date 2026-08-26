@@ -8,6 +8,7 @@
 
 const http = require('http');
 const os = require('os');
+const crypto = require('crypto');
 const C = require('./crypto');
 const { canonical } = require('./util');
 const { signerHTML } = require('./signer-page');
@@ -104,6 +105,13 @@ function startDashboard(deps, opts) {
   // is what lets the human scan the QR ONCE and then approve everything from here.
   let pending = null;      // { mode, session, expectPubs, genesis, done, submitted, waiters:[], at }
   let finalStatus = null;  // outcome the phone shows after it submits (pair confirm / ✓)
+  // ── teammate invites (owner-initiated, 30-min one-time). An owner runs `yay invite`
+  // to mint one; the new member opens /join, makes a key, and submits their PUBLIC key;
+  // we then run the normal owner-signed enroll (routed to the owner's phone), so nothing
+  // trust-critical is new here — this only collects the pubkey and triggers `yay enroll`.
+  const invites = new Map(); // token → { name, role, exp, used, done, result, code }
+  const INVITE_TTL = 30 * 60 * 1000;
+  const purgeInvites = () => { const now = Date.now(); for (const [k, v] of invites) if (v.exp < now && v.done !== false) invites.delete(k); };
   const phoneHTML = signerHTML({ mode: 'dashboard', project: deps.project || 'project' });
   function verifySubmit(b) {
     if (pending.mode === 'pair') {
@@ -159,9 +167,52 @@ function startDashboard(deps, opts) {
       finalStatus = (await readBody(req)).final || null; pending = null; return sendJSON(res, 200, { ok: true });
     }
     if (req.method === 'POST' && url === '/api/cancel') { if (!isLocal(req)) return sendJSON(res, 403, { error: 'local only' }); pending = null; finalStatus = null; return sendJSON(res, 200, { ok: true }); }
+    // Owner mints a teammate invite (localhost only — an owner on this machine).
+    if (req.method === 'POST' && url === '/api/invite/create') {
+      if (!isLocal(req)) return sendJSON(res, 403, { error: 'local only' });
+      purgeInvites();
+      const b = await readBody(req);
+      const name = String(b.name || '').trim();
+      if (!name) return sendJSON(res, 400, { error: 'a name is required' });
+      const role = b.role === 'owner' ? 'owner' : 'signer';
+      const token = crypto.randomBytes(18).toString('hex');
+      invites.set(token, { name, role, exp: Date.now() + INVITE_TTL, used: false, done: null, result: null, code: null });
+      return sendJSON(res, 200, { ok: true, token, name, role, joinPath: '/join?t=' + token, expiresInMin: INVITE_TTL / 60000 });
+    }
 
     // ── phone-facing ──
     if (req.method === 'GET' && (url === '/phone' || url === '/phone.html')) return sendHTML(res, phoneHTML);
+    // Teammate join page + its API (the new member's phone).
+    if (req.method === 'GET' && url === '/join') {
+      const t = new URLSearchParams(req.url.split('?')[1] || '').get('t') || '';
+      return sendHTML(res, signerHTML({ mode: 'join', project: deps.project || 'project', token: t }));
+    }
+    if (req.method === 'GET' && url === '/api/invite/info') {
+      const t = new URLSearchParams(req.url.split('?')[1] || '').get('t') || '';
+      const inv = invites.get(t);
+      if (!inv || inv.exp < Date.now()) return sendJSON(res, 200, { valid: false });
+      return sendJSON(res, 200, { valid: true, name: inv.name, role: inv.role, used: !!inv.used, project: deps.project || 'project' });
+    }
+    if (req.method === 'POST' && url === '/api/invite/join') {
+      const b = await readBody(req);
+      const inv = invites.get(b.token);
+      if (!inv || inv.exp < Date.now()) return sendJSON(res, 400, { error: 'this invite is invalid or has expired — ask for a new one' });
+      if (inv.used) return sendJSON(res, 409, { error: 'this invite has already been used' });
+      if (!b.pubB64 || !b.proof || !C.verify(b.token, b.proof, b.pubB64)) return sendJSON(res, 400, { error: 'key possession proof failed' });
+      if (!deps.enroll) return sendJSON(res, 200, { error: 'enrollment is not available on this dashboard' });
+      inv.used = true; inv.done = false; inv.result = null; inv.code = confirmCode(b.pubB64);
+      // Run the normal owner-signed enroll (routes the approval to the owner's phone).
+      Promise.resolve(deps.enroll({ name: inv.name, pubkey: b.pubB64, role: inv.role }))
+        .then((r) => { inv.result = r || { ok: false, error: 'no result' }; inv.done = true; })
+        .catch((e) => { inv.result = { ok: false, error: String((e && e.message) || e) }; inv.done = true; });
+      return sendJSON(res, 200, { ok: true, code: inv.code });
+    }
+    if (req.method === 'GET' && url === '/api/invite/status') {
+      const t = new URLSearchParams(req.url.split('?')[1] || '').get('t') || '';
+      const inv = invites.get(t);
+      if (!inv) return sendJSON(res, 200, { gone: true });
+      return sendJSON(res, 200, { done: !!inv.done, result: inv.result || null, code: inv.code || null });
+    }
     // Certificate download + trust guide, so users get the cert FROM yay-layer (not off the laptop).
     if (req.method === 'GET' && (url === '/ca' || url === '/ca.crt' || url === '/ca.pem' || url === '/ca.cer')) {
       if (!opts.caPem) return sendJSON(res, 404, { error: 'no certificate to install (running over http, or self-signed cert unavailable)' });

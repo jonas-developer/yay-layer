@@ -1031,9 +1031,15 @@ async function cmdEnroll(flags) {
   const drv = rosterMod.deriveRoster(log);
   const type = drv.roster[name] ? 'add-key' : 'add-signer';
   const ev = { id: rosterMod.nextEventId(log), type, name, pub, role, by: null, prev: log.events[log.events.length - 1].id, nonce: C.randomNonce(), at: new Date().toISOString() };
+  // The 6-digit confirm code binds this pubkey to the right human (anti-MITM): the
+  // joiner sees the same code on their screen; the owner verifies it out-of-band.
+  const code = String(parseInt(C.sha256('yay-pair:' + pub).slice(0, 8), 16) % 1000000).padStart(6, '0');
   const summary = {
     title: (type === 'add-key' ? `Add another key for "${name}" in ` : `Add ${role} "${name}" to `) + config.project + '?',
-    rows: [{ k: name + ' · ' + role, v: 'key ' + rosterMod.fingerprint(pub) }],
+    rows: [
+      { k: name + ' · ' + role, v: 'key ' + rosterMod.fingerprint(pub) },
+      { k: 'confirm code', v: code + '  — must match the joiner’s screen' },
+    ],
     warn: role === 'owner' ? 'Owner rights: they can enroll and revoke signers.' : '',
   };
   const signed = await authorizeRosterEvent(p, config, log, ev, flags, summary);
@@ -1045,6 +1051,32 @@ async function cmdEnroll(flags) {
   addSignerKey(config, name, pub, role === 'owner' ? 'owner' : 'signer'); // mirror for convenience
   U.writeJSON(p.config, config);
   console.log(U.c.green(`✓ enrolled "${name}" as ${role}`) + U.c.dim(` (authorized by ${signed.by}) — commit .yaylayer/roster.json`));
+}
+
+// `yay invite "Bob"` — mint a 30-min one-time link a teammate opens to request to
+// join. Requires a running dashboard; the actual approval is the owner's tap on their
+// phone (or panel). No new trust surface: it just triggers the normal `yay enroll`.
+async function cmdInvite(flags, positional) {
+  const { p, config } = loadState();
+  if (!config) return fail('run `yay init` first');
+  const name = (positional && positional[0]) ? positional[0] : ((flags.name && flags.name !== true) ? flags.name : null);
+  if (!name) return fail('usage: yay invite "Bob Carlsen" [--role owner|signer]   (start a `yay dashboard` first)');
+  const role = flags.role === 'owner' ? 'owner' : 'signer';
+  const info = dashboardReg(p);
+  if (!info) return fail('no running dashboard found — start `yay dashboard` in another terminal, then run `yay invite` here.');
+  let ping; try { ping = await dfetch(info, '/api/ping').then((r) => r.json()); } catch (_) { ping = null; }
+  if (!ping || ping.yay !== 'dashboard') return fail('the dashboard is not reachable — is `yay dashboard` still running?');
+  let r; try { r = await dfetch(info, '/api/invite/create', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, role }) }).then((x) => x.json()); }
+  catch (e) { return fail('could not reach the dashboard: ' + ((e && e.message) || e)); }
+  if (!r || !r.token) return fail('the dashboard did not issue an invite' + (r && r.error ? ': ' + r.error : ''));
+  const base = (info.phoneUrl || '').replace(/\/phone$/, '') || `${info.scheme}://<this-mac>:${info.port}`;
+  const joinUrl = base + r.joinPath;
+  console.log('\n' + U.c.green(`✓ invite for "${name}"`) + U.c.dim(` as ${role} — valid ${r.expiresInMin || 30} min, one-time.`));
+  console.log('   ' + U.c.bold('send this link → ') + U.c.accent(joinUrl));
+  console.log(U.c.dim('   …or have them scan:'));
+  printQR(joinUrl);
+  console.log(U.c.dim('   When they open it and create their key, an approval pops up on your phone — verify the 6-digit code together, then tap Approve.'));
+  if (role === 'owner') console.log(U.c.yellow('   ⚠ owner role: they will be able to enroll and revoke others.'));
 }
 
 async function cmdRevoke(flags) {
@@ -1397,6 +1429,7 @@ async function cmdDashboard(flags) {
   let s;
   try {
     s = await dashboardMod.startDashboard({
+      project: config.project,
       buildMapHTML: () => { const st = loadState(); return buildMapHTML(st.p, st.config, st.lock, flags); },
       version: () => stateVersion(p),
       testInfo: () => { const st = loadState(); return { configured: !!resolveTestCmd(st.p.root, st.config, flags), cmd: resolveTestCmd(st.p.root, st.config, flags) }; },
@@ -1433,6 +1466,21 @@ async function cmdDashboard(flags) {
         child.on('exit', (code) => resolve(code === 0
           ? { ok: true, output: out.replace(/\x1b\[[0-9;]*m/g, '').trim() }
           : { ok: false, error: (out.replace(/\x1b\[[0-9;]*m/g, '').trim() || ('sign exited ' + code)) }));
+      }),
+      // Teammate enrollment from the dashboard: run the normal `yay enroll --phone`
+      // as a child, which routes the OWNER-signed approval to the phone (or panel) and
+      // writes the roster. All trust-critical logic is the existing enroll path.
+      enroll: ({ name, pubkey, role }) => new Promise((resolve) => {
+        const args = ['enroll', '--name', String(name), '--pubkey', String(pubkey), '--phone'];
+        if (role === 'owner') args.push('--role', 'owner');
+        const child = require('child_process').spawn(process.execPath, [process.argv[1], ...args], { cwd: p.root });
+        let out = '';
+        child.stdout.on('data', (d) => { out += d; });
+        child.stderr.on('data', (d) => { out += d; });
+        child.on('error', (e) => resolve({ ok: false, error: String((e && e.message) || e) }));
+        child.on('exit', (code) => resolve(code === 0
+          ? { ok: true, output: out.replace(/\x1b\[[0-9;]*m/g, '').trim() }
+          : { ok: false, error: (out.replace(/\x1b\[[0-9;]*m/g, '').trim() || ('enroll exited ' + code)) }));
       }),
     }, { port, tls, caPem, caFilename });
   } catch (e) {
@@ -1513,6 +1561,8 @@ const HELP = `yay — a protocol for provable, signed AI code
                              --relay routes via relay.yaylayer.com (off-LAN, end-to-end encrypted) · --lan forces the local path
                              the FIRST pairing makes the phone the trust root — no local key needed
   yay enroll --name X --pubkey <b64>  enroll another signer via an OWNER-signed event (--role owner|signer)
+  yay invite "Bob" [--role signer|owner]  mint a 30-min link a teammate opens to request to join;
+                             you approve on your phone (needs a running dashboard). No pubkey to copy.
                              authorize with a local owner key, or --phone to approve on an owner's phone
   yay revoke --name X [--pubkey <b64>]  revoke one key (or the whole identity) via an owner-signed event (--phone)
   yay reroot [--phone]        retire the current trust root and establish a new one (key lost/compromised)
@@ -1551,6 +1601,7 @@ async function main() {
     case 'sign': return cmdSign(flags);
     case 'pair': return cmdPair(flags);
     case 'enroll': return cmdEnroll(flags);
+    case 'invite': return cmdInvite(flags, positional);
     case 'revoke': return cmdRevoke(flags);
     case 'reroot': return cmdReroot(flags);
     case 'grant': case 'freedom': return cmdGrant(flags, positional);

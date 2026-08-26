@@ -766,5 +766,54 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     fs.rmSync(ars, { recursive: true, force: true });
   }
 
+  // 15) teammate invite → join → enroll (the dashboard invite endpoints end-to-end).
+  {
+    const { startDashboard } = require('../src/dashboard');
+    const enrollCalls = [];
+    const s = await startDashboard({
+      project: 'testproj',
+      enroll: (a) => { enrollCalls.push(a); return Promise.resolve({ ok: true, output: 'enrolled ' + a.name }); },
+      buildMapHTML: () => ({ html: '<html></html>' }),
+      version: () => 'v1',
+    }, { port: 0 });
+    const base = 'http://127.0.0.1:' + s.port;
+    const jget = (u) => fetch(base + u).then((r) => r.json());
+    const jpost = (u, body) => fetch(base + u, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(async (r) => ({ status: r.status, body: await r.json() }));
+
+    const created = await jpost('/api/invite/create', { name: 'Bob', role: 'signer' });
+    ok(created.body.ok && created.body.token && created.body.joinPath === '/join?t=' + created.body.token, 'invite: owner mints a token');
+    const token = created.body.token;
+    const info = await jget('/api/invite/info?t=' + token);
+    ok(info.valid && info.name === 'Bob' && info.role === 'signer' && info.project === 'testproj', 'invite: /info reports name, role, project');
+
+    const kp = C.generateKeypair();
+    const proof = C.sign(token, kp.privDer); // prove possession by signing the token
+    const joined = await jpost('/api/invite/join', { token, name: 'Bob', pubB64: kp.pubB64, proof });
+    const expectCode = String(parseInt(C.sha256('yay-pair:' + kp.pubB64).slice(0, 8), 16) % 1000000).padStart(6, '0');
+    ok(joined.body.ok && joined.body.code === expectCode, 'invite: valid join returns the 6-digit confirm code');
+    ok(enrollCalls.length === 1 && enrollCalls[0].pubkey === kp.pubB64 && enrollCalls[0].name === 'Bob' && enrollCalls[0].role === 'signer', 'invite: join triggers the owner-signed enroll with the joiner’s pubkey');
+
+    // the enroll mock resolves ok → status flips to done+ok
+    let st = null; for (let i = 0; i < 20 && !(st && st.done); i++) { st = await jget('/api/invite/status?t=' + token); if (!st.done) await new Promise((r) => setTimeout(r, 25)); }
+    ok(st && st.done && st.result && st.result.ok, 'invite: status reports the enroll result once approved');
+
+    // one-time: the same token can’t be reused
+    const reuse = await jpost('/api/invite/join', { token, name: 'Bob', pubB64: kp.pubB64, proof });
+    ok(reuse.status === 409, 'invite: a used token is rejected (one-time)');
+
+    // bad proof: a join whose proof doesn’t match the pubkey is rejected
+    const c2 = await jpost('/api/invite/create', { name: 'Eve', role: 'signer' });
+    const kp2 = C.generateKeypair();
+    const badProof = C.sign('not-the-token', kp2.privDer);
+    const bad = await jpost('/api/invite/join', { token: c2.body.token, name: 'Eve', pubB64: kp2.pubB64, proof: badProof });
+    ok(bad.status === 400 && /possession/.test(bad.body.error || ''), 'invite: a bad possession proof is rejected');
+
+    // expired / unknown token → invalid
+    const gone = await jget('/api/invite/info?t=deadbeef');
+    ok(gone.valid === false, 'invite: an unknown token is invalid');
+
+    s.close();
+  }
+
   console.log(`\nAll ${n} checks passed.`);
 })().catch((e) => { console.error('smoke failed:', e); process.exit(1); });

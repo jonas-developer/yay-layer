@@ -1,6 +1,9 @@
 # Design note — Invite & one-tap teammate enrollment
 
-Status: **proposal, for review** · Relates to Standard §9 (Integrity & approval), §11 (Teams)
+Status: **v1 built (same-network / phone-signing owner)** · Relates to Standard §9 (Integrity & approval), §11 (Teams)
+
+**Implemented:** `yay invite` + dashboard invite endpoints (`/api/invite/create|join|status|info`, `/join` page) + a `join` mode on the signer page + the `enroll` dashboard dep (spawns the normal owner-signed `yay enroll --phone`) + the 6-digit confirm code on the owner's approval card. 8 integration tests cover mint → info → join (real keypair + proof) → confirm code → enroll trigger → status, plus one-time reuse, bad-proof, and unknown-token guards.
+**Follow-ups (not yet built):** (a) **remote member join over the relay** — v1 has the member open the dashboard's LAN URL, so it covers same-network teams; a remote teammate needs the relay message-type bridge. (b) **local-signing owner via the panel** — the approval routes to the owner's phone (`yay enroll --phone`); a passphrase-in-panel path for local-only owners is still to wire.
 
 ## Problem
 
