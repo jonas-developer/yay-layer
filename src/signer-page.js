@@ -373,12 +373,18 @@ async function joinFlow(){
   if(info.used){ h('<div class="msg">This invite has already been used.</div><div class="help" style="margin:0">Ask for a new one if you still need to join.</div>'); setStatus('Already used','err'); return; }
   var roleLbl=info.role==='owner'?'owner — can manage the team':'signer';
   var key=loadKey();
-  var head='<div class="help">You’re joining <b>'+esc(info.project||PROJECT)+'</b> as <b>'+esc(info.name)+'</b> ('+esc(roleLbl)+'). Your signing key is made here and never leaves this phone.</div>';
-  if(key){ h(head+'<div class="msg">A key already exists on this phone for <b>'+esc(key.name)+'</b>.</div><button id="go" class="btn">Use this key &amp; request to join</button>'); document.getElementById('go').onclick=function(){ doJoin(info,key); }; return; }
-  h(head+'<button id="go" class="btn">Create my key &amp; request to join</button><span id="rst" class="link">Restore from recovery phrase</span>');
+  var head='<div class="help">You’re joining <b>'+esc(info.project||PROJECT)+'</b> as a <b>'+esc(roleLbl)+'</b>. Your signing key is made here and never leaves this phone.</div>';
+  var nameField='<label class="lbl">Your name (shown on every signature)</label><input id="nm" class="inp" value="'+esc((key&&key.name)||info.name||'')+'" placeholder="e.g. Bob Carlsen" autocapitalize="words">';
+  if(key){
+    h(head+'<div class="msg">A key already exists on this phone for <b>'+esc(key.name)+'</b>.</div>'+nameField+'<button id="go" class="btn">Request to join</button>');
+    document.getElementById('go').onclick=function(){ var nm=(document.getElementById('nm').value||'').trim(); if(!nm){setStatus('Enter your name','err');return;} doJoin(info,key,nm); };
+    return;
+  }
+  h(head+nameField+'<button id="go" class="btn">Create my key &amp; request to join</button><span id="rst" class="link">Restore from recovery phrase</span>');
   document.getElementById('go').onclick=function(){
+    var nm=(document.getElementById('nm').value||'').trim(); if(!nm){setStatus('Enter your name','err');return;}
     setStatus('Generating your key…');
-    try{ var k=newIdentity(info.name); joinBackup(info,k); setStatus(''); }catch(e){ setStatus('Key generation failed: '+e,'err'); }
+    try{ var k=newIdentity(nm); joinBackup(info,k); setStatus(''); }catch(e){ setStatus('Key generation failed: '+e,'err'); }
   };
   document.getElementById('rst').onclick=function(){ joinRestore(info); };
 }
@@ -397,26 +403,29 @@ function joinVerify(info,k,words){
   document.getElementById('go').onclick=async function(){
     var v=(document.getElementById('wv').value||'').trim().toLowerCase();
     if(v!==words[pos]){setStatus('That word doesn’t match #'+(pos+1),'err');return;}
-    setStatus(''); delete k.mnemonic; await setPinAndSave(k); await doJoin(info,{name:k.name,sec:k.sec,pub:k.pub});
+    setStatus(''); delete k.mnemonic; await setPinAndSave(k); await doJoin(info,{name:k.name,sec:k.sec,pub:k.pub}, k.name);
   };
   document.getElementById('sk').onclick=function(){ joinBackup(info,k); };
 }
 function joinRestore(info){
-  h('<div class="lab">Restore your key</div><div class="msg">Paste your 24-word recovery phrase.</div><textarea id="ph" class="inp" autocapitalize="none" autocomplete="off" placeholder="word1 word2 … word24"></textarea><button id="go" class="btn">Restore &amp; request to join</button><span id="bk" class="link">Back</span>');
+  h('<div class="lab">Restore your key</div><div class="msg">Paste your 24-word recovery phrase.</div>'
+    +'<label class="lbl">Your name (shown on every signature)</label><input id="nm" class="inp" value="'+esc(info.name||'')+'" placeholder="e.g. Bob Carlsen" autocapitalize="words">'
+    +'<label class="lbl">Recovery phrase</label><textarea id="ph" class="inp" autocapitalize="none" autocomplete="off" placeholder="word1 word2 … word24"></textarea><button id="go" class="btn">Restore &amp; request to join</button><span id="bk" class="link">Back</span>');
   document.getElementById('go').onclick=async function(){
+    var nm=(document.getElementById('nm').value||'').trim(); if(!nm){setStatus('Enter your name','err');return;}
     var phrase=(document.getElementById('ph').value||'').trim(); if(!phrase){setStatus('Paste your phrase','err');return;}
     setStatus('Restoring…');
-    try{ var k=restoreIdentity(info.name,phrase); await setPinAndSave(k); await doJoin(info,k); }
+    try{ var k=restoreIdentity(nm,phrase); await setPinAndSave(k); await doJoin(info,k,nm); }
     catch(e){ setStatus(String(e&&e.message||e).replace(/^Error:\s*/,''),'err'); }
   };
   document.getElementById('bk').onclick=function(){ joinFlow(); };
 }
-async function doJoin(info,key){
+async function doJoin(info,key,name){
   try{
     var sec=await getSecret(key);
     setStatus('Sending your request…');
     var proof=signStr(sec, TOKEN);
-    var res=await api('/api/invite/join',{token:TOKEN,name:info.name,pubB64:key.pub,proof:proof});
+    var res=await api('/api/invite/join',{token:TOKEN,name:name,pubB64:key.pub,proof:proof});
     if(res.error){ h('<div class="msg">Couldn’t join: '+esc(res.error)+'</div>'); setStatus('Not joined','err'); return; }
     h('<div class="lab" style="text-align:center">Read this code to the approver</div><div class="code">'+esc(res.code)+'</div><div class="help" style="text-align:center;margin:0">They’ll see the same code on their phone and approve you.</div>');
     setStatus('Waiting for approval…','ok');

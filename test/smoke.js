@@ -788,10 +788,12 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
 
     const kp = C.generateKeypair();
     const proof = C.sign(token, kp.privDer); // prove possession by signing the token
-    const joined = await jpost('/api/invite/join', { token, name: 'Bob', pubB64: kp.pubB64, proof });
+    // The joiner EDITS the suggested name ("Bob") to their own before submitting.
+    const joined = await jpost('/api/invite/join', { token, name: 'Bob the Builder', pubB64: kp.pubB64, proof });
     const expectCode = String(parseInt(C.sha256('yay-pair:' + kp.pubB64).slice(0, 8), 16) % 1000000).padStart(6, '0');
     ok(joined.body.ok && joined.body.code === expectCode, 'invite: valid join returns the 6-digit confirm code');
-    ok(enrollCalls.length === 1 && enrollCalls[0].pubkey === kp.pubB64 && enrollCalls[0].name === 'Bob' && enrollCalls[0].role === 'signer', 'invite: join triggers the owner-signed enroll with the joiner’s pubkey');
+    ok(enrollCalls.length === 1 && enrollCalls[0].pubkey === kp.pubB64 && enrollCalls[0].role === 'signer', 'invite: join triggers the owner-signed enroll with the joiner’s pubkey');
+    ok(enrollCalls[0].name === 'Bob the Builder', 'invite: the joiner’s edited name (not the invite suggestion) becomes the roster label');
 
     // the enroll mock resolves ok → status flips to done+ok
     let st = null; for (let i = 0; i < 20 && !(st && st.done); i++) { st = await jget('/api/invite/status?t=' + token); if (!st.done) await new Promise((r) => setTimeout(r, 25)); }

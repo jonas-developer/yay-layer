@@ -172,8 +172,7 @@ function startDashboard(deps, opts) {
       if (!isLocal(req)) return sendJSON(res, 403, { error: 'local only' });
       purgeInvites();
       const b = await readBody(req);
-      const name = String(b.name || '').trim();
-      if (!name) return sendJSON(res, 400, { error: 'a name is required' });
+      const name = String(b.name || '').trim(); // an optional SUGGESTION — the joiner can edit or set their own
       const role = b.role === 'owner' ? 'owner' : 'signer';
       const token = crypto.randomBytes(18).toString('hex');
       invites.set(token, { name, role, exp: Date.now() + INVITE_TTL, used: false, done: null, result: null, code: null });
@@ -200,9 +199,13 @@ function startDashboard(deps, opts) {
       if (inv.used) return sendJSON(res, 409, { error: 'this invite has already been used' });
       if (!b.pubB64 || !b.proof || !C.verify(b.token, b.proof, b.pubB64)) return sendJSON(res, 400, { error: 'key possession proof failed' });
       if (!deps.enroll) return sendJSON(res, 200, { error: 'enrollment is not available on this dashboard' });
-      inv.used = true; inv.done = false; inv.result = null; inv.code = confirmCode(b.pubB64);
+      // The joiner's chosen name (pre-filled from the invite suggestion, editable) is the
+      // roster label; the owner sees and approves it on their phone.
+      const memberName = String(b.name || '').trim() || inv.name;
+      if (!memberName) return sendJSON(res, 400, { error: 'a name is required' });
+      inv.used = true; inv.done = false; inv.result = null; inv.code = confirmCode(b.pubB64); inv.memberName = memberName;
       // Run the normal owner-signed enroll (routes the approval to the owner's phone).
-      Promise.resolve(deps.enroll({ name: inv.name, pubkey: b.pubB64, role: inv.role }))
+      Promise.resolve(deps.enroll({ name: memberName, pubkey: b.pubB64, role: inv.role }))
         .then((r) => { inv.result = r || { ok: false, error: 'no result' }; inv.done = true; })
         .catch((e) => { inv.result = { ok: false, error: String((e && e.message) || e) }; inv.done = true; });
       return sendJSON(res, 200, { ok: true, code: inv.code });

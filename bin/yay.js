@@ -1059,8 +1059,9 @@ async function cmdEnroll(flags) {
 async function cmdInvite(flags, positional) {
   const { p, config } = loadState();
   if (!config) return fail('run `yay init` first');
-  const name = (positional && positional[0]) ? positional[0] : ((flags.name && flags.name !== true) ? flags.name : null);
-  if (!name) return fail('usage: yay invite "Bob Carlsen" [--role owner|signer]   (start a `yay dashboard` first)');
+  // The name is an optional SUGGESTION — it pre-fills the joiner's name field, which
+  // they can edit; whatever they submit becomes the roster label (you approve it).
+  const name = (positional && positional[0]) ? positional[0] : ((flags.name && flags.name !== true) ? flags.name : '');
   const role = flags.role === 'owner' ? 'owner' : 'signer';
   const info = dashboardReg(p);
   if (!info) return fail('no running dashboard found — start `yay dashboard` in another terminal, then run `yay invite` here.');
@@ -1071,11 +1072,12 @@ async function cmdInvite(flags, positional) {
   if (!r || !r.token) return fail('the dashboard did not issue an invite' + (r && r.error ? ': ' + r.error : ''));
   const base = (info.phoneUrl || '').replace(/\/phone$/, '') || `${info.scheme}://<this-mac>:${info.port}`;
   const joinUrl = base + r.joinPath;
-  console.log('\n' + U.c.green(`✓ invite for "${name}"`) + U.c.dim(` as ${role} — valid ${r.expiresInMin || 30} min, one-time.`));
+  console.log('\n' + U.c.green('✓ invite' + (name ? ` for "${name}"` : '')) + U.c.dim(` as ${role} — valid ${r.expiresInMin || 30} min, one-time.`));
   console.log('   ' + U.c.bold('send this link → ') + U.c.accent(joinUrl));
   console.log(U.c.dim('   …or have them scan:'));
   printQR(joinUrl);
-  console.log(U.c.dim('   When they open it and create their key, an approval pops up on your phone — verify the 6-digit code together, then tap Approve.'));
+  console.log(U.c.dim(`   They open it, confirm their name (${name ? `pre-filled "${name}", ` : ''}editable), and create their key.`));
+  console.log(U.c.dim('   Then an approval pops up on your phone — verify the 6-digit code together, then tap Approve.'));
   if (role === 'owner') console.log(U.c.yellow('   ⚠ owner role: they will be able to enroll and revoke others.'));
 }
 
