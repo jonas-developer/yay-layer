@@ -266,6 +266,24 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);l
 .tab{font-family:var(--sans);font-size:.8rem;font-weight:500;background:none;border:none;color:var(--ink2);border-radius:6px;padding:6px 13px;cursor:pointer}
 .tab:hover{color:var(--ink)}
 .tab.active{background:var(--paper);color:var(--ink);box-shadow:var(--shadow);font-weight:600}
+.navburger{display:none;align-items:center;justify-content:center;width:38px;height:36px;font-size:1.05rem;line-height:1;background:var(--card);color:var(--ink);border:1px solid var(--rule);border-radius:8px;cursor:pointer}
+.navburger:hover{border-color:var(--mut)}
+.navmenu{display:none}
+@media(max-width:820px){
+  .nav-in{padding:0 16px;height:52px}
+  .wrap{padding:20px 16px 72px}
+  .brandproj{max-width:34vw}
+  .tabs{display:none}
+  .navburger{display:inline-flex}
+  .navmenu{flex-direction:column;gap:3px;padding:8px 16px 14px;border-top:1px solid var(--rule);background:var(--paper)}
+  .navmenu.open{display:flex}
+  .navmenu .tab{width:100%;text-align:left;font-size:1rem;padding:12px;border-radius:8px;background:var(--card2)}
+  .navmenu .tab.active{background:var(--brand);color:#04231a}
+  .legend{font-size:.74rem;gap:7px}
+  .lg{padding:6px 12px}
+  h1{font-size:1.25rem}
+  .wrap>*{min-width:0}
+}
 .signers{margin-top:4px;max-width:900px}
 .rootcard{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;background:var(--card2);border:1px solid var(--rule);border-radius:12px;padding:16px 18px;margin:0 0 20px}
 .rootlbl{font-family:var(--sans);font-size:.68rem;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--ink2)}
@@ -415,8 +433,10 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
 </style></head><body>
 <header class="nav"><div class="nav-in">
 <div class="brand"><span class="logo"><svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><rect width="26" height="26" rx="7" fill="#3ecf8e"/><path d="M6.5 13.5l4 4L20 7.5" fill="none" stroke="#04231a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="brandname">YayLayer</span><span class="brandsep">/</span><span class="brandproj">${esc(project || 'project')}</span></div>
-<div class="nav-right"><nav class="tabs"><button class="tab active" data-tab="map">Map</button><button class="tab" data-tab="files">Files</button><button class="tab" data-tab="plan" id="tab-plan" style="display:none">System Plan</button><button class="tab" data-tab="briefs">Briefs</button><button class="tab" data-tab="signers">Signers</button><button class="tab" data-tab="commands">Commands</button></nav><button id="themebtn" class="themebtn" aria-label="Toggle theme">Dark</button></div>
-</div></header>
+<div class="nav-right"><nav class="tabs"><button class="tab active" data-tab="map">Map</button><button class="tab" data-tab="files">Files</button><button class="tab" data-tab="plan" id="tab-plan" style="display:none">System Plan</button><button class="tab" data-tab="briefs">Briefs</button><button class="tab" data-tab="signers">Signers</button><button class="tab" data-tab="commands">Commands</button></nav><button id="themebtn" class="themebtn" aria-label="Toggle theme">Dark</button><button id="navburger" class="navburger" aria-label="Menu" aria-expanded="false">☰</button></div>
+</div>
+<div id="navmenu" class="navmenu"><button class="tab active" data-tab="map">Map</button><button class="tab" data-tab="files">Files</button><button class="tab" data-tab="plan" style="display:none">System Plan</button><button class="tab" data-tab="briefs">Briefs</button><button class="tab" data-tab="signers">Signers</button><button class="tab" data-tab="commands">Commands</button></div>
+</header>
 <div class="wrap">
 <div class="pagehead"><h1>System map</h1><p class="sub">${totalUnits} units · ${verified.passed ? 'gate PASS' : 'gate BLOCKED'}${verified.counts.GREEN ? ` · ${verified.counts.proven || 0} proven / ${verified.counts.unproven || 0} unproven` : ''}</p></div>
 <div class="legend">${legend}</div>
@@ -694,14 +714,18 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
     MAP_ELS.forEach(function(s){ showSel(s, name==='map'); });
     showSel('#plan', name==='plan'); showSel('#signers', name==='signers'); showSel('#files', name==='files'); showSel('#commands', name==='commands'); showSel('#briefs', name==='briefs');
     Array.prototype.forEach.call(document.querySelectorAll('.tab'),function(b){ b.classList.toggle('active', b.getAttribute('data-tab')===name); });
+    var nm=document.getElementById('navmenu'); if(nm) nm.classList.remove('open');
+    var nb=document.getElementById('navburger'); if(nb){ nb.textContent='☰'; nb.setAttribute('aria-expanded','false'); }
     if(name==='plan') renderPlan();
     if(name==='signers') renderSigners();
     if(name==='briefs') renderBriefs();
     if(name==='files') renderFiles();
   }
   (function(){
-    var tp=document.getElementById('tab-plan'); if(tp && DATA.meta && DATA.meta.plan) tp.style.display='';
+    if(DATA.meta && DATA.meta.plan) Array.prototype.forEach.call(document.querySelectorAll('[data-tab="plan"]'),function(t){ t.style.display=''; });
     Array.prototype.forEach.call(document.querySelectorAll('.tab'),function(b){ b.addEventListener('click',function(){ setTab(b.getAttribute('data-tab')); }); });
+    var nb=document.getElementById('navburger'), nm=document.getElementById('navmenu');
+    if(nb && nm) nb.addEventListener('click',function(){ var open=nm.classList.toggle('open'); nb.textContent=open?'✕':'☰'; nb.setAttribute('aria-expanded',open?'true':'false'); });
   })();
 
   window.addEventListener('resize',function(){ if(curTab==='plan') renderPlan(); else if(curTab==='map') draw(); });
