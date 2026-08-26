@@ -66,6 +66,12 @@ function resolvePlanAuth(config, flags) {
 
 function rosterPath(p) { return path.join(path.dirname(p.config), 'roster.json'); }
 function loadRoster(p) { return U.readJSON(rosterPath(p), null); }
+// Who THIS machine signs as (recorded at pair/keygen). Machine-local + gitignored — it
+// differs per person, so it must never be committed. Lets `yay sign` default to the
+// local signer instead of the project owner (config.owners[0]).
+function localPath(p) { return path.join(path.dirname(p.config), 'local.json'); }
+function loadLocalSigner(p) { const d = U.readJSON(localPath(p), null); return d && d.signer ? d.signer : null; }
+function saveLocalSigner(p, name) { try { if (name) { U.writeJSON(localPath(p), { signer: name }); ensureGitignored(p.root, '.yaylayer/local.json'); } } catch (_) {} }
 // Freedom mode: the append-only, owner-signed grants log (committed) + the machine-held
 // grant private keys (in the gitignored keys/, used for UNATTENDED auto-signing).
 function grantsPath(p) { return path.join(path.dirname(p.config), 'grants.json'); }
@@ -519,6 +525,7 @@ async function cmdKeygen(flags) {
   const pass = await getPassphrase(flags, `Set a passphrase to encrypt ${name}'s key (you'll re-enter it each time you sign)`);
   if (!pass || pass.length < 6) return fail('passphrase must be at least 6 characters');
   const ksPath = createKey(p, config, name, pass);
+  saveLocalSigner(p, name); // this machine now signs as "name" by default
   console.log(U.c.green(`✓ key created for "${name}"`));
   console.log('  public key → roster in .yaylayer/config.json');
   console.log('  private key → ' + U.c.dim(path.relative(process.cwd(), ksPath)) + U.c.dim('  (gitignored, encrypted)'));
@@ -641,7 +648,10 @@ async function routeThroughRelay(p, mode, payload, flags) {
 async function cmdSign(flags) {
   const { p, config, lock } = loadState();
   if (!config) return fail('run `yay init` first');
-  const name = (flags.name && flags.name !== true) ? flags.name : config.owners[0];
+  // Default to THIS machine's own signer identity (set at pair/keygen), not the project
+  // owner — so a teammate's `yay sign` signs as themselves, matching the key on their phone.
+  let name = (flags.name && flags.name !== true) ? flags.name : null;
+  if (!name) { const local = loadLocalSigner(p); name = (local && U.pubKeysOf(config.signers[local]).length) ? local : config.owners[0]; }
   if (!name || !U.pubKeysOf(config.signers[name]).length) return fail(`unknown signer "${name}" — run \`yay keygen --name ${name || '<you>'}\` or \`yay pair\``);
   const manifest = buildManifest(flags.dir || p.root);
   let ids = Object.keys(manifest.cells);
@@ -824,6 +834,8 @@ async function runPairing(p, config, flags) {
       await finishPhone({ ok: false, reason: 'the code did not match on the laptop' });
       return false;
     }
+    // Remember who this machine signs as, so `yay sign` defaults to them (not the owner).
+    saveLocalSigner(p, name);
 
     if (!isGenesis) {
       const rlog = loadRoster(p);
