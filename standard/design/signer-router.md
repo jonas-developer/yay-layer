@@ -1,6 +1,6 @@
 # Design note — Signer-inbox router (address a request to a person)
 
-Status: **proposal, for review** · Relates to Standard §9 (Integrity & approval), §11 (Teams) · Builds on the per-machine relay channel and the signer-gate.
+Status: **approved — building (convergent additive)** · Relates to Standard §9 (Integrity & approval), §11 (Teams) · Builds on the per-machine relay channel and the signer-gate.
 
 ## Problem
 
@@ -54,14 +54,13 @@ Sara opens her **inbox page** (a relay URL carrying *only her public identity*, 
 
 She gets that URL from `yay inbox` (prints her inbox link + QR) or from the dashboard, once she's enrolled and paired.
 
-## Relationship to the per-machine channel
+## Relationship to the per-machine channel — convergent additive (DECIDED)
 
-Two clean options (decide in review):
+The inbox is the **general mechanism**; **self-sign is a fast-path over it** (an inbox addressed to yourself). So there aren't two separate systems:
+- `yay sign` (self, no `--name` or `--name` = this machine's signer) → the existing per-machine channel → your own phone, **blocking**, exactly as today.
+- `yay sign --name "Sara"` (someone else) → **Sara's inbox** → Sara's phone, **fire-and-return**.
 
-- **(A) Additive:** keep the per-machine channel for the fast "sign my own work" path; use the inbox **only** when `--name` targets *someone other than this machine's signer*. Least disruption.
-- **(B) Inbox-for-all:** every signer always receives on their inbox; `yay sign` (self) routes to your own inbox too. One model, slightly more setup (everyone stays "on duty").
-
-Proposal: **(A)** first — it adds delegation without touching the common path — with (B) as a possible later simplification.
+The queue/anti-clobber/reply-sealing live in **one** inbox engine that both paths share, so features and fixes apply everywhere. This keeps risk low now (the working self-path is untouched) and lets us later drop the fast-path to reach full inbox-for-all **without a rewrite** — nothing here is throwaway.
 
 ## Security invariants (must hold)
 
@@ -80,14 +79,30 @@ Proposal: **(A)** first — it adds delegation without touching the common path 
 - **CLI:** `yay sign --name X` routes to X's inbox (sealed) when X isn't the local signer; `yay inbox` prints the on-duty link.
 - **Phone:** an inbox mode (poll the inbox, decrypt, queue, approve) — reuses the existing approve/gate UI.
 
-## Open questions (for review)
+## Decisions (locked 2026-08-27)
 
-1. **(A) additive vs (B) inbox-for-all** — proposal (A).
-2. **Queue depth / spam bound** — cap pending requests per inbox (e.g. 20) + short TTL? Proposal: yes.
-3. **Must the sender be a roster member to address someone?** Proposal: yes — only enrolled signers can post to an inbox (a signed/authenticated post), so randoms can't spam an inbox.
-4. **Does `yay sign --name "Sara"` block waiting for Sara**, or fire-and-return (Sara signs later, the sender polls / picks it up)? Proposal: return a pending id; the sender can wait or check back.
-5. **`boxPub` rollout** — new enrollments capture it; existing signers add it on next `yay pair`. OK?
+1. **Convergent additive** — the inbox is the base engine; self-sign is a fast-path over it (see above). Not two separate systems; can converge to inbox-for-all later without a rewrite.
+2. **Cap the queue** — a bounded number of pending requests per inbox (e.g. 20) + short TTL, so an inbox can't be flooded.
+3. **Enrolled signers only** — a request may be posted to an inbox only by an authenticated roster member; randoms can't spam an inbox.
+4. **Fire-and-return for cross-signer** — `yay sign --name "Sara"` drops the request in Sara's inbox and returns a **request id** immediately (the sender keeps working; the Cells stay Unsigned and gate-blocked until Sara signs, then complete out-of-band). **Self-sign stays blocking** (you're at your own phone).
+5. **`boxPub` rollout** — new enrollments/invites/pairs capture the X25519 box pubkey automatically; existing signers add theirs on their **next `yay pair`** (owner-signed roster update). Until then they can still sign their own work; they just can't be *addressed by name* yet.
+
+## Constitution (AI harness) — delegation guidance
+
+`yay constitution` output (CLAUDE.md, AGENTS.md, …) gains a **delegation** section so the AI knows to:
+- address the right person when policy assigns a Cell to a specific signer (e.g. "security-related Cells → Sara");
+- treat `yay sign --name "X"` as **fire-and-return** — do **not** block, do **not** report the change as done/approved;
+- tell the human plainly: *"these Cells are pending X's signature — they stay Unsigned and the gate blocks them until X signs"*, and continue with other work.
 
 ## Doc hygiene
 
-If accepted, add a short §12-bis (Routing) to STANDARD.md, and note the two-key (sign + box) derivation in §9.
+Add a short §12-bis (Routing) to STANDARD.md, and note the two-key (sign + box) derivation in §9.
+
+## Build order
+
+1. **Crypto foundation** — derive the X25519 box key from the seed (recovery.js, both repos); helpers to seal/open to a box pubkey.
+2. **`boxPub` capture** — carry it through pair/invite/enroll into the roster.
+3. **Relay** — per-request queue endpoints keyed by inbox + request id (additive to the current single-pending path).
+4. **CLI** — `yay sign --name "<other>"` seals to their inbox + returns an id; `yay sign --check <id>`; `yay inbox` prints the on-duty link.
+5. **Phone** — inbox mode (poll, decrypt, queue, approve) reusing the approve/gate UI.
+6. **Constitution + Standard** — the delegation guidance above.
