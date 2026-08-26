@@ -702,5 +702,58 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
   ok(R.openSecret(blob, 'correct horse battery') === rk1.sec, 'keystore: the right PIN unlocks the exact secret');
   ok(R.openSecret(blob, 'wrong pin here') === null, 'keystore: a wrong PIN returns null (no key leaked)');
 
+  // 13) multi-language support (Tier A/B): Python, C#, Solidity, Rust — spec blocks
+  // extract, unit bodies are found, signing works and the gate colours honestly:
+  // signed-but-unproven → YELLOW (never a false GREEN), un-specced code → PINK,
+  // and control-flow/keywords never produce a FALSE Pink.
+  {
+    const langDir = path.join(__dirname, 'fixtures', 'langs');
+    const lm = buildManifest(langDir);
+    const ids = ['PY-1', 'CS-1', 'SOL-1', 'RS-1'];
+    for (const id of ids) ok(lm.cells[id], `lang: extracts ${id} spec block`);
+    ok(lm.cells['PY-1'].unitName === 'add' && lm.cells['PY-1'].unitFound, 'lang(py): finds the def body by indentation');
+    ok(lm.cells['CS-1'].unitName === 'Add' && lm.cells['CS-1'].unitFound, 'lang(cs): finds the method body by braces');
+    ok(lm.cells['SOL-1'].unitName === 'deposit' && lm.cells['SOL-1'].unitFound, 'lang(sol): finds the function body');
+    ok(lm.cells['RS-1'].unitName === 'add' && lm.cells['RS-1'].unitFound, 'lang(rs): finds the fn body');
+
+    const lapp = { id: 'A-LANG', project: 'langs', prev: 'genesis', nonce: 'n', at: 't', signer: 'tester', items: {} };
+    for (const id of ids) lapp.items[id] = lm.cells[id].specHash;
+    lapp.signature = C.sign(canonical(lapp), privDer);
+    const lv = verifyManifest(lm, { approvals: [lapp] }, { signers: { tester: pubB64 } });
+
+    for (const id of ids) ok(lv.results[id].state === 'YELLOW', `lang: signed ${id} is YELLOW (signed-only, no false-green)`);
+    ok(lv.counts.GREEN === 0, 'lang: no non-JS Cell reaches GREEN (honest cap)');
+    ok(lv.counts.RED === 0, 'lang: no false RED on valid non-JS code');
+
+    const pinks = Object.values(lv.results).filter((r) => r.state === 'PINK');
+    const pinkNames = pinks.map((r) => r.name);
+    ok(pinkNames.includes('undocumented'), 'lang(py/sol/rs): un-specced unit → PINK');
+    ok(pinkNames.includes('Undocumented'), 'lang(cs): un-specced method → PINK');
+    ok(pinks.length === 4, `lang: exactly 4 PINK units — no false Pink from control flow/class/pragma (got ${pinks.length}: ${pinkNames.join(', ')})`);
+  }
+
+  // 14) yay adopt on non-JS: correct comment lead per language, skips specced units.
+  {
+    const { adopt } = require('../src/adopt');
+    // Python → '#' lead, and the already-specced `add` is not re-adopted.
+    const apy = fs.mkdtempSync(path.join(os.tmpdir(), 'yay-adopt-py-'));
+    fs.copyFileSync(path.join(__dirname, 'fixtures', 'langs', 'sample.py'), path.join(apy, 's.py'));
+    const rpy = adopt(apy, { dry: false });
+    const py = fs.readFileSync(path.join(apy, 's.py'), 'utf8');
+    ok(rpy.total === 1, 'adopt(py): drafts exactly one block (undocumented), skips the specced add');
+    ok(/#∷YAY⟨/.test(py) && !/\/\/∷YAY⟨/.test(py), 'adopt(py): uses # comment lead (valid Python), never //');
+    const apm = buildManifest(apy);
+    ok(Object.values(apm.cells).some((c) => c.unitName === 'undocumented'), 'adopt(py): drafted block governs undocumented on re-scan');
+    fs.rmSync(apy, { recursive: true, force: true });
+
+    // Rust → '//' lead, drafts the un-specced fn.
+    const ars = fs.mkdtempSync(path.join(os.tmpdir(), 'yay-adopt-rs-'));
+    fs.copyFileSync(path.join(__dirname, 'fixtures', 'langs', 'sample.rs'), path.join(ars, 's.rs'));
+    const rrs = adopt(ars, { dry: false });
+    const rs = fs.readFileSync(path.join(ars, 's.rs'), 'utf8');
+    ok(rrs.total === 1 && /\/\/∷YAY⟨/.test(rs), 'adopt(rs): drafts the un-specced fn with // lead');
+    fs.rmSync(ars, { recursive: true, force: true });
+  }
+
   console.log(`\nAll ${n} checks passed.`);
 })().catch((e) => { console.error('smoke failed:', e); process.exit(1); });

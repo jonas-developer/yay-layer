@@ -18,6 +18,7 @@ const path = require('path');
 const vm = require('node:vm');
 const { mutants } = require('./mutate');
 const { makeRecorder } = require('./record');
+const { isJsLang } = require('./util');
 
 function stripTS(code) {
   let m; try { m = require('node:module'); } catch (_) { return code; }
@@ -246,6 +247,7 @@ function proveManifest(manifest, opts) {
     const isLeaf = !(c.contains && c.contains.length);
     const pure = /^yes\b/i.test((c.spec && c.spec.pure) || '');
     if (!isLeaf || !pure || !c.unitFound || !(c.spec && c.spec.ensures)) continue;
+    if (c.lang && !isJsLang(c.lang)) continue; // prover is a JS/TS VM; an explicitly non-JS lang stays unproven (Yellow). Missing lang ⇒ JS (legacy default).
     if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(c.unitName || '')) { out[id] = { status: 'skip', level: 'info', reason: 'method/qualified units not yet supported' }; continue; }
     (byFile[c.file] = byFile[c.file] || []).push(c);
   }

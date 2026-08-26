@@ -9,7 +9,7 @@
 // from `ensures`, real AST effect analysis, mutation scoring — is the per-language
 // adapter milestone on the roadmap (see standard/STANDARD.md §Verification tiers).
 
-const { canonical, pubKeysOf } = require('./util');
+const { canonical, pubKeysOf, isJsLang } = require('./util');
 const { verify: sigVerify } = require('./crypto');
 const { proveManifest } = require('./prove');
 const { deriveRoster } = require('./roster');
@@ -70,7 +70,11 @@ function staticChecks(cell) {
   const declaredEffects = (spec.effects || '').toLowerCase();
   const pure = /^yes\b/i.test(spec.pure || '');
   let badLines = [];
-  if (cell.unitBody) {
+  // Effect / purity signals are JavaScript tokens (fetch, process., new Date, …).
+  // Only run them on JS/TS Cells: applying them to another language would be
+  // meaningless and could FALSE-flag a function that merely shares a name.
+  // (Missing lang ⇒ JS, so legacy/synthetic cells behave exactly as before.)
+  if (cell.unitBody && (!cell.lang || isJsLang(cell.lang))) {
     const base = cell.unitBodyStart || 0;
     const found = []; // { signal, line, text } — the exact offending source lines
     cell.unitBody.split('\n').forEach((ln, k) => {
@@ -93,6 +97,15 @@ function staticChecks(cell) {
         notes.push({ level: 'yellow', text: `has effects (${signals.join(', ')}) but none declared in \`effects:\`` });
       }
     }
+  }
+
+  // Honesty cap: YayLayer only machine-checks code⇔spec for JS/TS today. A signed
+  // Cell in another supported language (python/csharp/solidity/rust) is real and
+  // attributable, but we haven't verified its code against the spec — so it can
+  // never be GREEN. Cap it at YELLOW with a clear reason (no silent false-green).
+  if (!isModule && cell.lang && !isJsLang(cell.lang)) {
+    yellow = true;
+    notes.push({ level: 'yellow', text: `signed, but not machine-verified — YayLayer checks code⇔spec for JS/TS only today; ${cell.lang} is signed-only (capped at Yellow)` });
   }
 
   // vague / prose-only spec caps at YELLOW: a leaf Cell needs at least one machine field.

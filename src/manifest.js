@@ -7,7 +7,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { walk, repoRoot } = require('./util');
+const { walk, repoRoot, langOf } = require('./util');
 const { sha256 } = require('./crypto');
 const { extractFile } = require('./extract');
 const { analyze, nearestUnitAfter } = require('./analyze');
@@ -44,6 +44,39 @@ function untrackedRegex(file, rel, coveredNames, out) {
     if (!name || coveredNames.has(name)) continue;
     if (/∷YAY-END|∷YAY⟨/.test(lines[i - 1] || '')) continue;
     out.push({ name, file: rel, line: i + 1, kind: 'function', lang: path.extname(file).slice(1) });
+  }
+}
+
+// Conservative, keyword-led unit detection for non-JS languages, used only to find
+// UNTRACKED (un-specced) units → PINK. Deliberately under-detects rather than risk a
+// FALSE Pink (which would wrongly block the gate): every pattern is anchored on an
+// unambiguous keyword (def / fn / function) or, for C#, a required access modifier —
+// none of which match control-flow (if/for/while/…). Comment lines are skipped so
+// commented-out code and spec fields never register.
+const LANG_UNTRACKED = {
+  python: [/^(?:async\s+)?def\s+([A-Za-z_][A-Za-z0-9_]*)/],
+  csharp: [/(?:^|\s)(?:public|private|protected|internal)(?:\s+(?:static|virtual|override|sealed|abstract|async|partial|new|readonly|unsafe|extern))*\s+[A-Za-z_][A-Za-z0-9_<>[\],.?]*\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:<[^>]*>)?\s*\(/],
+  solidity: [/\bfunction\s+([A-Za-z_][A-Za-z0-9_]*)/],
+  rust: [/\b(?:pub\s+)?(?:async\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)/],
+};
+function untrackedLangRegex(file, rel, lang, coveredNames, out) {
+  const pats = LANG_UNTRACKED[lang];
+  if (!pats) return;
+  let lines;
+  try { lines = fs.readFileSync(file, 'utf8').split(/\r?\n/); } catch (_) { return; }
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
+    // skip blanks, comments (all four use // or #), block-comment lines, and spec fields
+    if (!t || t.startsWith('//') || t.startsWith('#') || t.startsWith('/*') || t.startsWith('*')) continue;
+    for (const re of pats) {
+      const m = lines[i].match(re);
+      if (!m) continue;
+      const name = m[1];
+      if (!name || coveredNames.has(name)) break;
+      if (/∷YAY-END|∷YAY⟨/.test(lines[i - 1] || '')) break;
+      out.push({ name, file: rel, line: i + 1, kind: 'function', lang });
+      break;
+    }
   }
 }
 
@@ -140,6 +173,8 @@ function buildManifest(targetDir) {
       }
     } else if (JS_LIKE.test(file)) {
       untrackedRegex(file, rel, coveredNames, untracked);
+    } else {
+      untrackedLangRegex(file, rel, langOf(file), coveredNames, untracked);
     }
   }
 

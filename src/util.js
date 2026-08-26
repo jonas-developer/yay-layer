@@ -64,7 +64,29 @@ function pubKeysOf(entry) {
 }
 
 const SKIP_DIRS = new Set(['node_modules', '.git', '.yaylayer', 'docs', 'dist', 'build', 'coverage']);
-const CODE_EXT = new Set(['.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx', '.css', '.html', '.py']);
+const CODE_EXT = new Set(['.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx', '.css', '.html', '.py', '.cs', '.sol', '.rs']);
+
+// Language family for a file, used to pick the right (comment-agnostic) body
+// grabber and the honest verification tier. JS/TS get full analysis + proof;
+// python/csharp/solidity/rust get spec-mirror + sign + gate + map (Tier A/B),
+// but are never machine-proven yet, so verify caps them at Yellow (never Green).
+function langOf(file) {
+  switch (path.extname(String(file)).toLowerCase()) {
+    case '.py': return 'python';
+    case '.cs': return 'csharp';
+    case '.sol': return 'solidity';
+    case '.rs': return 'rust';
+    case '.js': case '.jsx': case '.mjs': case '.cjs': case '.ts': case '.tsx': return 'js';
+    case '.css': return 'css';
+    case '.html': return 'html';
+    default: return 'other';
+  }
+}
+// The only languages YayLayer currently analyzes (AST) and can behaviourally
+// prove. Everything else is signed-but-unverified. `lang` here is the manifest's
+// per-Cell value (a file extension slice like 'ts', or a spec `lang:` override).
+const JS_LANGS = new Set(['js', 'jsx', 'mjs', 'cjs', 'ts', 'tsx', 'javascript', 'typescript']);
+function isJsLang(l) { return JS_LANGS.has(String(l || '').toLowerCase()); }
 
 function walk(dir, out = []) {
   let entries;
@@ -104,4 +126,5 @@ const STATE = {
 module.exports = {
   MARK_BEGIN, MARK_END, YAY_DIR,
   repoRoot, paths, readJSON, writeJSON, canonical, pubKeysOf, walk, c, STATE,
+  langOf, isJsLang,
 };

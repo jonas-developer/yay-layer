@@ -9,11 +9,12 @@
 
 const fs = require('fs');
 const path = require('path');
-const { walk, repoRoot, MARK_BEGIN } = require('./util');
+const { walk, repoRoot, MARK_BEGIN, langOf } = require('./util');
 const { analyze, nearestUnitAfter } = require('./analyze');
 const { extractFile } = require('./extract');
 
 const JS_LIKE = /\.(js|jsx|mjs|cjs|ts|tsx)$/;
+const LANG_LIKE = /\.(py|cs|sol|rs)$/; // non-JS languages with spec-mirror support
 const EFFECT = /\blocalStorage\b|\bconsole\s*\.|\bfetch\s*\(|\bprocess\s*\.|\bdocument\b|\bwindow\b|\bfs\s*\.|\bMath\.random\b|\bDate\.now\b/;
 const TOP_FN = /^(?:export\s+)?(?:async\s+)?function\s+([A-Za-z0-9_$]+)|^(?:export\s+)?(?:const|let|var)\s+([A-Za-z0-9_$]+)\s*=\s*(?:async\s*)?\(/;
 
@@ -31,22 +32,67 @@ function nextId(ids) {
   for (;;) { const id = 'C-' + String(n).padStart(3, '0'); if (!ids.has(id)) { ids.add(id); return id; } n++; }
 }
 
-function draftBlock(id, name, lang, body, indent) {
+function draftBlock(id, name, lang, body, indent, lead) {
   const pure = EFFECT.test(body || '') ? 'no' : 'yes';
   const p = indent || '';
+  const cc = lead || '//'; // comment lead: '#' for Python, '//' elsewhere
   return [
-    `${p}//∷YAY⟨${id}⟩ v0  DERIVED — unconfirmed, not human-reviewed`,
-    `${p}//  unit:    ${name}`,
-    `${p}//  lang:    ${lang}`,
-    `${p}//  intent:  TODO — describe what this does in one sentence [inferred]`,
-    `${p}//  pure:    ${pure}`,
-    `${p}//  in:      TODO`,
-    `${p}//  out:     TODO`,
-    `${p}//∷YAY-END⟨${id}⟩`,
+    `${p}${cc}∷YAY⟨${id}⟩ v0  DERIVED — unconfirmed, not human-reviewed`,
+    `${p}${cc}  unit:    ${name}`,
+    `${p}${cc}  lang:    ${lang}`,
+    `${p}${cc}  intent:  TODO — describe what this does in one sentence [inferred]`,
+    `${p}${cc}  pure:    ${pure}`,
+    `${p}${cc}  in:      TODO`,
+    `${p}${cc}  out:     TODO`,
+    `${p}${cc}∷YAY-END⟨${id}⟩`,
   ].join('\n');
 }
 
+// Conservative, keyword-led declaration patterns for non-JS languages: indent in
+// group 1, unit name in the last group. Same safety stance as manifest's untracked
+// scan — never match control-flow, so `yay adopt` can't scaffold a bogus unit.
+const LANG_DECL = {
+  python: /^(\s*)(?:async\s+)?def\s+([A-Za-z_][A-Za-z0-9_]*)/,
+  csharp: /^(\s*)(?:public|private|protected|internal)(?:\s+(?:static|virtual|override|sealed|abstract|async|partial|new|readonly|unsafe|extern))*\s+[A-Za-z_][A-Za-z0-9_<>[\],.?]*\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:<[^>]*>)?\s*\(/,
+  solidity: /^(\s*)function\s+([A-Za-z_][A-Za-z0-9_]*)/,
+  rust: /^(\s*)(?:pub\s+)?(?:async\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)/,
+};
+
+// Retrofit a non-JS file: insert a DRAFT block above each un-specced unit, with the
+// language's comment lead. Skips units already governed by a spec block.
+function adoptFileLang(file, ids, dry, fam) {
+  const pat = LANG_DECL[fam];
+  if (!pat) return 0;
+  const lead = fam === 'python' ? '#' : '//';
+  const langStr = path.extname(file).slice(1);
+  const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
+  const covered = new Set();
+  for (const c of extractFile(file)) { if (!c.malformed && c.unitName) covered.add(c.unitName); }
+  const out = [];
+  let added = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
+    const isComment = t.startsWith('//') || t.startsWith('#') || t.startsWith('/*') || t.startsWith('*');
+    const prev = lines[i - 1] || '';
+    let m;
+    if (!isComment && !/∷YAY-END|∷YAY⟨/.test(prev) && (m = lines[i].match(pat))) {
+      const indent = m[1] || '';
+      const name = m[2];
+      if (name && !covered.has(name)) {
+        out.push(draftBlock(nextId(ids), name, langStr, lines.slice(i, i + 25).join('\n'), indent, lead));
+        covered.add(name);
+        added++;
+      }
+    }
+    out.push(lines[i]);
+  }
+  if (added && !dry) fs.writeFileSync(file, out.join('\n'));
+  return added;
+}
+
 function adoptFile(file, ids, dry) {
+  const fam = langOf(file);
+  if (fam !== 'js') return adoptFileLang(file, ids, dry, fam); // python/csharp/solidity/rust
   const lang = path.extname(file).slice(1);
   const code = fs.readFileSync(file, 'utf8');
   const lines = code.split(/\r?\n/);
@@ -100,7 +146,7 @@ function adoptFileRegex(file, ids, dry, lines, lang) {
 function adopt(targetDir, { dry = false } = {}) {
   const root = repoRoot(targetDir);
   const ids = existingIds(root);
-  const files = walk(path.resolve(targetDir || root)).filter((f) => JS_LIKE.test(f));
+  const files = walk(path.resolve(targetDir || root)).filter((f) => JS_LIKE.test(f) || LANG_LIKE.test(f));
   const report = [];
   let total = 0;
   for (const f of files) {
