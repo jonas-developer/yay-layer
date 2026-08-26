@@ -13,6 +13,7 @@ const { canonical, pubKeysOf } = require('./util');
 const { verify: sigVerify } = require('./crypto');
 const { proveManifest } = require('./prove');
 const { deriveRoster } = require('./roster');
+const G = require('./grants');
 
 // Shallow side-effect signals used for the MVP purity / minimality checks.
 const EFFECT_SIGNALS = [
@@ -26,19 +27,29 @@ const EFFECT_SIGNALS = [
 const SEV = { GREEN: 0, YELLOW: 1, UNSIGNED: 2, RED: 3 };
 const worst = (a, b) => (SEV[a] >= SEV[b] ? a : b);
 
-function trustOf(cell, lock, roster) {
+function trustOf(cell, lock, roster, grants) {
   let match = null;
   let firstAt = null; // earliest approval that ever covered this Cell → "created in the system"
   for (const ap of lock.approvals || []) {
     if (!ap.items || !(cell.id in ap.items)) continue;
     if (ap.at && (!firstAt || Date.parse(ap.at) < Date.parse(firstAt))) firstAt = ap.at;
     if (ap.items[cell.id] !== cell.specHash) continue;
+    const { signature, ...rest } = ap;
+    if (ap.autoApproved && ap.grant) {
+      // Freedom mode: signed by the machine-held GRANT key, valid only if a good grant
+      // covers it (owner-signed, unexpired, unrevoked-before-this, in-count, in-scope).
+      const g = (grants || {})[ap.grant];
+      const chk = g && G.autoApprovalOk(g, ap, cell.id, cell);
+      if (g && chk.ok && sigVerify(canonical(rest), signature, g.grantPub)) {
+        match = { signed: true, signer: ap.signer || null, auto: true, grant: ap.grant, at: ap.at || null };
+      }
+      continue; // a human ratification (a later normal approval) will supersede this
+    }
     const pubs = pubKeysOf(roster[ap.signer]); // an identity may hold several keys
     if (!pubs.length) continue;
-    const { signature, ...rest } = ap;
     if (pubs.some((pub) => sigVerify(canonical(rest), signature, pub))) {
       // Keep the most recent valid signature over the current spec as "signed at".
-      match = { signed: true, signer: ap.signer, auto: !!ap.autoApproved, grant: ap.grant || null, at: ap.at || null };
+      match = { signed: true, signer: ap.signer, auto: false, grant: null, at: ap.at || null };
     }
   }
   return match ? { ...match, firstAt } : { signed: false, firstAt };
@@ -114,17 +125,22 @@ function verifyManifest(manifest, lock, config, opts) {
   // not from the plain config file — so an unsigned edit to who-can-sign has no
   // effect. Legacy projects with no signed log fall back to config.signers.
   let roster, rosterProblems = [], rootFp = null, rosterOk = true, signedRoster = false;
+  let ownerPubs = [];
   if (opts.roster && opts.roster.events) {
     const d = deriveRoster(opts.roster, { root: opts.root });
     roster = d.roster; rosterProblems = d.problems; rootFp = d.rootFp; rosterOk = d.ok; signedRoster = true;
+    ownerPubs = Object.keys(d.roles || {}).filter((n) => d.roles[n] === 'owner').reduce((a, n) => a.concat(roster[n] || []), []);
   } else {
     roster = (config && config.signers) || {};
+    ownerPubs = ((config && config.owners) || []).reduce((a, n) => a.concat(pubKeysOf(roster[n])), []);
   }
+  // Freedom mode: validated delegation grants (empty when the project doesn't use them).
+  const grants = opts.grants ? G.deriveGrants(opts.grants, ownerPubs, lock.approvals) : {};
   const results = {};
 
   for (const id of Object.keys(manifest.cells)) {
     const cell = manifest.cells[id];
-    const trust = trustOf(cell, lock, roster);
+    const trust = trustOf(cell, lock, roster, grants);
     const sc = staticChecks(cell);
 
     let state;
@@ -138,6 +154,9 @@ function verifyManifest(manifest, lock, config, opts) {
     // change color — it's an oversight signal — except the honest bloat *note*.
     if (!isModule && cell.bloat) {
       sc.notes.push({ level: 'info', text: 'no static callers found — possible dead code / bloat candidate (or an entry point called dynamically)' });
+    }
+    if (trust.auto) {
+      sc.notes.push({ level: 'info', text: `AUTO-APPROVED under grant ${trust.grant} — delegated, not human-reviewed. Run \`yay ratify\` to sign it for real.` });
     }
 
     results[id] = {
@@ -225,10 +244,14 @@ function verifyManifest(manifest, lock, config, opts) {
   let proven = 0, unproven = 0;
   for (const r of Object.values(results)) if (r.state === 'GREEN') { if (r.proven) proven++; else if (r.hasEnsures) unproven++; }
   counts.proven = proven; counts.unproven = unproven;
+  // Freedom mode: of the signed Cells, how many are AUTO (delegated, awaiting ratification).
+  let auto = 0;
+  for (const r of Object.values(results)) if (r.trust && r.trust.auto && r.state !== 'UNSIGNED') auto++;
+  counts.auto = auto;
   // A tampered / unauthorized / root-mismatched roster blocks the gate: if we can't
   // trust WHO may sign, we can't trust any signature.
   const passed = counts.RED === 0 && counts.UNSIGNED === 0 && counts.PINK === 0 && rosterOk;
-  return { results, counts, passed, rosterProblems, rootFp, rosterOk, signedRoster };
+  return { results, counts, passed, grants, rosterProblems, rootFp, rosterOk, signedRoster };
 }
 
 module.exports = { verifyManifest, worst };

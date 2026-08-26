@@ -598,6 +598,48 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     ok(/^[A-Za-z0-9_-]{16,128}$/.test(E2E.newChannel()), 'e2e: newChannel() is a valid relay channel id');
   }
 
+  // Freedom mode — scoped, owner-signed delegation grants (auto-approval).
+  {
+    const G = require('../src/grants');
+    const rmod = require('../src/roster');
+    // pure scope logic
+    ok(G.isSensitive({ spec: { sensitive: 'yes' } }) === true && G.isSensitive({ spec: {} }) === false, 'grants: isSensitive flags sensitive / code-pinned Cells');
+    ok(G.grantCoversCell({ scope: {} }, 'C-1', { spec: {} }) === true && G.grantCoversCell({ scope: {} }, 'C-2', { spec: { sensitive: 'yes' } }) === false, 'grants: default scope covers non-sensitive Cells, never sensitive ones');
+    ok(G.grantCoversCell({ scope: { cells: ['C-1'] } }, 'C-2', { spec: {} }) === false, 'grants: an explicit cell allow-list narrows scope');
+
+    // end-to-end through verifyManifest
+    const gdir = fs.mkdtempSync(require('path').join(os.tmpdir(), 'yay-grant-'));
+    fs.writeFileSync(require('path').join(gdir, 'm.js'), '//∷YAY⟨C-1⟩\n//  unit: add\n//  intent: add two numbers\n//  in: (a:number,b:number)\n//  out: number\n//  pure: yes\n//  ensures: out === a + b\n//∷YAY-END⟨C-1⟩\nfunction add(a,b){return a+b;}\n');
+    const gm = buildManifest(gdir);
+    const sh = gm.cells['C-1'].specHash;
+    const owner = C.generateKeypair();
+    const genesis = { id: 'R-0001', type: 'genesis', role: 'owner', prev: 'genesis', nonce: 'n', at: '2026-01-01T00:00:00Z', name: 'Alex', pub: owner.pubB64, by: 'Alex' };
+    genesis.signature = C.sign(rmod.eventBytes(genesis), owner.privDer);
+    const rosterLog = { events: [genesis] };
+    const gk = C.generateKeypair();
+    const mkGrant = (over) => { const g = { id: 'G-1', type: 'grant', grantPub: gk.pubB64, scope: {}, expiresAt: '2099-01-01T00:00:00Z', maxCount: 5, by: 'Alex', prev: 'R-0001', nonce: 'gn', at: '2026-01-02T00:00:00Z', ...over }; g.signature = C.sign(rmod.eventBytes(g), (over && over._signer) || owner.privDer); delete g._signer; return g; };
+    const grant = mkGrant();
+    const autoAp = (at) => { const a = { id: 'A-0001', project: 'g', prev: 'genesis', nonce: 'an', at, signer: 'Alex', autoApproved: true, grant: 'G-1', items: { 'C-1': sh } }; a.signature = C.sign(canonical(a), gk.privDer); return a; };
+    const V = (approvals, gevents) => verifyManifest(gm, { approvals }, { signers: {} }, { roster: rosterLog, grants: { events: gevents } });
+
+    let v = V([autoAp('2026-06-01T00:00:00Z')], [grant]);
+    ok(v.results['C-1'].trust.auto === true && v.results['C-1'].trust.signed === true, 'grants: a valid auto-approval is accepted and marked AUTO on the trust axis');
+    ok(v.results['C-1'].state === 'GREEN', 'grants: an auto-approved Cell whose code matches its spec is GREEN');
+    ok(v.counts.auto === 1, 'grants: counts.auto reports the delegated (unratified) Cell');
+
+    ok(V([autoAp('2026-06-01T00:00:00Z')], [mkGrant({ _signer: gk.privDer })])['results']['C-1'].state === 'UNSIGNED', 'grants: an auto-approval under a grant NOT signed by an owner is rejected (Unsigned)');
+    ok(V([autoAp('2026-06-01T00:00:00Z')], [mkGrant({ expiresAt: '2026-03-01T00:00:00Z' })])['results']['C-1'].state === 'UNSIGNED', 'grants: an auto-approval after the grant expired is rejected');
+
+    const revoke = (() => { const r = { id: 'G-2', type: 'grant-revoke', grant: 'G-1', by: 'Alex', prev: 'G-1', nonce: 'rn', at: '2026-05-01T00:00:00Z' }; r.signature = C.sign(rmod.eventBytes(r), owner.privDer); return r; })();
+    ok(V([autoAp('2026-06-01T00:00:00Z')], [grant, revoke])['results']['C-1'].state === 'UNSIGNED', 'grants: an auto-approval AFTER the grant was revoked is rejected');
+    ok(V([autoAp('2026-04-01T00:00:00Z')], [grant, revoke])['results']['C-1'].trust.auto === true, 'grants: an auto-approval BEFORE the revoke stays valid (forward-looking revocation)');
+
+    const human = (() => { const h = { id: 'A-0002', project: 'g', prev: 'A-0001', nonce: 'hn', at: '2026-07-01T00:00:00Z', signer: 'Alex', items: { 'C-1': sh } }; h.signature = C.sign(canonical(h), owner.privDer); return h; })();
+    v = V([autoAp('2026-06-01T00:00:00Z'), human], [grant]);
+    ok(v.results['C-1'].trust.auto === false && v.results['C-1'].trust.signed === true, 'grants: a human ratification supersedes the AUTO seal (trust becomes human)');
+    fs.rmSync(gdir, { recursive: true, force: true });
+  }
+
   // spec-only adversary: an LLM sees ONLY the spec (never the code) and tries to break it.
   const A = require('../src/adversary');
   const advDir = fs.mkdtempSync(require('path').join(os.tmpdir(), 'yay-adv-'));
