@@ -139,7 +139,11 @@ function detailInner(cell, res, t) {
   const provBadge = (res.state === 'GREEN' && res.hasEnsures)
     ? `<span class="mpill" style="color:${res.proven ? 'var(--accent)' : 'var(--amber)'};margin-left:6px" title="${res.proven ? 'ensures machine-proven' : 'signed, but its ensures is not machine-checked — strengthen it'}">${res.proven ? '✓ proven' : '● unproven'}</span>`
     : '';
-  return `<div class="mhead"><span class="mid">${esc(cell.id)}</span><span class="mname">${esc(cell.unitName || cell.spec.unit || cell.id)}</span><span class="mpill" style="color:${col}">${label}</span>${provBadge}</div>
+  // Freedom mode: mark Cells approved by a delegation grant (not a human) — awaiting ratification.
+  const autoBadge = (res.trust && res.trust.auto)
+    ? `<span class="mpill" style="color:var(--amber);margin-left:6px" title="Auto-approved under grant ${esc(res.trust.grant || '')} — delegated, NOT human-reviewed. Run \`yay ratify\` to sign it for real.">⚡ AUTO</span>`
+    : '';
+  return `<div class="mhead"><span class="mid">${esc(cell.id)}</span><span class="mname">${esc(cell.unitName || cell.spec.unit || cell.id)}</span><span class="mpill" style="color:${col}">${label}</span>${provBadge}${autoBadge}</div>
     <div class="dmeta">${meta.map((m) => `<span>${m}</span>`).join('')}</div>
     <div class="dh">Sealed spec</div><pre class="code">${colorizeSpec(cell.specBlock)}</pre>
     ${diffSection}
@@ -176,7 +180,7 @@ function renderMap(manifest, verified, project, changes, times, planDoc, gov, br
     if (!nodes.system.children.includes(modId)) nodes.system.children.push(modId);
     const g = ensure(grpId, group, 'group', modId);
     if (!m.children.includes(grpId)) m.children.push(grpId);
-    nodes[unitId] = { id: unitId, label: cell.unitName || cell.spec.unit || id, kind: 'unit', parent: grpId, children: [], state: res.state, cellId: cell.id, intent: cell.spec.intent || '', blast: res.blast || 0, bloat: !!res.bloat };
+    nodes[unitId] = { id: unitId, label: cell.unitName || cell.spec.unit || id, kind: 'unit', parent: grpId, children: [], state: res.state, cellId: cell.id, intent: cell.spec.intent || '', blast: res.blast || 0, bloat: !!res.bloat, auto: !!(res.trust && res.trust.auto) };
     g.children.push(unitId);
     details[unitId] = detailInner(cell, res, (times && times[id]) || {});
   }
@@ -200,7 +204,7 @@ function renderMap(manifest, verified, project, changes, times, planDoc, gov, br
   const YLnodes = {};
   for (const id of Object.keys(nodes)) {
     const n = nodes[id];
-    YLnodes[id] = { id, label: n.label, kind: n.kind, color: COLORS[n.state][0], state: n.state, count: n.count || 1, children: n.children, parent: n.parent, intent: n.intent || '', blast: n.blast || 0, bloat: !!n.bloat };
+    YLnodes[id] = { id, label: n.label, kind: n.kind, color: COLORS[n.state][0], state: n.state, count: n.count || 1, children: n.children, parent: n.parent, intent: n.intent || '', blast: n.blast || 0, bloat: !!n.bloat, auto: !!n.auto };
   }
   const modEdges = (manifest.moduleEdges || [])
     .filter(([a, b]) => nodes['m:' + a] && nodes['m:' + b] && a !== b)
@@ -369,6 +373,7 @@ h1{font-family:var(--sans);font-size:1.5rem;font-weight:700;letter-spacing:-.02e
 .pdiagram{position:relative;border:1px solid var(--rule);border-radius:16px;background:var(--card2)}
 .parrows{position:absolute;left:0;top:0;color:var(--mut)}
 .parrow{fill:none;stroke:var(--mut);stroke-width:2.5;opacity:.55}
+.pleader{fill:none;stroke:var(--mut);stroke-width:1.5;opacity:.4;stroke-dasharray:3 3}
 .pflow{position:absolute;transform:translate(-50%,-50%);max-width:168px;font-family:var(--mono);font-size:.66rem;line-height:1.35;text-align:center;color:var(--ink2);background:var(--card);border:1px solid var(--rule);border-radius:10px;padding:4px 9px;white-space:normal;word-break:break-word;z-index:3;box-shadow:var(--shadow)}
 .pcard{position:absolute;z-index:2;background:var(--card);border:1px solid var(--rule);border-top:4px solid var(--mut);border-radius:14px;padding:16px 18px;box-shadow:0 12px 30px -18px rgba(16,24,40,.25);display:flex;flex-direction:column;overflow:hidden}
 .prole{font-family:var(--mono);font-size:.6rem;text-transform:uppercase;letter-spacing:.1em;font-weight:600}
@@ -478,7 +483,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
     if(childX+maxW>W-18) childX=Math.max(rootRight+34, W-18-maxW);
 
     kids.forEach(function(n,i){
-      var rightU = n.kind==='unit' ? (n.blast ? '▲'+n.blast : (n.bloat ? 'unused?' : '')) : String(n.count);
+      var rightU = n.kind==='unit' ? [(n.auto?'⚡':''),(n.blast?'▲'+n.blast:(n.bloat?'unused?':''))].filter(Boolean).join(' ') : String(n.count);
       var hasRight = n.kind!=='unit' ? true : !!rightU;
       var cy=topPad+i*rowH+childH/2, w=widthFor(n.label,hasRight);
       var x1=rootRight, y1=rootY, x2=childX, mx=(x1+x2)/2;
@@ -487,7 +492,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
       mk(g,'rect',{'class':'gbox',x:childX,y:cy-childH/2,width:w,height:childH,rx:9,stroke:n.color,'stroke-width':n.kind==='unit'?2:2.5});
       txt(g,childX+14,cy,'glabel',short(n.label),'start');
       if(n.kind!=='unit'){ txt(g,childX+w-24,cy,'gcount',String(n.count),'end'); txt(g,childX+w-11,cy,'gchev','›','end'); }
-      else if(rightU){ txt(g,childX+w-12,cy,n.bloat?'gbloat':'gcount',rightU,'end'); }
+      else if(rightU){ txt(g,childX+w-12,cy,(n.auto||n.bloat)?'gbloat':'gcount',rightU,'end'); }
       (function(node){ g.addEventListener('click',function(){ if(node.kind==='unit'){ openDetail(node.id); } else if(node.children&&node.children.length){ cur=node.id; draw(); } }); })(n);
     });
 
@@ -565,19 +570,29 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
     colKeys.forEach(function(r,ci){ cols[r].forEach(function(s,ri){ pos[s.name]={x:PADX+ci*COLW,y:PADY+ri*(CARDH+ROWGAP)}; }); maxRows=Math.max(maxRows,cols[r].length); });
     var W=PADX*2 + colKeys.length*CARDW + Math.max(0,colKeys.length-1)*COLGAP;
     var H=PADY*2 + maxRows*CARDH + Math.max(0,maxRows-1)*ROWGAP;
-    var arrows='', labels='', placed=[];
+    var arrows='', labels='', leaders='', placed=[];
+    var cardBottom=PADY + maxRows*CARDH + Math.max(0,maxRows-1)*ROWGAP; // y just under the lowest card
+    var belowY=cardBottom+34; // a lane BELOW the cards for labels that would otherwise cover one
     // Is (lx,ly) on top of any subsystem card? (multi-column flows cross intermediate cards)
     function cardAt(lx,ly){ for(var i=0;i<subs.length;i++){ var q=pos[subs[i].name]; if(!q) continue; if(lx>q.x-6&&lx<q.x+CARDW+6&&ly>q.y-6&&ly<q.y+CARDH+6) return q; } return null; }
-    // A spot is clear if it's off every card AND not on top of an already-placed label.
-    function clearSpot(lx,ly){ if(cardAt(lx,ly)) return false; for(var i=0;i<placed.length;i++){ if(Math.abs(placed[i].x-lx)<150 && Math.abs(placed[i].y-ly)<26) return false; } return true; }
+    function labelClash(lx,ly){ for(var i=0;i<placed.length;i++){ if(Math.abs(placed[i].x-lx)<150 && Math.abs(placed[i].y-ly)<24) return true; } return false; }
     flows.forEach(function(f){ var a=pos[f.from], b=pos[f.to]; if(!a||!b||f.from===f.to) return; var x1=a.x+CARDW,y1=a.y+CARDH/2,x2=b.x,y2=b.y+CARDH/2,mx=(x1+x2)/2;
       arrows+='<path d="M'+x1+','+y1+' C'+mx+','+y1+' '+mx+','+y2+' '+x2+','+y2+'" class="parrow" marker-end="url(#pah)"/>';
       if(f.what){ var lx=mx, ly=(y1+y2)/2;
-        // nudge off cards and other labels: try the midpoint, then step vertically out
-        if(!clearSpot(lx,ly)){ for(var d=1;d<=10;d++){ var down=ly+d*26, up=ly-d*26;
-            if(down<H-10&&clearSpot(lx,down)){ ly=down; break; } if(up>10&&clearSpot(lx,up)){ ly=up; break; } } }
+        if(cardAt(lx,ly)){
+          // The midpoint sits on a card (a flow that spans/crosses one). NEVER draw over a
+          // card — drop the label into the lane below the cards, with a faint leader line.
+          lx=Math.min(Math.max(mx,100),W-100); ly=belowY; belowY+=30;
+          leaders+='<path d="M'+mx+','+cardBottom+' L'+lx+','+(ly-11)+'" class="pleader"/>';
+        } else if(labelClash(lx,ly)){
+          // Only clashing with another label in the gap — nudge vertically, staying off cards.
+          for(var d=1;d<=6;d++){ var up=ly-d*22, down=ly+d*22;
+            if(up>PADY && !cardAt(lx,up) && !labelClash(lx,up)){ ly=up; break; }
+            if(down<cardBottom-8 && !cardAt(lx,down) && !labelClash(lx,down)){ ly=down; break; } }
+        }
         placed.push({x:lx,y:ly});
         labels+='<div class="pflow" style="left:'+lx+'px;top:'+ly+'px">'+esc2(f.what)+'</div>'; } });
+    if(belowY>cardBottom+34) H=Math.max(H, belowY+16); // grow the canvas to fit the below-lane
     var cards=subs.map(function(s){ var pp=pos[s.name], col=planColor(s.role);
       var cells=(s.modules||[]).reduce(function(sum,mn){ var n=NODES['m:'+mn]; return sum+(n?n.count:0); },0);
       var mods=(s.modules||[]).slice(0,6).map(function(mn){ return '<span class="pmod">'+esc2(mn)+'</span>'; }).join('');
@@ -590,7 +605,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
     // scale the whole diagram to fit the page width — no ugly horizontal scrollbar
     var avail=(el.clientWidth||900)-2; var scale=Math.min(1, avail/W); if(!isFinite(scale)||scale<=0) scale=1;
     var diagram='<div class="pdiagram" style="width:'+W+'px;height:'+H+'px;transform:scale('+scale+');transform-origin:top left">'
-      +'<svg class="parrows" width="'+W+'" height="'+H+'"><defs><marker id="pah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>'+arrows+'</svg>'+labels+cards+'</div>';
+      +'<svg class="parrows" width="'+W+'" height="'+H+'"><defs><marker id="pah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>'+leaders+arrows+'</svg>'+labels+cards+'</div>';
     el.innerHTML='<div class="pnarr"><h2 class="ptitle">'+esc2(meta.project)+' — System Plan</h2>'
       +'<p class="psys">'+esc2(P.system||'')+'</p><div class="pmetrics">'+chips+'</div></div>'
       +'<div class="pfit" style="height:'+Math.ceil(H*scale)+'px">'+diagram+'</div>'
