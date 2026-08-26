@@ -618,7 +618,7 @@ function verifyRelayAnswer(mode, wire, b, expectPubs) {
 async function routeThroughRelay(p, mode, payload, flags) {
   const sess = ensureRelaySession(p, flags);
   const wire = { mode };
-  ['approval', 'event', 'summary', 'challenge', 'genesis', 'project'].forEach((k) => { if (payload[k] !== undefined) wire[k] = payload[k]; });
+  ['approval', 'event', 'summary', 'challenge', 'genesis', 'project', 'signer', 'signerPubs'].forEach((k) => { if (payload[k] !== undefined) wire[k] = payload[k]; });
   try {
     const rq = await relayFetch(sess, '/api/request', { method: 'POST', body: JSON.stringify({ ch: sess.channel, blob: E2E.seal(sess.keyBytes, wire) }) });
     if (!rq.ok) { console.log(U.c.red('  relay rejected the request (HTTP ' + rq.status + ').')); return null; }
@@ -737,7 +737,7 @@ async function cmdSign(flags) {
     const pubs = U.pubKeysOf(config.signers[name]);
     if (phoneTransport(config, flags) === 'relay') {
       // Hosted relay (relay.yaylayer.com), end-to-end encrypted. Works off-LAN.
-      const routed = await routeThroughRelay(p, 'approve', { approval, summary, expectPubB64: pubs }, flags);
+      const routed = await routeThroughRelay(p, 'approve', { approval, summary, expectPubB64: pubs, signer: name, signerPubs: pubs }, flags);
       if (!routed || !routed.result) return; // routeThroughRelay logged why
       if (routed.result.brief !== undefined && approval.brief) approval.brief.text = routed.result.brief; // human edited it on the phone
       approval.signature = routed.result.signature;
@@ -745,7 +745,7 @@ async function cmdSign(flags) {
     } else {
     // If a dashboard is running, route through it — the request pops up on the phone
     // the human already has open (scan-once). Otherwise spin the one-shot LAN server.
-    const routed = await routeThroughDashboard(p, 'approve', { approval, summary, expectPubB64: pubs });
+    const routed = await routeThroughDashboard(p, 'approve', { approval, summary, expectPubB64: pubs, signer: name, signerPubs: pubs });
     if (routed && routed.busy) return;
     if (routed && routed.result) {
       if (routed.result.brief !== undefined && approval.brief) approval.brief.text = routed.result.brief; // human edited it on the phone
@@ -920,12 +920,12 @@ async function authorizeRosterEvent(p, config, log, ev, flags, summary) {
   ev.by = byFlag || owners[0];
   const ownerPubs = owners.reduce((a, n) => a.concat(drv.roster[n] || []), []);
   if (phoneTransport(config, flags) === 'relay') {
-    const routed = await routeThroughRelay(p, 'authorize', { event: ev, summary, ownerPubs }, flags);
+    const routed = await routeThroughRelay(p, 'authorize', { event: ev, summary, ownerPubs, signer: 'an owner', signerPubs: ownerPubs }, flags);
     if (!routed || !routed.result) return null;
     ev.signature = routed.result.signature; await relayFinal(routed.sess, { ok: true, message: 'Authorized ✓' }); return ev;
   }
   // Route through a running dashboard (one origin) if there is one; else ephemeral.
-  const routed = await routeThroughDashboard(p, 'authorize', { event: ev, summary, ownerPubs });
+  const routed = await routeThroughDashboard(p, 'authorize', { event: ev, summary, ownerPubs, signer: 'an owner', signerPubs: ownerPubs });
   if (routed && routed.busy) return null;
   if (routed && routed.result) { ev.signature = routed.result.signature; await dashboardFinal(routed.info, { ok: true, message: 'Authorized ✓ — you can leave this open.' }); return ev; }
   const tls = tlsCert(p, flags);

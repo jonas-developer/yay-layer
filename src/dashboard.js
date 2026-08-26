@@ -152,6 +152,8 @@ function startDashboard(deps, opts) {
       if (b.summary) session.summary = b.summary;
       if (b.challenge) session.challenge = b.challenge;
       if (b.genesis) session.genesis = b.genesis;
+      if (b.signer) session.signer = b.signer;
+      if (b.signerPubs) session.signerPubs = b.signerPubs;
       pending = { mode: b.mode, session, expectPubs: b.expectPubB64 || b.ownerPubs || [], genesis: b.genesis || null, done: null, submitted: false, waiters: [], at: Date.now() };
       finalStatus = null;
       return sendJSON(res, 200, { ok: true });

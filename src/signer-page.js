@@ -308,9 +308,23 @@ function detailHTML(c){
   var notes=(c.notes||[]).map(function(nt){ var col=nt.level==='red'?'var(--red)':(nt.level==='yellow'?'var(--amber)':'var(--mut)'); return '<div class="note" style="color:'+col+'">'+esc(nt.text)+'</div>'; }).join('');
   return '<div class="detail">'+(parts.join('')||'<div class="kv"><span class="v">No structured spec fields.</span></div>')+diff+(notes?'<div class="notes">'+notes+'</div>':'')+'</div>';
 }
+// Is THIS phone the one the laptop asked for? It tells us the intended signer
+// (sess.signer name + sess.signerPubs keys). If this phone holds a different key we
+// name who it's for and refuse — so the wrong person can't waste a tap on a request
+// that would be rejected anyway (and to make “Lisa signs security code” policy clear).
+function signerGate(sess){
+  var want=sess.signerPubs, name=sess.signer;
+  if(!want || !want.length) return {ok:true, banner:''}; // older laptop didn't say → allow
+  var key=loadKey(), mine=key&&key.pub, forWho=name?esc(name):'someone else';
+  if(mine && want.indexOf(mine)>=0){
+    return {ok:true, banner:'<div class="help" style="color:var(--accent);margin:0 0 12px">Signing as <b>'+forWho+'</b> on this phone.</div>'};
+  }
+  return {ok:false, banner:'<div class="mcard" style="border-left-color:var(--red)"><div class="mtag" style="color:var(--red)">Not for this phone</div><div class="mtxt" style="margin-top:6px">This request is for <b>'+forWho+'</b>.</div><div class="msub">This phone signs as <b>'+esc(key?key.name:'a different identity')+'</b> — you can’t approve it here. It should be approved on '+forWho+'’s phone.</div></div>'};
+}
 function approveFlow(sess){
   var key=loadKey();
   if(!key){ h('<div class="msg">This phone has no key on this page yet — restore it from your recovery phrase, or run <b>yay pair</b>.</div><button id="rst" class="btn">Restore from recovery phrase</button>'); document.getElementById('rst').onclick=function(){restoreFlow(sess);}; return; }
+  var gate=signerGate(sess);
   var rows=(sess.summary||[]).map(function(c,i){var ed=(c.diff&&c.diff.length)?' <span class="edited">edited</span>':'';return '<div class="crow"><div class="cell tap" data-i="'+i+'"><span class="dot" style="background:'+(c.color||'#888')+'"></span><div><div class="cid">'+esc(c.id)+' · '+esc(c.unit||'')+ed+'</div><div class="cin">'+esc(c.intent||'')+'</div></div><span class="col">'+esc(c.state||'')+'<span class="caret">▸</span></span></div><div class="detailwrap" id="d'+i+'" style="display:none">'+detailHTML(c)+'</div></div>';}).join('');
   // BRIEF header (Standard §5): the human-owned headline over these parts. Editable
   // before signing so the wording is the human's, not the AI's paraphrase; the edited
@@ -319,7 +333,7 @@ function approveFlow(sess){
   var briefCard=brief?('<div class="mcard"><div class="mlab"><span class="mtag">Brief</span><button id="medit" class="medit">Edit</button></div>'
     +'<div id="mtxt" class="mtxt">'+esc(brief.text)+'</div>'
     +'<div class="msub">covers '+((sess.summary||[]).length)+' part(s) · you are approving this</div></div>'):'';
-  h(briefCard+'<div class="help">Approve these <b>'+((sess.summary||[]).length)+'</b> change(s) — tap a part to see its spec.</div>'+rows+'<button id="go" class="btn" style="margin-top:16px">Approve &amp; sign</button>');
+  h(gate.banner+briefCard+'<div class="help">Approve these <b>'+((sess.summary||[]).length)+'</b> change(s) — tap a part to see its spec.</div>'+rows+(gate.ok?'<button id="go" class="btn" style="margin-top:16px">Approve &amp; sign</button>':''));
   var editing=false;
   if(brief){document.getElementById('medit').onclick=function(){
     var box=document.getElementById('mtxt');
@@ -329,6 +343,7 @@ function approveFlow(sess){
   function briefValue(){var el=document.getElementById('mtxt');if(!el)return null;return editing?el.value:el.textContent;}
   var taps=document.querySelectorAll('.cell.tap');
   for(var ti=0;ti<taps.length;ti++){(function(el){el.onclick=function(){var d=document.getElementById('d'+el.getAttribute('data-i'));var open=d.style.display!=='none';d.style.display=open?'none':'block';var car=el.querySelector('.caret');if(car)car.textContent=open?'▸':'▾';};})(taps[ti]);}
+  if(!gate.ok) return; // wrong signer for this request — no Approve button to wire
   document.getElementById('go').onclick=async function(){
     try{
       var sec=await getSecret(key);
@@ -349,9 +364,11 @@ function authorizeFlow(sess){
   var key=loadKey();
   if(!key){ h('<div class="msg">This phone has no key on this page yet — restore it from your recovery phrase (an existing owner’s phrase is required to authorize).</div><button id="rst" class="btn">Restore from recovery phrase</button>'); document.getElementById('rst').onclick=function(){restoreFlow(sess);}; return; }
   var s=sess.summary||{};
+  var gate=signerGate(sess);
   var rows=(s.rows||[]).map(function(r){return '<div class="cell"><div><div class="cid">'+esc(r.k||'')+'</div><div class="cin">'+esc(r.v||'')+'</div></div></div>';}).join('');
   var warn=s.warn?'<div class="warn">'+esc(s.warn)+'</div>':'';
-  h('<div class="msg">'+esc(s.title||'Authorize this change')+'</div>'+rows+warn+'<button id="go" class="btn" style="margin-top:16px">Authorize &amp; sign</button>');
+  h(gate.banner+'<div class="msg">'+esc(s.title||'Authorize this change')+'</div>'+rows+warn+(gate.ok?'<button id="go" class="btn" style="margin-top:16px">Authorize &amp; sign</button>':''));
+  if(!gate.ok) return; // this phone isn't an owner key
   document.getElementById('go').onclick=async function(){
     try{
       var sec=await getSecret(key);
