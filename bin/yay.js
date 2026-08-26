@@ -1053,16 +1053,81 @@ async function cmdEnroll(flags) {
   console.log(U.c.green(`✓ enrolled "${name}" as ${role}`) + U.c.dim(` (authorized by ${signed.by}) — commit .yaylayer/roster.json`));
 }
 
-// `yay invite "Bob"` — mint a 30-min one-time link a teammate opens to request to
-// join. Requires a running dashboard; the actual approval is the owner's tap on their
-// phone (or panel). No new trust surface: it just triggers the normal `yay enroll`.
+// `yay invite "Bob"` — a teammate opens a link, creates their key, and requests to
+// join; you approve on your phone. The name is an optional SUGGESTION that pre-fills
+// the joiner's (editable) name field. No new trust surface: it triggers the normal
+// owner-signed enroll. Uses the project's transport: RELAY (works from anywhere,
+// self-contained) or LAN (via a running dashboard, same network).
 async function cmdInvite(flags, positional) {
   const { p, config } = loadState();
   if (!config) return fail('run `yay init` first');
-  // The name is an optional SUGGESTION — it pre-fills the joiner's name field, which
-  // they can edit; whatever they submit becomes the roster label (you approve it).
   const name = (positional && positional[0]) ? positional[0] : ((flags.name && flags.name !== true) ? flags.name : '');
   const role = flags.role === 'owner' ? 'owner' : 'signer';
+  if (phoneTransport(config, flags) === 'relay') return inviteViaRelay(p, config, name, role, flags);
+  return inviteViaDashboard(p, config, name, role, flags);
+}
+
+// RELAY invite: self-contained (no dashboard needed). Mint a one-time invite channel,
+// print a relay.yaylayer.com link, wait for the joiner's key over the relay, then run
+// the normal owner-signed enroll (which routes YOUR approval to your relay-paired phone).
+async function inviteViaRelay(p, config, name, role, flags) {
+  const rlog = loadRoster(p);
+  if (!rlog || !rlog.events || !rlog.events.length) return fail('no signed roster yet — run `yay init` to establish the trust root first.');
+  const base = relayBase(flags);
+  const ich = E2E.newChannel();
+  const ikeyBytes = E2E.newKey();
+  const isess = { base, channel: ich, keyBytes: ikeyBytes };
+  const challenge = C.randomNonce();
+  const offer = { mode: 'join', name, role, project: config.project, challenge };
+  try {
+    const rq = await relayFetch(isess, '/api/request', { method: 'POST', body: JSON.stringify({ ch: ich, blob: E2E.seal(ikeyBytes, offer) }) });
+    if (!rq.ok) return fail('the relay rejected the invite (HTTP ' + rq.status + ').');
+  } catch (e) { return fail('could not reach the relay (' + base + '): ' + ((e && e.message) || e)); }
+  const url = base + '/#' + ich + '.' + E2E.b64url(ikeyBytes);
+  console.log('\n' + U.c.green('✓ invite' + (name ? ` for "${name}"` : '')) + U.c.dim(` as ${role} — over the relay, end-to-end encrypted.`));
+  console.log('   ' + U.c.bold('send this link → ') + U.c.accent(url));
+  console.log(U.c.dim('   …or have them scan:'));
+  printQR(url);
+  console.log(U.c.dim(`   They open it anywhere, set their name (${name ? `pre-filled "${name}", ` : ''}editable), and create their key.`));
+  console.log(U.c.dim('   Then approve on the phone you already have on the relay page. Ctrl-C to cancel.'));
+  // Wait for the joiner's answer over the relay.
+  let ans = null;
+  for (;;) {
+    let r; try { r = await relayFetch(isess, '/api/result?ch=' + encodeURIComponent(ich)).then((x) => x.json()); } catch (_) { await sleepMs(1500); continue; }
+    if (r && r.state === 'answered') { ans = E2E.open(ikeyBytes, r.blob); break; }
+    await sleepMs(1500);
+  }
+  if (!ans) { await relayFinal(isess, { ok: false, reason: 'could not read the request' }); return fail('could not decrypt the join request (channel key mismatch).'); }
+  const finalName = String(ans.name || name || '').trim();
+  if (!finalName || !ans.pubB64 || !ans.proof || !C.verify(challenge, ans.proof, ans.pubB64)) {
+    await relayFinal(isess, { ok: false, reason: 'the request did not verify' });
+    return fail('the join request did not verify — nothing was written.');
+  }
+  console.log('\n' + U.c.bold(`${finalName} wants to join`) + U.c.dim(` — key ${rosterMod.fingerprint(ans.pubB64)}. Approve on your phone…`));
+  // Build the add-signer event and route the OWNER approval to the phone (relay).
+  const drv = rosterMod.deriveRoster(rlog);
+  const type = drv.roster[finalName] ? 'add-key' : 'add-signer';
+  const code = String(parseInt(C.sha256('yay-pair:' + ans.pubB64).slice(0, 8), 16) % 1000000).padStart(6, '0');
+  const ev = { id: rosterMod.nextEventId(rlog), type, name: finalName, pub: ans.pubB64, role, by: null, prev: rlog.events[rlog.events.length - 1].id, nonce: C.randomNonce(), at: new Date().toISOString() };
+  const summary = {
+    title: (type === 'add-key' ? `Add another key for "${finalName}" in ` : `Add ${role} "${finalName}" to `) + config.project + '?',
+    rows: [{ k: finalName + ' · ' + role, v: 'key ' + rosterMod.fingerprint(ans.pubB64) }, { k: 'confirm code', v: code + '  — must match the joiner’s screen' }],
+    warn: role === 'owner' ? 'Owner rights: they can enroll and revoke signers.' : '',
+  };
+  const signed = await authorizeRosterEvent(p, config, rlog, ev, flags, summary);
+  if (!signed) { await relayFinal(isess, { ok: false, reason: 'the owner did not approve' }); return; }
+  const test = rosterMod.deriveRoster({ ...rlog, events: rlog.events.concat([signed]) });
+  if (test.problems.length) { await relayFinal(isess, { ok: false, reason: 'roster would not validate' }); return fail('refusing to write — ' + test.problems.join('; ')); }
+  rlog.events.push(signed);
+  U.writeJSON(rosterPath(p), rlog);
+  addSignerKey(config, finalName, ans.pubB64, role === 'owner' ? 'owner' : 'signer');
+  U.writeJSON(p.config, config);
+  await relayFinal(isess, { ok: true, message: 'Approved — you’re in! You can start signing on this phone.' });
+  console.log(U.c.green(`✓ enrolled "${finalName}" as ${role}`) + U.c.dim(` (authorized by ${signed.by}) — commit .yaylayer/roster.json`));
+}
+
+// LAN invite: via a running dashboard (same-network joiner).
+async function inviteViaDashboard(p, config, name, role, flags) {
   const info = dashboardReg(p);
   if (!info) return fail('no running dashboard found — start `yay dashboard` in another terminal, then run `yay invite` here.');
   let ping; try { ping = await dfetch(info, '/api/ping').then((r) => r.json()); } catch (_) { ping = null; }
@@ -1074,7 +1139,7 @@ async function cmdInvite(flags, positional) {
   const joinUrl = base + r.joinPath;
   console.log('\n' + U.c.green('✓ invite' + (name ? ` for "${name}"` : '')) + U.c.dim(` as ${role} — valid ${r.expiresInMin || 30} min, one-time.`));
   console.log('   ' + U.c.bold('send this link → ') + U.c.accent(joinUrl));
-  console.log(U.c.dim('   …or have them scan:'));
+  console.log(U.c.dim('   …or have them scan (same Wi-Fi):'));
   printQR(joinUrl);
   console.log(U.c.dim(`   They open it, confirm their name (${name ? `pre-filled "${name}", ` : ''}editable), and create their key.`));
   console.log(U.c.dim('   Then an approval pops up on your phone — verify the 6-digit code together, then tap Approve.'));
