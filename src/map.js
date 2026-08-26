@@ -33,6 +33,21 @@ function colorizeSpec(block) {
   }).join('\n');
 }
 
+// Light syntax highlighting for the code panel — subtle, readable on the dark code bg.
+// Runs on the already-ESCAPED line (esc() leaves quotes intact, so string matching still
+// works). Single pass; strings come first so a `//` inside a string isn't read as a comment.
+function hlCode(escLine) {
+  return escLine.replace(
+    /("[^"]*"|'[^']*'|`[^`]*`)|(\/\/.*$)|(\b(?:const|let|var|function|return|if|else|for|while|do|switch|case|break|continue|new|class|extends|super|this|typeof|instanceof|await|async|yield|throw|try|catch|finally|import|export|from|as|default|null|true|false|undefined|void|delete)\b)|(\b\d[\w.]*\b)/g,
+    (m, str, com, kw, num) => {
+      if (str) return `<span class="tk-s">${str}</span>`;
+      if (com) return `<span class="tk-c">${com}</span>`;
+      if (kw) return `<span class="tk-k">${kw}</span>`;
+      if (num) return `<span class="tk-n">${num}</span>`;
+      return m;
+    });
+}
+
 const COMMANDS = [
   { cmd: 'yay init [dir]', desc: 'Guided setup: files → signing key → adopt → Constitution → optional System Plan. Signing key: local, mobile over your LAN, or mobile over relay.yaylayer.com (for off-LAN, end-to-end encrypted).', flags: [['--key local|mobile', 'signing-key type (mobile = pair your phone)'], ['--relay / --lan', 'mobile transport: hosted relay.yaylayer.com (off-LAN) or your local network'], ['--name <you>', 'signer name on every seal'], ['--adopt / --no-adopt', 'scaffold specs over existing code'], ['--constitution <keys|all>', 'write the Constitution into AI-harness files'], ['--plan / --no-plan', 'enable AI System Plan'], ['--provider anthropic|openai|custom', 'plan LLM (+ --base-url, --model, --api-key)']] },
   { cmd: 'yay keygen --name <you>', desc: 'Create your ed25519 signing key (public → roster, private → encrypted keystore).', flags: [['--passphrase <p>', 'or the YAY_PASSPHRASE env var']] },
@@ -90,7 +105,8 @@ function detailInner(cell, res, t) {
   const bad = new Set((res.badLines || []).map((s) => s.trim()));
   const codeHtml = (cell.unitBody || '').split('\n').map((l) => {
     const t = l.trim();
-    return (t && bad.has(t)) ? `<span class="badline">${esc(l)}</span>` : esc(l);
+    const html = hlCode(esc(l));
+    return (t && bad.has(t)) ? `<span class="badline">${html}</span>` : html;
   }).join('\n');
   const body = isMod
     ? `<div class="dh">Contains</div><pre class="code">${esc(cell.contains.join('\n'))}</pre>`
@@ -383,6 +399,11 @@ pre.code{margin:0;background:var(--codebg);border:1px solid rgba(255,255,255,.08
 pre.code.diff .dl-add{color:#54d98c}pre.code.diff .dl-del{color:#ff8f86}pre.code.diff .dl-ctx{color:var(--codeink);opacity:.65}
 pre.code .sp-intent{color:var(--blue);font-weight:600}
 pre.code .sp-ensures{color:var(--purple);font-weight:600}
+pre.code .tk-k{color:#a9b7ff}
+pre.code .tk-s{color:#8fcaa4}
+pre.code .tk-n{color:#e2b07e}
+pre.code .tk-c{color:#7f8c84;font-style:italic}
+.badline .tk-k,.badline .tk-s,.badline .tk-n,.badline .tk-c{color:inherit}
 .checks{margin:0;padding:0;list-style:none;font-size:.84rem}.checks li{margin:5px 0;line-height:1.5}
 .ck-red{color:var(--red);font-weight:600}.ck-yellow{color:var(--amber)}.ck-info{color:var(--mut)}
 .allok{font-size:.84rem;color:var(--mut)}
