@@ -43,8 +43,8 @@ function signerHTML({ mode, project }) {
 *{box-sizing:border-box}
 body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--sans);line-height:1.55;-webkit-font-smoothing:antialiased;
   min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:26px 18px}
-.top{width:100%;max-width:460px;margin-bottom:14px}
-.brandrow{display:flex;align-items:center;gap:9px;margin-bottom:10px}
+.top{width:100%;max-width:460px;margin-bottom:14px;text-align:center}
+.brandrow{display:flex;align-items:center;justify-content:center;gap:9px;margin-bottom:10px}
 .logo{display:inline-flex;flex:none}
 .brand{font-weight:700;font-size:.92rem;color:var(--ink)}
 h1{font-weight:800;font-size:1.5rem;letter-spacing:-.01em;margin:2px 0 0}
