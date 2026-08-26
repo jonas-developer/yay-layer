@@ -27,6 +27,7 @@ const gate = require('../src/gate');
 const phone = require('../src/phone');
 const rosterMod = require('../src/roster');
 const plan = require('../src/plan');
+const E2E = require('../src/e2e');
 
 // Load .env / .env.local into process.env (without overriding what's already set).
 // Lets users keep their own ANTHROPIC_API_KEY in a gitignored .env file.
@@ -293,18 +294,25 @@ async function cmdInit(flags, positional) {
     if (tty && !Object.keys(config.signers).length) {
       console.log('\n' + U.c.bold('Signing key') + ' — you need one to approve (sign) specs.');
       console.log('  ' + U.c.bold('1') + ') Local  ' + U.c.dim('— key stored on this machine, passphrase-encrypted (less safe)'));
-      console.log('  ' + U.c.bold('2') + ') Mobile ' + U.c.dim('— key lives only on your phone, never on this machine (safer)'));
-      const ans = await ask('  Choose 1 or 2 (Enter to skip): ');
-      keyChoice = ans === '1' ? 'local' : ans === '2' ? 'mobile' : 'none';
+      console.log('  ' + U.c.bold('2') + ') Mobile, LAN ' + U.c.dim('— key lives only on your phone; phone ⇄ laptop directly over your Wi-Fi (private, no server)'));
+      console.log('  ' + U.c.bold('3') + ') Mobile, relay ' + U.c.dim('— same, but via relay.yaylayer.com for when off your LAN (end-to-end encrypted; the relay never sees your code)'));
+      const ans = await ask('  Choose 1, 2 or 3 (Enter to skip): ');
+      keyChoice = ans === '1' ? 'local' : (ans === '2' || ans === '3') ? 'mobile' : 'none';
+      if (ans === '3') config.transport = 'relay';
     } else keyChoice = 'none';
   }
+  // Flag overrides (scriptable): --relay picks the hosted-relay transport; --lan the LAN one.
+  if (flags.relay) { keyChoice = 'mobile'; config.transport = 'relay'; }
+  if (flags.lan && config.transport === 'relay') delete config.transport;
+  if (keyChoice === 'mobile') U.writeJSON(p.config, config); // persist the transport choice
 
   if (keyChoice === 'mobile') {
-    console.log('\n' + U.c.bold('Mobile signing') + U.c.dim(' — your key is created and stays on your phone; this machine never holds it.'));
+    const via = config.transport === 'relay' ? ' (via relay.yaylayer.com)' : ' (over your Wi-Fi)';
+    console.log('\n' + U.c.bold('Mobile signing') + via + U.c.dim(' — your key is created and stays on your phone; this machine never holds it.'));
     const nameFlag = (flags.name && flags.name !== true) ? flags.name : null;
     const pairNow = flags.pair ? true : (flags['no-pair'] ? false : (tty ? /^y/i.test((await ask('  Pair your phone now? (Y/n): ')) || 'y') : false));
     if (pairNow) await runPairing(p, config, flags);
-    else console.log('  ' + U.c.dim('skipped — pair anytime (same Wi-Fi) with ') + U.c.bold('yay pair') + U.c.dim('.'));
+    else console.log('  ' + U.c.dim('skipped — pair anytime with ') + U.c.bold('yay pair') + U.c.dim('.'));
   } else if (keyChoice === 'local') {
     let name = (flags.name && flags.name !== true) ? flags.name : null;
     if (!name && tty) name = await ask('  Your signer name (e.g. alice, or "Alice Carlsen"): ');
@@ -506,6 +514,88 @@ async function routeThroughDashboard(p, mode, payload) {
 }
 async function dashboardFinal(info, final) { try { await dfetch(info, '/api/final', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ final }) }); } catch (_) {} }
 
+// ── route phone requests through the HOSTED relay (relay.yaylayer.com), end-to-end
+// encrypted. Chosen when the project's transport is 'relay' (never for plain LAN/local).
+// The relay is untrusted: it only shuttles opaque ciphertext, so the laptop verifies
+// every answer itself here (the relay can't).
+const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
+function relayBase(flags) {
+  return (flags && flags['relay-url'] && flags['relay-url'] !== true) ? String(flags['relay-url']).replace(/\/$/, '')
+    : (process.env.YAY_RELAY_URL ? String(process.env.YAY_RELAY_URL).replace(/\/$/, '') : 'https://relay.yaylayer.com');
+}
+function phoneTransport(config, flags) {
+  if (flags && flags.relay) return 'relay';
+  if (flags && flags.lan) return 'lan';
+  return (config && config.transport === 'relay') ? 'relay' : 'lan';
+}
+// The relay session (channel + E2E key) persists so the human scans ONCE; later requests
+// go to the same channel and appear on the phone page already open. Secret → gitignored.
+function ensureRelaySession(p, flags) {
+  const regPath = path.join(path.dirname(p.config), 'relay.json');
+  let reg = U.readJSON(regPath, null); let fresh = false;
+  if (!reg || !reg.channel || !reg.key) {
+    reg = { base: relayBase(flags), channel: E2E.newChannel(), key: E2E.b64url(E2E.newKey()), createdAt: new Date().toISOString() };
+    U.writeJSON(regPath, reg); ensureGitignored(p.root, '.yaylayer/relay.json'); fresh = true;
+  }
+  const base = relayBase(flags) !== 'https://relay.yaylayer.com' ? relayBase(flags) : (reg.base || relayBase(flags));
+  return { base, channel: reg.channel, keyBytes: E2E.fromB64url(reg.key), url: base + '/#' + reg.channel + '.' + reg.key, fresh };
+}
+function relayFetch(sess, pathname, opts) {
+  opts = opts || {}; opts.headers = Object.assign({ 'content-type': 'application/json' }, opts.headers || {});
+  return fetch(sess.base + pathname, opts);
+}
+async function relayFinal(sess, final) { try { await relayFetch(sess, '/api/final', { method: 'POST', body: JSON.stringify({ ch: sess.channel, blob: E2E.seal(sess.keyBytes, final) }) }); } catch (_) {} }
+// Verify the phone's decrypted answer exactly as the dashboard's verifySubmit does, so
+// callers get the SAME result shape whether they went via LAN or the relay.
+function verifyRelayAnswer(mode, wire, b, expectPubs) {
+  if (mode === 'pair') {
+    const { name, pubB64, proof } = b || {};
+    if (!name || !pubB64 || !proof) return { error: 'phone answer missing name/pubB64/proof' };
+    if (wire.genesis) {
+      const ev = { ...wire.genesis, name: String(name), pub: pubB64, by: String(name) };
+      if (!C.verify(U.canonical(ev), proof, pubB64)) return { error: 'genesis self-signature failed' };
+      return { result: { name: String(name), pubB64, code: phone.confirmCode(pubB64), genesisEvent: { ...ev, signature: proof } } };
+    }
+    if (!C.verify(wire.challenge, proof, pubB64)) return { error: 'key possession proof failed' };
+    return { result: { name: String(name), pubB64, proof, code: phone.confirmCode(pubB64) } };
+  }
+  if (!b || !b.signature) return { error: 'phone answer missing signature' };
+  let target = wire.approval || wire.event;
+  const editedBrief = (b.brief !== undefined && wire.approval && wire.approval.brief);
+  if (editedBrief) target = { ...wire.approval, brief: { ...wire.approval.brief, text: String(b.brief) } };
+  if (!(expectPubs || []).some((pub) => pub && C.verify(U.canonical(target), b.signature, pub))) return { error: 'the phone signature did not verify against an authorized key' };
+  return { result: editedBrief ? { signature: b.signature, brief: String(b.brief) } : { signature: b.signature } };
+}
+async function routeThroughRelay(p, mode, payload, flags) {
+  const sess = ensureRelaySession(p, flags);
+  const wire = { mode };
+  ['approval', 'event', 'summary', 'challenge', 'genesis', 'project'].forEach((k) => { if (payload[k] !== undefined) wire[k] = payload[k]; });
+  try {
+    const rq = await relayFetch(sess, '/api/request', { method: 'POST', body: JSON.stringify({ ch: sess.channel, blob: E2E.seal(sess.keyBytes, wire) }) });
+    if (!rq.ok) { console.log(U.c.red('  relay rejected the request (HTTP ' + rq.status + ').')); return null; }
+  } catch (e) { console.log(U.c.red('  could not reach the relay (' + sess.base + '): ' + (e && e.message || e))); return null; }
+  if (sess.fresh) {
+    console.log('\n' + U.c.bold('→ scan ONCE to sign on your phone (over the relay):'));
+    printQR(sess.url);
+    console.log('   ' + U.c.accent(sess.url));
+    console.log(U.c.dim('   later requests appear on that page automatically. Ctrl-C to cancel.'));
+  } else {
+    console.log('\n' + U.c.bold('→ sent to your phone') + U.c.dim(' — approve on the relay page you already have open. Ctrl-C to cancel.'));
+  }
+  const expectPubs = payload.expectPubB64 || payload.ownerPubs || [];
+  for (;;) {
+    let r; try { r = await relayFetch(sess, '/api/result?ch=' + encodeURIComponent(sess.channel)).then((x) => x.json()); } catch (_) { await sleepMs(1500); continue; }
+    if (r && r.state === 'answered') {
+      const b = E2E.open(sess.keyBytes, r.blob);
+      if (!b) { console.log(U.c.red('  could not decrypt the phone answer — key mismatch (re-pair to reset the channel).')); return null; }
+      const out = verifyRelayAnswer(mode, wire, b, expectPubs);
+      if (out.error) { await relayFinal(sess, { ok: false, reason: out.error }); console.log(U.c.red('  ' + out.error + ' — nothing was written.')); return null; }
+      return { result: out.result, sess };
+    }
+    await sleepMs(1500);
+  }
+}
+
 async function cmdSign(flags) {
   const { p, config, lock } = loadState();
   if (!config) return fail('run `yay init` first');
@@ -564,6 +654,14 @@ async function cmdSign(flags) {
       };
     });
     const pubs = U.pubKeysOf(config.signers[name]);
+    if (phoneTransport(config, flags) === 'relay') {
+      // Hosted relay (relay.yaylayer.com), end-to-end encrypted. Works off-LAN.
+      const routed = await routeThroughRelay(p, 'approve', { approval, summary, expectPubB64: pubs }, flags);
+      if (!routed || !routed.result) return; // routeThroughRelay logged why
+      if (routed.result.brief !== undefined && approval.brief) approval.brief.text = routed.result.brief; // human edited it on the phone
+      approval.signature = routed.result.signature;
+      await relayFinal(routed.sess, { ok: true, message: 'Signed ✓ — leave the page open for the next request.' });
+    } else {
     // If a dashboard is running, route through it — the request pops up on the phone
     // the human already has open (scan-once). Otherwise spin the one-shot LAN server.
     const routed = await routeThroughDashboard(p, 'approve', { approval, summary, expectPubB64: pubs });
@@ -585,6 +683,7 @@ async function cmdSign(flags) {
       if (r && r.timedOut) return fail('no approval received in time — nothing was signed. Re-run when ready.');
       if (r && r.brief !== undefined && approval.brief) approval.brief.text = r.brief; // human edited it on the phone
       approval.signature = r.signature;
+    }
     }
   } else {
     const ksPath = path.join(p.keys, `${name}.keystore`);
@@ -617,10 +716,16 @@ async function runPairing(p, config, flags) {
     ? { id: 'R-0001', type: 'genesis', role: 'owner', prev: 'genesis', nonce: C.randomNonce(), at: new Date().toISOString() }
     : null;
   const challenge = C.randomNonce() + C.randomNonce();
+  let r, finishPhone, closeServer = () => {};
+  if (phoneTransport(config, flags) === 'relay') {
+    // Hosted relay (relay.yaylayer.com), end-to-end encrypted.
+    const routed = await routeThroughRelay(p, 'pair', { challenge, genesis }, flags);
+    if (!routed || !routed.result) return false;
+    r = routed.result; finishPhone = (f) => relayFinal(routed.sess, f);
+  } else {
   // Route through a running dashboard (one origin, scan-once) if present; else the one-shot LAN server.
   const routed = await routeThroughDashboard(p, 'pair', { challenge, genesis });
   if (routed && routed.busy) return false;
-  let r, finishPhone, closeServer = () => {};
   if (routed && routed.result) {
     r = routed.result;
     finishPhone = (f) => dashboardFinal(routed.info, f);
@@ -635,6 +740,7 @@ async function runPairing(p, config, flags) {
     finishPhone = async (finalMsg) => { s.setFinal(finalMsg); await Promise.race([s.settled, new Promise((res) => setTimeout(res, 8000))]); };
     closeServer = () => s.close();
     r = await s.done;
+  }
   }
   try {
     if (r && r.timedOut) { console.log(U.c.red('  pairing timed out — no phone responded.')); return false; }
@@ -729,6 +835,11 @@ async function authorizeRosterEvent(p, config, log, ev, flags, summary) {
   // Phone authorization: any current owner's phone can sign the event bytes.
   ev.by = byFlag || owners[0];
   const ownerPubs = owners.reduce((a, n) => a.concat(drv.roster[n] || []), []);
+  if (phoneTransport(config, flags) === 'relay') {
+    const routed = await routeThroughRelay(p, 'authorize', { event: ev, summary, ownerPubs }, flags);
+    if (!routed || !routed.result) return null;
+    ev.signature = routed.result.signature; await relayFinal(routed.sess, { ok: true, message: 'Authorized ✓' }); return ev;
+  }
   // Route through a running dashboard (one origin) if there is one; else ephemeral.
   const routed = await routeThroughDashboard(p, 'authorize', { event: ev, summary, ownerPubs });
   if (routed && routed.busy) return null;
@@ -1240,13 +1351,15 @@ function fail(msg) { console.error(U.c.red('error: ') + msg); process.exitCode =
 const HELP = `yay — a protocol for provable, signed AI code
 
   yay init [dir]              guided setup: files → signing key → adopt → instruct your AI
-                             flags: --project <name> --key local|mobile --name <you> --adopt|--no-adopt --constitution <keys|all>
+                             signing key: local · mobile over your LAN · mobile over relay.yaylayer.com (--relay, for off-LAN; E2E)
+                             flags: --project <name> --key local|mobile [--relay|--lan] --name <you> --adopt|--no-adopt --constitution <keys|all>
                              --plan|--no-plan --provider anthropic|openai|custom [--base-url url] [--model m] --api-key <k>
   yay constitution --for <k> write the Constitution where an AI harness auto-reads it
                              (--for claude,agents,cursor,copilot,windsurf,cline,gemini,generic | all · --list)
   yay keygen --name <you>     create your signing key
   yay adopt [path] [--dry]    scaffold draft specs over existing code
   yay pair [--name you]      pair your phone as the signer (key stays on the phone; scan the QR) · SSL on by default (--no-https)
+                             --relay routes via relay.yaylayer.com (off-LAN, end-to-end encrypted) · --lan forces the local path
                              the FIRST pairing makes the phone the trust root — no local key needed
   yay enroll --name X --pubkey <b64>  enroll another signer via an OWNER-signed event (--role owner|signer)
                              authorize with a local owner key, or --phone to approve on an owner's phone

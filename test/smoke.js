@@ -585,6 +585,19 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     ok(mhtml.includes('seal invalid') && mhtml.includes('✓ signed') && mhtml.includes('m.valid'), 'v2 briefs-tab: the ledger marks each brief valid (✓ signed) or tampered (⚠ seal invalid)');
   }
 
+  // E2E (hosted relay transport): TweetNaCl secretbox seal/open, matching the phone page.
+  {
+    const E2E = require('../src/e2e');
+    const key = E2E.newKey();
+    const blob = E2E.seal(key, { mode: 'approve', secret: 'persist-the-high-score' });
+    ok(blob.n && blob.c && JSON.stringify(blob).indexOf('persist-the-high-score') === -1, 'e2e: seal() produces opaque ciphertext (no plaintext leaks to the relay)');
+    const got = E2E.open(key, blob);
+    ok(got && got.mode === 'approve' && got.secret === 'persist-the-high-score', 'e2e: open() with the right key recovers the object');
+    ok(E2E.open(E2E.newKey(), blob) === null, 'e2e: a wrong key cannot open the blob');
+    ok(Buffer.compare(Buffer.from(E2E.fromB64url(E2E.b64url(key))), Buffer.from(key)) === 0, 'e2e: b64url key roundtrips (as carried in the QR #fragment)');
+    ok(/^[A-Za-z0-9_-]{16,128}$/.test(E2E.newChannel()), 'e2e: newChannel() is a valid relay channel id');
+  }
+
   // spec-only adversary: an LLM sees ONLY the spec (never the code) and tries to break it.
   const A = require('../src/adversary');
   const advDir = fs.mkdtempSync(require('path').join(os.tmpdir(), 'yay-adv-'));
