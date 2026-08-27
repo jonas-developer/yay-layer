@@ -927,9 +927,10 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     // an eavesdropper with a different key learns nothing from the reply
     ok(E2.open(E2.newKey(), reply) === null, 'router: a wrong replyKey cannot read the reply');
     // a "send back" reply (no signature, optional note) round-trips the same way
-    const sb = E2.seal(E2.fromB64url(got.replyKey), { rejected: true, reason: 'rate-limit signup too' });
+    const sb = E2.seal(E2.fromB64url(got.replyKey), { rejected: true, reason: 'rate-limit signup too', tags: ['Security', 'API'] });
     const sbBack = E2.open(E2.fromB64url(replyKey), sb);
     ok(sbBack && sbBack.rejected === true && sbBack.reason === 'rate-limit signup too', 'router: a send-back (rejected + note) round-trips to the requester');
+    ok(sbBack && Array.isArray(sbBack.tags) && sbBack.tags.join(',') === 'Security,API', 'router: corrected tags ride back in the send-back');
   }
 
   // 19) Brief tags — pool vocabulary + tags ride inside the signed Brief (tamper-evident).

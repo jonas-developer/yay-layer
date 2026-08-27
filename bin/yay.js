@@ -638,8 +638,8 @@ function verifyRelayAnswer(mode, wire, b, expectPubs) {
     if (!C.verify(wire.challenge, proof, pubB64)) return { error: 'key possession proof failed' };
     return { result: { name: String(name), pubB64, proof, code: phone.confirmCode(pubB64) } };
   }
-  // Send back (§5): an approval declined on the phone, with an optional note. No signature.
-  if (mode === 'approve' && b && b.rejected) return { result: { rejected: true, reason: String(b.reason || '').trim() } };
+  // Send back (§5): an approval declined on the phone, with an optional note and/or corrected tags.
+  if (mode === 'approve' && b && b.rejected) return { result: { rejected: true, reason: String(b.reason || '').trim(), tags: Array.isArray(b.tags) ? b.tags : undefined } };
   if (!b || !b.signature) return { error: 'phone answer missing signature' };
   let target = wire.approval || wire.event;
   const editedBrief = (b.brief !== undefined && wire.approval && wire.approval.brief);
@@ -730,13 +730,18 @@ function cmdRequests(flags, positional) {
 function reportSendBack(result, name) {
   if (!result || !result.rejected) return false;
   const note = (result.reason && String(result.reason).trim()) || '';
+  const tags = Array.isArray(result.tags) ? result.tags.filter(Boolean) : null;
   console.log('\n' + U.c.yellow(`↩ ${name} sent it back — NOT signed.`));
+  if (tags && tags.length) {
+    console.log('  ' + U.c.bold('corrected tags: ') + U.c.accent(tags.join(', ')));
+    console.log('  ' + U.c.dim('re-issue the Brief with these tags: ') + U.c.bold(`yay sign --tags "${tags.join(',')}"`) + U.c.dim(' — then re-present. (If a new tag reveals a different concern, consider splitting the Brief.)'));
+  }
   if (note) {
     console.log('  ' + U.c.bold('their note: ') + U.c.accent(note));
     console.log('  ' + U.c.dim('Reconcile the whole change-set per this note — the Brief and its Cells move together: a small'));
     console.log('  ' + U.c.dim('correction → adjust the affected Cell spec(s) + Brief and re-present for approval; a fundamental'));
     console.log('  ' + U.c.dim('one → treat it as a new request and rebuild the change-set from scratch. Then sign again.'));
-  } else {
+  } else if (!(tags && tags.length)) {
     console.log('  ' + U.c.dim('No note was given — do NOT guess. Ask the human in chat how to proceed before changing anything.'));
   }
   return true;
@@ -751,7 +756,7 @@ async function sendToInbox(p, config, lock, manifest, items, approval, name, fla
   const summary = signSummary(p, config, lock, manifest, items);
   const reqId = E2E.newChannel();                 // url-safe id (also unguessable)
   const replyKey = E2E.b64url(E2E.newKey());       // symmetric key for the sealed reply
-  const wire = { mode: 'approve', approval, summary, project: config.project, signer: name, signerPubs: U.pubKeysOf(config.signers[name]), replyKey };
+  const wire = { mode: 'approve', approval, summary, tagPool: (tagsMod.loadTags(p) || { tags: [] }).tags, project: config.project, signer: name, signerPubs: U.pubKeysOf(config.signers[name]), replyKey };
   const sealed = E2E.sealTo(targetPub, wire);      // only `name` can open it
   const inbox = E2E.inboxChannel(targetPub);
   const base = relayBase(flags);
@@ -928,9 +933,10 @@ async function cmdSign(flags, positional) {
     // Sign on the paired phone over the LAN — the private key never touches this machine.
     const summary = signSummary(p, config, lock, manifest, items);
     const pubs = U.pubKeysOf(config.signers[name]);
+    const tagPool = (tagsMod.loadTags(p) || { tags: [] }).tags; // so the phone can offer in-pool tag corrections
     if (phoneTransport(config, flags) === 'relay') {
       // Hosted relay (relay.yaylayer.com), end-to-end encrypted. Works off-LAN.
-      const routed = await routeThroughRelay(p, 'approve', { approval, summary, expectPubB64: pubs, signer: name, signerPubs: pubs }, flags);
+      const routed = await routeThroughRelay(p, 'approve', { approval, summary, tagPool, expectPubB64: pubs, signer: name, signerPubs: pubs }, flags);
       if (!routed || !routed.result) return; // routeThroughRelay logged why
       if (reportSendBack(routed.result, name)) { await relayFinal(routed.sess, { ok: false, reason: 'Sent back for changes.' }); return; }
       if (routed.result.brief !== undefined && approval.brief) approval.brief.text = routed.result.brief; // legacy: older phone edited it
@@ -939,7 +945,7 @@ async function cmdSign(flags, positional) {
     } else {
     // If a dashboard is running, route through it — the request pops up on the phone
     // the human already has open (scan-once). Otherwise spin the one-shot LAN server.
-    const routed = await routeThroughDashboard(p, 'approve', { approval, summary, expectPubB64: pubs, signer: name, signerPubs: pubs });
+    const routed = await routeThroughDashboard(p, 'approve', { approval, summary, tagPool, expectPubB64: pubs, signer: name, signerPubs: pubs });
     if (routed && routed.busy) return;
     if (routed && routed.result) {
       if (reportSendBack(routed.result, name)) { await dashboardFinal(routed.info, { ok: false, reason: 'Sent back for changes.' }); return; }
@@ -948,7 +954,7 @@ async function cmdSign(flags, positional) {
       await dashboardFinal(routed.info, { ok: true, message: 'Signed ✓ — you can leave this open for the next request.' });
     } else {
       const tls = tlsCert(p, flags);
-      const s = await phone.signOverLan({ project: config.project, approval, summary, expectPubB64: pubs, tls });
+      const s = await phone.signOverLan({ project: config.project, approval, summary, tagPool, expectPubB64: pubs, tls });
       console.log('\n' + U.c.bold('Approve on your phone') + ' — scan with your phone camera (same Wi-Fi):');
       console.log('   ' + U.c.accent(s.url) + U.c.dim('   (or ' + s.local + ' on this computer)'));
       printQR(s.url);

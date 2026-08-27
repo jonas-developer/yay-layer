@@ -152,11 +152,11 @@ async function pairOverLan({ project, tls, genesis, challenge }) {
 
 // Signing: hand the phone the unsigned approval + a plain-language summary; it
 // signs canonical(approval) and posts the signature, which we verify.
-async function signOverLan({ project, approval, summary, expectPubB64, tls }) {
+async function signOverLan({ project, approval, summary, tagPool, expectPubB64, tls }) {
   const pubs = Array.isArray(expectPubB64) ? expectPubB64 : [expectPubB64]; // identity may hold several keys
-  const s = await serve('approve', project, { approval, summary }, (body) => {
-    // Send back (§5): the signer declined and (optionally) said what to change. No signature.
-    if (body && body.rejected) return { ok: true, done: { rejected: true, reason: String(body.reason || '').trim() } };
+  const s = await serve('approve', project, { approval, summary, tagPool: tagPool || [] }, (body) => {
+    // Send back (§5): the signer declined and (optionally) said what to change / which tags. No signature.
+    if (body && body.rejected) return { ok: true, done: { rejected: true, reason: String(body.reason || '').trim(), tags: Array.isArray(body.tags) ? body.tags : undefined } };
     const { signature } = body || {};
     if (!signature) return { error: 'missing signature' };
     // Legacy: an older phone may still post an edited Brief; verify against — and return — it.

@@ -330,15 +330,28 @@ function approveFlow(sess){
   // it can't be reworded on the phone, because a Brief change must pull its Cells with it and
   // only the AI loop can do that. The choice is Accept, or Send back (with an optional note).
   var brief=sess.approval&&sess.approval.brief;
-  var tagChips=(brief&&brief.tags&&brief.tags.length)?('<div style="margin-top:9px">'+brief.tags.map(function(t){return '<span style="display:inline-block;font-size:.68rem;font-weight:700;padding:2px 9px;border-radius:100px;border:1px solid var(--rule);color:var(--accent);margin:0 5px 5px 0">'+esc(t)+'</span>';}).join('')+'</div>'):'';
+  // Tags CAN be switched here (only within the project pool), but switching one BLOCKS Accept:
+  // a tag is inside the signed Brief, so a change must round-trip to the AI to re-issue.
+  var pool=(sess.tagPool||[]), origTags=(brief&&brief.tags)||[], lc=function(s){return String(s).toLowerCase();};
+  var sel=origTags.slice();
+  function selHas(t){return sel.some(function(x){return lc(x)===lc(t);});}
+  function tagsChanged(){ return sel.map(lc).sort().join('|')!==origTags.map(lc).sort().join('|'); }
+  function chipStyle(on){ return 'display:inline-block;font-size:.72rem;font-weight:700;padding:3px 10px;border-radius:100px;border:1px solid '+(on?'var(--accent)':'var(--rule)')+';margin:0 5px 6px 0;cursor:pointer;'+(on?'background:var(--accent);color:#fff':'color:var(--muted,#8a8a8a);background:transparent'); }
+  var tagSel=(brief&&pool.length)
+    ?('<div class="msub" style="margin:11px 0 5px">Tags — tap to change (from the project pool):</div><div id="tagsel">'+pool.map(function(t){return '<span class="tchip" data-tag="'+esc(t)+'" style="'+chipStyle(selHas(t))+'">'+esc(t)+'</span>';}).join('')+'</div><div id="taghint" style="display:none;color:var(--accent);font-size:.82rem;margin:7px 0 0">You changed the tags — the AI must re-issue this Brief. Tap <b>Send back</b> to request it.</div>')
+    :(brief&&origTags.length?('<div style="margin-top:9px">'+origTags.map(function(t){return '<span style="display:inline-block;font-size:.68rem;font-weight:700;padding:2px 9px;border-radius:100px;border:1px solid var(--rule);color:var(--accent);margin:0 5px 5px 0">'+esc(t)+'</span>';}).join('')+'</div>'):'');
   var briefCard=brief?('<div class="mcard"><div class="mlab"><span class="mtag">Brief</span></div>'
-    +'<div class="mtxt">'+esc(brief.text)+'</div>'+tagChips
+    +'<div class="mtxt">'+esc(brief.text)+'</div>'+tagSel
     +'<div class="msub">covers '+((sess.summary||[]).length)+' part(s) · sign it, or send it back for changes</div></div>'):'';
   h(gate.banner+briefCard+'<div class="help">Approve these <b>'+((sess.summary||[]).length)+'</b> change(s) — tap a part to see its spec.</div>'+rows+(gate.ok?'<button id="go" class="btn" style="margin-top:16px">Accept &amp; sign</button><button id="sb" class="btn ghost">Send back</button>':''));
   var taps=document.querySelectorAll('.cell.tap');
   for(var ti=0;ti<taps.length;ti++){(function(el){el.onclick=function(){var d=document.getElementById('d'+el.getAttribute('data-i'));var open=d.style.display!=='none';d.style.display=open?'none':'block';var car=el.querySelector('.caret');if(car)car.textContent=open?'▸':'▾';};})(taps[ti]);}
   if(!gate.ok) return; // wrong signer for this request — no buttons wired
+  function refreshTagUI(){ var ch=tagsChanged(); var go=document.getElementById('go'); if(go){go.disabled=ch;go.style.opacity=ch?'.45':'';go.style.cursor=ch?'not-allowed':'';} var hint=document.getElementById('taghint'); if(hint)hint.style.display=ch?'block':'none'; }
+  Array.prototype.forEach.call(document.querySelectorAll('.tchip'),function(chip){ chip.onclick=function(){ var t=chip.getAttribute('data-tag'); if(selHas(t)) sel=sel.filter(function(x){return lc(x)!==lc(t);}); else sel.push(t); chip.setAttribute('style',chipStyle(selHas(t))); refreshTagUI(); }; });
+  refreshTagUI();
   document.getElementById('go').onclick=async function(){
+    if(tagsChanged()) return; // Accept is blocked while tags differ — send it back instead
     try{
       var sec=await getSecret(key);
       setStatus('Signing…');
@@ -350,8 +363,9 @@ function approveFlow(sess){
     }catch(e){ setStatus('Signing failed: '+e,'err'); }
   };
   document.getElementById('sb').onclick=function(){
-    h((brief?('<div class="mcard"><div class="mlab"><span class="mtag">Brief</span></div><div class="mtxt">'+esc(brief.text)+'</div></div>'):'')
-      +'<div class="help">Send this back for changes. Add a note so the AI knows what to fix — e.g. “rate-limit signup too, keep the rest” or “wrong approach, redo”. Optional, but a blank note means the AI will have to ask you what you meant.</div>'
+    var changed=tagsChanged();
+    h((brief?('<div class="mcard"><div class="mlab"><span class="mtag">Brief</span></div><div class="mtxt">'+esc(brief.text)+'</div>'+(changed?('<div class="msub" style="margin-top:8px">New tags: <b>'+sel.map(esc).join(', ')+'</b></div>'):'')+'</div>'):'')
+      +'<div class="help">'+(changed?'You changed the tags — this goes back so the AI re-issues the Brief with them. Add a note if you also want other changes (optional).':'Send this back for changes. Add a note so the AI knows what to fix — e.g. “rate-limit signup too, keep the rest”. A blank note means the AI will have to ask you what you meant.')+'</div>'
       +'<textarea id="note" class="marea" placeholder="What should change? (optional)"></textarea>'
       +'<button id="sbgo" class="btn">Send back</button><button id="cancel" class="btn ghost">Cancel</button>');
     document.getElementById('note').focus();
@@ -360,7 +374,7 @@ function approveFlow(sess){
       try{
         var note=(document.getElementById('note').value||'').trim();
         setStatus('Sending back…');
-        var res=await api('/api/submit',{rejected:true,reason:note});
+        var res=await api('/api/submit',{rejected:true,reason:note,tags:(changed?sel:undefined)});
         if(res.error){ setStatus('Failed: '+res.error,'err'); return; }
         okScreen('Sent back','The requester has been notified in their tool. Leave this open for the next request.');
         setStatus('Sent back');

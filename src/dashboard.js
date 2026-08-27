@@ -126,7 +126,7 @@ function startDashboard(deps, opts) {
       return { code: confirmCode(pubB64), done: { name: String(name), pubB64, proof, code: confirmCode(pubB64) } };
     }
     // Send back (§5): the signer declined an approval and optionally noted what to change.
-    if (pending.mode === 'approve' && b && b.rejected) return { done: { rejected: true, reason: String(b.reason || '').trim() } };
+    if (pending.mode === 'approve' && b && b.rejected) return { done: { rejected: true, reason: String(b.reason || '').trim(), tags: Array.isArray(b.tags) ? b.tags : undefined } };
     // approve / authorize: verify the signature over the canonical approval/event.
     // If the phone edited the Brief text (§5), rebuild the approval with it so the
     // signature is checked against — and the seal stores — exactly what was signed.
@@ -152,6 +152,7 @@ function startDashboard(deps, opts) {
       if (b.approval) session.approval = b.approval;
       if (b.event) session.event = b.event;
       if (b.summary) session.summary = b.summary;
+      if (b.tagPool) session.tagPool = b.tagPool;
       if (b.challenge) session.challenge = b.challenge;
       if (b.genesis) session.genesis = b.genesis;
       if (b.signer) session.signer = b.signer;
