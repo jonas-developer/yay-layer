@@ -75,7 +75,7 @@ Cell `intent:` is bottom-up and local; it doesn't record **what the human actual
 - **Tagged from a project pool.** A project may define a small tag vocabulary (`yay tags` — six starter sets, or your own). When present, every Brief is tagged with **1–3** tags from the pool, carried in `brief.tags` and signed with it (attributed + tamper-evident). Tags are a *view* for sorting the history by concern over time — never a gate, never a color. Keep a Brief single-concern; the AI advises splitting a request that mixes unrelated tags into separate Briefs.
 - **Default, not optional.** A brief is **required by default** on every approval — the AI must draft one, and `yay sign` prompts a human for it if omitted. The only escape is an explicit `--no-brief` for a trivial re-sign (e.g. re-approving after a pure refactor). Briefs feed the System Plan and the decision log; they are a *view* and an *attribution record*, not a gate.
 
-*(MVP: `yay sign --brief "…"` attaches the brief to the approval; the phone approve screen shows it read-only with **Accept & sign** / **Send back**; the seal in `lock.json` is tamper-evident via the signature. A send-back returns `{rejected, reason}` to the AI's `yay sign` output so it can reconcile and re-present. A dedicated Briefs view in the map is roadmap.)*
+*(MVP: `yay sign --brief "…"` attaches the brief to the approval; the phone approve screen shows it read-only with **Accept & sign** / **Send back**; the seal in `lock.json` is tamper-evident via the signature. A send-back returns `{rejected, reason, tags?}` to the AI's `yay sign` output so it can reconcile and re-present. The map has a **Briefs** view (list, grouped-by-tag, and a Cloud view — a card per tag), a **Tags** vocabulary tab, and `yay briefs` in the terminal.)*
 
 ## 6. Colors — two axes
 
@@ -101,7 +101,7 @@ A container Cell's color **rolls up** to the worst of its descendants.
 ## 8. Higher-order — flow & Policies
 
 - **Flow:** at every `feeds` edge, `producer.out ⊨ consumer.in`. A Red Cell taints everything downstream. *(MVP checks edges resolve; contract-compat is roadmap.)*
-- **Policies** *(roadmap)* — first-class signed rules: `intent` + selector (which Cells) + a checkable rule, verified as a **"for all matched Cells"** check. Flavors: **mandate / prohibit / grant** (grant carries an inherited effect declaration so minimality stays clean). The concern's mechanism stays a normal Cell the Policy points at.
+- **Policies** — first-class signed rules over matched Cells. *Shipped:* the **signing policy** (§11) — owner-signed "who must sign what" rules (path / tag / module → required signer), enforced as a for-all-matched-Cells gate. *Roadmap:* richer checkable flavors — **mandate / prohibit / grant** with an `intent` + a checkable rule (grant carries an inherited effect declaration so minimality stays clean); the concern's mechanism stays a normal Cell the Policy points at.
 
 ## 9. Integrity & approval
 
@@ -112,11 +112,11 @@ A container Cell's color **rolls up** to the worst of its descendants.
 
 ## 10. Freedom mode (auto-approve)
 
-A **delegation grant** — signed once on the phone (Face ID), scoped and time/count-boxed. Within it the AI auto-approves in-scope Cells with **no further phone contact** (the grant is the authorization; verify checks it). Sensitive/code-pinned Cells are excluded. Everything auto-approved is stamped `AUTO` and queued for **ratification**. Stop early with a signed **revocation**, honored at the CI gate. *(Roadmap.)*
+A **delegation grant** — signed once on the phone (Face ID), scoped and time/count-boxed. Within it the AI auto-approves in-scope Cells with **no further phone contact** (the grant is the authorization; verify checks it). Sensitive/code-pinned Cells are excluded. Everything auto-approved is stamped `AUTO` and queued for **ratification**. Stop early with a signed **revocation**, honored at the CI gate. *(Shipped: `yay grant --for … --count …`, `yay ratify`, `yay grant list|revoke`.)*
 
 ## 11. Teams
 
-Each person holds their own key; a signed **roster** maps keys → names, so every seal attributes to a *named* human. Optional **role-based rights** and **M-of-N multi-sig** for sensitive Cells. Adding a signer is a privileged, signed (owner) action. Merges union per-Cell seals; the CI gate re-proves the merged whole and catches logical merge conflicts git can't. *(Roadmap; the reference impl records `signer` per approval today.)*
+Each person holds their own key; a signed **roster** maps keys → names, so every seal attributes to a *named* human. Optional **role-based rights** and **M-of-N multi-sig** for sensitive Cells. Adding a signer is a privileged, signed (owner) action. Merges union per-Cell seals; the CI gate re-proves the merged whole and catches logical merge conflicts git can't. *(Shipped: the signed, hash-chained roster; owner/signer roles; `yay enroll` / `yay invite` / `yay revoke` / `yay reroot`; and signer routing (below). M-of-N multi-sig and automated merge re-proving are roadmap.)*
 
 **Signing policy.** A project may declare, in an owner-signed policy (derived from the roster, so it is tamper-evident), that Cells matched by path glob, spec tag / `sensitive`, or module **must** be signed by a named person. The gate holds any matching Cell Red until that specific signer seals it. Neutral by default — with no policy every signer is equal.
 
