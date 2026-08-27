@@ -898,6 +898,10 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     ok(back && back.signature === 'SIG-abc', 'router: the sender opens the reply with its replyKey (round-trip)');
     // an eavesdropper with a different key learns nothing from the reply
     ok(E2.open(E2.newKey(), reply) === null, 'router: a wrong replyKey cannot read the reply');
+    // a "send back" reply (no signature, optional note) round-trips the same way
+    const sb = E2.seal(E2.fromB64url(got.replyKey), { rejected: true, reason: 'rate-limit signup too' });
+    const sbBack = E2.open(E2.fromB64url(replyKey), sb);
+    ok(sbBack && sbBack.rejected === true && sbBack.reason === 'rate-limit signup too', 'router: a send-back (rejected + note) round-trips to the requester');
   }
 
   console.log(`\nAll ${n} checks passed.`);

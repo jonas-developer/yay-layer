@@ -155,9 +155,11 @@ async function pairOverLan({ project, tls, genesis, challenge }) {
 async function signOverLan({ project, approval, summary, expectPubB64, tls }) {
   const pubs = Array.isArray(expectPubB64) ? expectPubB64 : [expectPubB64]; // identity may hold several keys
   const s = await serve('approve', project, { approval, summary }, (body) => {
+    // Send back (§5): the signer declined and (optionally) said what to change. No signature.
+    if (body && body.rejected) return { ok: true, done: { rejected: true, reason: String(body.reason || '').trim() } };
     const { signature } = body || {};
     if (!signature) return { error: 'missing signature' };
-    // If the phone edited the Brief (§5), verify against — and return — the edited text.
+    // Legacy: an older phone may still post an edited Brief; verify against — and return — it.
     let target = approval;
     const editedBrief = (body.brief !== undefined && approval.brief);
     if (editedBrief) target = { ...approval, brief: { ...approval.brief, text: String(body.brief).trim() } };

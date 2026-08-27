@@ -326,37 +326,45 @@ function approveFlow(sess){
   if(!key){ h('<div class="msg">This phone has no key on this page yet — restore it from your recovery phrase, or run <b>yay pair</b>.</div><button id="rst" class="btn">Restore from recovery phrase</button>'); document.getElementById('rst').onclick=function(){restoreFlow(sess);}; return; }
   var gate=signerGate(sess);
   var rows=(sess.summary||[]).map(function(c,i){var ed=(c.diff&&c.diff.length)?' <span class="edited">edited</span>':'';return '<div class="crow"><div class="cell tap" data-i="'+i+'"><span class="dot" style="background:'+(c.color||'#888')+'"></span><div><div class="cid">'+esc(c.id)+' · '+esc(c.unit||'')+ed+'</div><div class="cin">'+esc(c.intent||'')+'</div></div><span class="col">'+esc(c.state||'')+'<span class="caret">▸</span></span></div><div class="detailwrap" id="d'+i+'" style="display:none">'+detailHTML(c)+'</div></div>';}).join('');
-  // BRIEF header (Standard §5): the human-owned headline over these parts. Editable
-  // before signing so the wording is the human's, not the AI's paraphrase; the edited
-  // text is what gets signed (canonical(approval) is rebuilt with it below).
+  // BRIEF header (Standard §5): the human-owned headline over these parts. DISPLAY-ONLY —
+  // it can't be reworded on the phone, because a Brief change must pull its Cells with it and
+  // only the AI loop can do that. The choice is Accept, or Send back (with an optional note).
   var brief=sess.approval&&sess.approval.brief;
-  var briefCard=brief?('<div class="mcard"><div class="mlab"><span class="mtag">Brief</span><button id="medit" class="medit">Edit</button></div>'
-    +'<div id="mtxt" class="mtxt">'+esc(brief.text)+'</div>'
-    +'<div class="msub">covers '+((sess.summary||[]).length)+' part(s) · you are approving this</div></div>'):'';
-  h(gate.banner+briefCard+'<div class="help">Approve these <b>'+((sess.summary||[]).length)+'</b> change(s) — tap a part to see its spec.</div>'+rows+(gate.ok?'<button id="go" class="btn" style="margin-top:16px">Approve &amp; sign</button>':''));
-  var editing=false;
-  if(brief){document.getElementById('medit').onclick=function(){
-    var box=document.getElementById('mtxt');
-    if(!editing){editing=true;this.textContent='Done';var t=box.textContent;box.outerHTML='<textarea id="mtxt" class="marea">'+esc(t)+'</textarea>';document.getElementById('mtxt').focus();}
-    else{editing=false;this.textContent='Edit';var v=document.getElementById('mtxt').value;box.outerHTML='<div id="mtxt" class="mtxt">'+esc(v)+'</div>';}
-  };}
-  function briefValue(){var el=document.getElementById('mtxt');if(!el)return null;return editing?el.value:el.textContent;}
+  var briefCard=brief?('<div class="mcard"><div class="mlab"><span class="mtag">Brief</span></div>'
+    +'<div class="mtxt">'+esc(brief.text)+'</div>'
+    +'<div class="msub">covers '+((sess.summary||[]).length)+' part(s) · sign it, or send it back for changes</div></div>'):'';
+  h(gate.banner+briefCard+'<div class="help">Approve these <b>'+((sess.summary||[]).length)+'</b> change(s) — tap a part to see its spec.</div>'+rows+(gate.ok?'<button id="go" class="btn" style="margin-top:16px">Accept &amp; sign</button><button id="sb" class="btn ghost">Send back</button>':''));
   var taps=document.querySelectorAll('.cell.tap');
   for(var ti=0;ti<taps.length;ti++){(function(el){el.onclick=function(){var d=document.getElementById('d'+el.getAttribute('data-i'));var open=d.style.display!=='none';d.style.display=open?'none':'block';var car=el.querySelector('.caret');if(car)car.textContent=open?'▸':'▾';};})(taps[ti]);}
-  if(!gate.ok) return; // wrong signer for this request — no Approve button to wire
+  if(!gate.ok) return; // wrong signer for this request — no buttons wired
   document.getElementById('go').onclick=async function(){
     try{
       var sec=await getSecret(key);
       setStatus('Signing…');
-      var toSign=sess.approval;
-      var mv=briefValue();
-      if(brief&&mv!=null){mv=String(mv).trim();toSign=JSON.parse(JSON.stringify(sess.approval));toSign.brief.text=mv;}
-      var sig=signStr(sec,canonical(toSign));
-      var res=await api('/api/submit',brief?{signature:sig,brief:(mv!=null?String(mv).trim():brief.text)}:{signature:sig});
+      var sig=signStr(sec,canonical(sess.approval));
+      var res=await api('/api/submit',{signature:sig});
       if(res.error){ setStatus('Rejected: '+res.error,'err'); return; }
       okScreen('Signed','The seal is on your laptop. Leave this open — the next request appears here automatically.');
       setStatus('Signed','ok');
     }catch(e){ setStatus('Signing failed: '+e,'err'); }
+  };
+  document.getElementById('sb').onclick=function(){
+    h((brief?('<div class="mcard"><div class="mlab"><span class="mtag">Brief</span></div><div class="mtxt">'+esc(brief.text)+'</div></div>'):'')
+      +'<div class="help">Send this back for changes. Add a note so the AI knows what to fix — e.g. “rate-limit signup too, keep the rest” or “wrong approach, redo”. Optional, but a blank note means the AI will have to ask you what you meant.</div>'
+      +'<textarea id="note" class="marea" placeholder="What should change? (optional)"></textarea>'
+      +'<button id="sbgo" class="btn">Send back</button><button id="cancel" class="btn ghost">Cancel</button>');
+    document.getElementById('note').focus();
+    document.getElementById('cancel').onclick=function(){ approveFlow(sess); };
+    document.getElementById('sbgo').onclick=async function(){
+      try{
+        var note=(document.getElementById('note').value||'').trim();
+        setStatus('Sending back…');
+        var res=await api('/api/submit',{rejected:true,reason:note});
+        if(res.error){ setStatus('Failed: '+res.error,'err'); return; }
+        okScreen('Sent back','The requester has been notified in their tool. Leave this open for the next request.');
+        setStatus('Sent back');
+      }catch(e){ setStatus('Failed: '+e,'err'); }
+    };
   };
 }
 // Owner authorizes a roster/governance change (enroll, revoke, reroot) from the phone.

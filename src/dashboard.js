@@ -125,6 +125,8 @@ function startDashboard(deps, opts) {
       if (!C.verify(pending.session.challenge, proof, pubB64)) return { error: 'key possession proof failed' };
       return { code: confirmCode(pubB64), done: { name: String(name), pubB64, proof, code: confirmCode(pubB64) } };
     }
+    // Send back (§5): the signer declined an approval and optionally noted what to change.
+    if (pending.mode === 'approve' && b && b.rejected) return { done: { rejected: true, reason: String(b.reason || '').trim() } };
     // approve / authorize: verify the signature over the canonical approval/event.
     // If the phone edited the Brief text (§5), rebuild the approval with it so the
     // signature is checked against — and the seal stores — exactly what was signed.

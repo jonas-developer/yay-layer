@@ -609,6 +609,8 @@ function verifyRelayAnswer(mode, wire, b, expectPubs) {
     if (!C.verify(wire.challenge, proof, pubB64)) return { error: 'key possession proof failed' };
     return { result: { name: String(name), pubB64, proof, code: phone.confirmCode(pubB64) } };
   }
+  // Send back (§5): an approval declined on the phone, with an optional note. No signature.
+  if (mode === 'approve' && b && b.rejected) return { result: { rejected: true, reason: String(b.reason || '').trim() } };
   if (!b || !b.signature) return { error: 'phone answer missing signature' };
   let target = wire.approval || wire.event;
   const editedBrief = (b.brief !== undefined && wire.approval && wire.approval.brief);
@@ -664,6 +666,24 @@ function signSummary(p, config, lock, manifest, items) {
 }
 const pendingDir = (p) => path.join(path.dirname(p.config), 'pending');
 
+// The signer can Accept, or Send back (with an optional note) — never silently reword the
+// Brief on the phone (a Brief change must pull its Cells with it, and the phone can't do
+// that). This prints the send-back for the AI reading the CLI output, encoding how to act.
+function reportSendBack(result, name) {
+  if (!result || !result.rejected) return false;
+  const note = (result.reason && String(result.reason).trim()) || '';
+  console.log('\n' + U.c.yellow(`↩ ${name} sent it back — NOT signed.`));
+  if (note) {
+    console.log('  ' + U.c.bold('their note: ') + U.c.accent(note));
+    console.log('  ' + U.c.dim('Reconcile the whole change-set per this note — the Brief and its Cells move together: a small'));
+    console.log('  ' + U.c.dim('correction → adjust the affected Cell spec(s) + Brief and re-present for approval; a fundamental'));
+    console.log('  ' + U.c.dim('one → treat it as a new request and rebuild the change-set from scratch. Then sign again.'));
+  } else {
+    console.log('  ' + U.c.dim('No note was given — do NOT guess. Ask the human in chat how to proceed before changing anything.'));
+  }
+  return true;
+}
+
 // Cross-signer delegation: seal the request to the target's INBOX (over the relay) and
 // return a request id. Fire-and-return — the Cells stay Unsigned until they approve;
 // collect their signature later with `yay sign --check`.
@@ -709,7 +729,11 @@ async function cmdSignCheck(flags, positional) {
     if (!resp || resp.pending || !resp.reply) { console.log(U.c.dim(`  ${id} (${pend.name}): still pending their approval.`)); continue; }
     const ans = E2E.open(E2E.fromB64url(pend.replyKey), resp.reply);
     if (!ans) { console.log(U.c.red(`  ${id}: could not decrypt the reply (key mismatch).`)); continue; }
-    if (ans.rejected) { fs.unlinkSync(path.join(dir, id + '.json')); console.log(U.c.yellow(`  ${id} (${pend.name}): they declined${ans.reason ? ' — ' + ans.reason : ''}. Cleared.`)); continue; }
+    if (ans.rejected) {
+      fs.unlinkSync(path.join(dir, id + '.json'));
+      try { await fetch(base + '/api/inbox', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ch: pend.inbox, id, remove: true }) }); } catch (_) {}
+      reportSendBack(ans, pend.name); continue;
+    }
     const approval = pend.approval;
     if (ans.brief !== undefined && approval.brief) approval.brief.text = String(ans.brief);
     const pubs = U.pubKeysOf(config.signers[pend.name]);
@@ -828,7 +852,8 @@ async function cmdSign(flags, positional) {
       // Hosted relay (relay.yaylayer.com), end-to-end encrypted. Works off-LAN.
       const routed = await routeThroughRelay(p, 'approve', { approval, summary, expectPubB64: pubs, signer: name, signerPubs: pubs }, flags);
       if (!routed || !routed.result) return; // routeThroughRelay logged why
-      if (routed.result.brief !== undefined && approval.brief) approval.brief.text = routed.result.brief; // human edited it on the phone
+      if (reportSendBack(routed.result, name)) { await relayFinal(routed.sess, { ok: false, reason: 'Sent back for changes.' }); return; }
+      if (routed.result.brief !== undefined && approval.brief) approval.brief.text = routed.result.brief; // legacy: older phone edited it
       approval.signature = routed.result.signature;
       await relayFinal(routed.sess, { ok: true, message: 'Signed ✓ — leave the page open for the next request.' });
     } else {
@@ -837,7 +862,8 @@ async function cmdSign(flags, positional) {
     const routed = await routeThroughDashboard(p, 'approve', { approval, summary, expectPubB64: pubs, signer: name, signerPubs: pubs });
     if (routed && routed.busy) return;
     if (routed && routed.result) {
-      if (routed.result.brief !== undefined && approval.brief) approval.brief.text = routed.result.brief; // human edited it on the phone
+      if (reportSendBack(routed.result, name)) { await dashboardFinal(routed.info, { ok: false, reason: 'Sent back for changes.' }); return; }
+      if (routed.result.brief !== undefined && approval.brief) approval.brief.text = routed.result.brief; // legacy: older phone edited it
       approval.signature = routed.result.signature;
       await dashboardFinal(routed.info, { ok: true, message: 'Signed ✓ — you can leave this open for the next request.' });
     } else {
@@ -851,7 +877,8 @@ async function cmdSign(flags, positional) {
       console.log(U.c.dim(`   reviewing ${summary.length} change(s) as "${name}" · Ctrl-C to cancel · tip: run \`yay dashboard\` to scan once and skip the QR each time`));
       let r; try { r = await s.done; } finally { s.close(); }
       if (r && r.timedOut) return fail('no approval received in time — nothing was signed. Re-run when ready.');
-      if (r && r.brief !== undefined && approval.brief) approval.brief.text = r.brief; // human edited it on the phone
+      if (reportSendBack(r, name)) return;
+      if (r && r.brief !== undefined && approval.brief) approval.brief.text = r.brief; // legacy: older phone edited it
       approval.signature = r.signature;
     }
     }
