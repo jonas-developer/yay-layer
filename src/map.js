@@ -160,7 +160,7 @@ function detailInner(cell, res, t) {
     ${checks}`;
 }
 
-function renderMap(manifest, verified, project, changes, times, planDoc, gov, briefs, tagCfg, policyInfo, tagSets) {
+function renderMap(manifest, verified, project, changes, times, planDoc, gov, briefs, tagCfg, policyInfo, tagSets, batchCfg) {
   // Build the hierarchy: system → module → sub-group → unit.
   const nodes = {}; const details = {};
   const ensure = (id, label, kind, parent) => {
@@ -235,7 +235,7 @@ function renderMap(manifest, verified, project, changes, times, planDoc, gov, br
     if (mc && mc.contains && mc.contains.length) continue; // container Cells aren't file units
     FILES.push({ file: res.file || (mc && mc.file) || 'other', name: (mc && (mc.unitName || (mc.spec && mc.spec.unit))) || res.name || id, id: 'u:' + id, state: res.state, line: res.line || (mc && mc.line) || 0 });
   }
-  const meta = { project: project || 'project', counts: verified.counts, passed: verified.passed, totalUnits, plan: planDoc || null, gov: gov || null, files: FILES, briefs: briefs || [], tags: (tagCfg && tagCfg.tags) || [], tagSet: (tagCfg && tagCfg.set) || null, tagDescriptions: (tagCfg && tagCfg.descriptions) || {}, tagSets: tagSets || [], policy: policyInfo || { enforced: [], draft: [], violations: [], signers: [] } };
+  const meta = { project: project || 'project', counts: verified.counts, passed: verified.passed, totalUnits, plan: planDoc || null, gov: gov || null, files: FILES, briefs: briefs || [], tags: (tagCfg && tagCfg.tags) || [], tagSet: (tagCfg && tagCfg.set) || null, tagDescriptions: (tagCfg && tagCfg.descriptions) || {}, tagSets: tagSets || [], batch: batchCfg || { enabled: true, barrier: 5 }, policy: policyInfo || { enforced: [], draft: [], violations: [], signers: [] } };
   const payload = JSON.stringify({ root: 'system', nodes: YLnodes, edges: { system: modEdges }, details, changes: changes || [], needs, meta })
     .replace(/</g, '\\u003c');
 
@@ -689,8 +689,12 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
       +(briefView==='list'?('<button id="bf-group" class="tab'+(briefGroupBy?' active':'')+'" style="border:1px solid '+(briefGroupBy?'var(--accent)':'var(--rule)')+'">'+(briefGroupBy?'✓ ':'')+'Group by tag</button>'
         +(briefTagFilter?('<span style="display:inline-flex;align-items:center;gap:6px;font-size:.78rem;font-weight:700;color:var(--accent);border:1px solid var(--accent);border-radius:100px;padding:3px 11px">#'+esc2(briefTagFilter)+' <span id="bf-clear" style="cursor:pointer;opacity:.7" title="Clear filter">✕</span></span>'):'')):'')
       +'</div>';
+    var bcfg=(DATA.meta&&DATA.meta.batch)||{enabled:true,barrier:5};
+    var batchbar=isLive()?('<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 16px;padding:10px 13px;border:1px solid var(--rule);border-radius:10px;background:var(--card2);font-size:.85rem;color:var(--ink-2)">'
+      +'<b style="color:var(--ink)">Batch</b><label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="bf-batch-en"'+(bcfg.enabled?' checked':'')+'>on</label><span style="color:var(--mut)">·</span>sign after <input id="bf-batch-n" type="number" min="1" max="100" value="'+bcfg.barrier+'" style="width:54px;padding:4px 6px;border-radius:7px;border:1px solid var(--rule);background:var(--paper);color:var(--ink)"> small changes'
+      +'<span id="bf-batch-msg" style="color:var(--mut);margin-left:4px"></span></div>'):'';
     var hint=briefView==='clouds'?'Each tag is a cloud; inside, its Briefs newest-first. A Brief with several tags appears in every matching cloud — tap one to see its parts.':'Click a tag to filter; “Group by tag” orders by tag first, date second.';
-    var html='<h1>Briefs</h1><div class="snote" style="margin:0 0 12px">What was ordered, in plain language. '+hint+'</div>'+toolbar;
+    var html='<h1>Briefs</h1><div class="snote" style="margin:0 0 12px">What was ordered, in plain language. '+hint+'</div>'+toolbar+batchbar;
 
     if(briefView==='clouds'){
       var tagMap={};
@@ -724,6 +728,9 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
     }
     el.innerHTML=html;
     Array.prototype.forEach.call(el.querySelectorAll('.bf-view'),function(bt){ bt.onclick=function(){ briefView=bt.getAttribute('data-v'); renderBriefs(); }; });
+    var ben=document.getElementById('bf-batch-en'), bn=document.getElementById('bf-batch-n'), bmsg=document.getElementById('bf-batch-msg');
+    function saveBatch(){ fetch('/api/batch',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({enabled:ben.checked,barrier:parseInt(bn.value,10)||5})}).then(function(r){return r.json();}).then(function(j){ if(bmsg){ bmsg.textContent=(j&&j.ok)?'✓ saved':'✗ '+((j&&j.error)||'failed'); bmsg.style.color=(j&&j.ok)?'#1f9d57':'#cf4436'; } }); }
+    if(ben) ben.onchange=saveBatch; if(bn) bn.onchange=saveBatch;
     var g=document.getElementById('bf-group'); if(g) g.onclick=function(){ briefGroupBy=!briefGroupBy; renderBriefs(); };
     var clr=document.getElementById('bf-clear'); if(clr) clr.onclick=function(){ briefTagFilter=null; renderBriefs(); };
     Array.prototype.forEach.call(el.querySelectorAll('.btag'),function(ch){ ch.onclick=function(){ briefTagFilter=ch.getAttribute('data-tag'); renderBriefs(); }; });

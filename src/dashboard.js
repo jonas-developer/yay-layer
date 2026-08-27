@@ -285,6 +285,14 @@ function startDashboard(deps, opts) {
       try { return sendJSON(res, 200, await deps.addRequest(text)); }
       catch (e) { return sendJSON(res, 200, { ok: false, error: String((e && e.message) || e) }); }
     }
+    // Batch settings: how many small changes group into one Brief.
+    if (req.method === 'POST' && url === '/api/batch') {
+      if (!isLocal(req)) return sendJSON(res, 403, { error: 'local only' });
+      if (!deps.batchSet) return sendJSON(res, 200, { ok: false, error: 'batch settings not available' });
+      const b = await readBody(req);
+      try { return sendJSON(res, 200, deps.batchSet(b)); }
+      catch (e) { return sendJSON(res, 200, { ok: false, error: String((e && e.message) || e) }); }
+    }
     // Preview: run package.json scripts (dev server, build…) through the dashboard.
     if (req.method === 'GET' && url === '/api/scripts') {
       if (!isLocal(req)) return sendJSON(res, 403, { error: 'local only' });

@@ -1694,7 +1694,7 @@ function buildMapHTML(p, config, lock, flags) {
     signers: signers.map((s) => s.name),
   };
   const tagSets = tagsMod.TAG_SETS.map((s) => ({ id: s.id, name: s.name, desc: s.desc }));
-  return { html: renderMap(manifest, verified, config && config.project, changes, times, planDoc, gov, briefs, tagsMod.loadTags(p), policyInfo, tagSets), count: Object.keys(verified.results).length };
+  return { html: renderMap(manifest, verified, config && config.project, changes, times, planDoc, gov, briefs, tagsMod.loadTags(p), policyInfo, tagSets, batchConfig(config)), count: Object.keys(verified.results).length };
 }
 
 // A cheap fingerprint of the state the map depends on, so the dashboard can tell
@@ -1918,6 +1918,17 @@ async function cmdDashboard(flags) {
         tagsMod.saveTags(st.p, cur);
         return { ok: true };
       },
+      // Batch settings (how many small changes group into one Brief).
+      batchSet: (op) => {
+        const st = loadState();
+        const cur = batchConfig(st.config);
+        const enabled = (op && typeof op.enabled === 'boolean') ? op.enabled : cur.enabled;
+        let barrier = (op && op.barrier != null) ? parseInt(op.barrier, 10) : cur.barrier;
+        if (!(barrier >= 1 && barrier <= 100)) barrier = cur.barrier;
+        st.config.batch = { enabled, barrier };
+        U.writeJSON(st.p.config, st.config);
+        return { ok: true, batch: st.config.batch };
+      },
       // Queue a plain human request the AI will turn into a Brief + Cells (see `yay requests`).
       addRequest: (text) => {
         const rp = requestsPath(p);
@@ -2003,6 +2014,32 @@ function cmdAdopt(flags, positional) {
   console.log('\n  Next: prune each DERIVED spec, then ' + U.c.bold('yay sign') + '.');
 }
 
+// Batch settings live in config.json (committed, shared). Default: on, barrier 5.
+function batchConfig(config) {
+  const b = (config && config.batch) || {};
+  return { enabled: b.enabled !== false, barrier: (b.barrier >= 1 && b.barrier <= 100) ? b.barrier : 5 };
+}
+// `yay batch` — how the AI groups small changes into one Brief before asking you to sign.
+function cmdBatch(flags, positional) {
+  const { p, config } = loadState();
+  if (!config) return fail('run `yay init` first');
+  const cur = batchConfig(config);
+  const sub = positional[0];
+  const setN = (sub && /^\d+$/.test(sub)) ? parseInt(sub, 10) : (flags.barrier && flags.barrier !== true ? parseInt(flags.barrier, 10) : null);
+  if (sub === 'off' || flags.off) { config.batch = { enabled: false, barrier: cur.barrier }; U.writeJSON(p.config, config); console.log(U.c.green('✓ batch mode OFF') + U.c.dim(' — every change gets its own Brief. Commit .yaylayer/config.json.')); return; }
+  if (sub === 'on' || flags.on) { config.batch = { enabled: true, barrier: cur.barrier }; U.writeJSON(p.config, config); console.log(U.c.green(`✓ batch mode ON`) + U.c.dim(` — barrier ${cur.barrier}. Commit .yaylayer/config.json.`)); return; }
+  if (setN != null) {
+    if (!(setN >= 1 && setN <= 100)) return fail('barrier must be a number 1–100');
+    config.batch = { enabled: true, barrier: setN }; U.writeJSON(p.config, config);
+    console.log(U.c.green(`✓ batch barrier set to ${setN}`) + U.c.dim(' — the AI asks whether to close the batch after this many small changes. Commit .yaylayer/config.json.'));
+    return;
+  }
+  console.log(U.c.bold('Batch mode') + (cur.enabled ? U.c.green(' ON') + U.c.dim(` · barrier ${cur.barrier}`) : U.c.yellow(' OFF')));
+  console.log(U.c.dim('  Small, low-risk changes are grouped into one Brief; at the barrier the AI asks whether to close it and sign'));
+  console.log(U.c.dim('  (in freedom mode it auto-approves the batched Brief instead). Sensitive / behaviour-changing edits always get their own Brief.'));
+  console.log(U.c.dim('  set: ') + U.c.bold('yay batch <n>') + U.c.dim(' · disable: ') + U.c.bold('yay batch off') + U.c.dim(' · enable: ') + U.c.bold('yay batch on'));
+}
+
 function cmdStatus(flags) {
   flags = flags || {};
   const { p, config, lock } = loadState();
@@ -2012,6 +2049,8 @@ function cmdStatus(flags) {
   const c = verified.counts;
   console.log(U.c.bold(config.project) + U.c.dim(`  · ${Object.keys(manifest.cells).length} Cells · ${Object.keys(config.signers).length} signer(s)`));
   console.log('  ' + U.c.green(`${c.GREEN}●`) + ' ' + U.c.yellow(`${c.YELLOW}●`) + ' ' + U.c.red(`${c.RED}●`) + ' ' + U.c.gray(`${c.UNSIGNED}○`) + '  ' + (verified.passed ? U.c.green('PASS') : U.c.red('BLOCKED')));
+  const bc = batchConfig(config);
+  if (bc.enabled && c.UNSIGNED > 0) console.log('  ' + U.c.dim(`${c.UNSIGNED} unsigned Cell(s) staged toward the batch (barrier ${bc.barrier}) — `) + U.c.bold('yay sign') + U.c.dim(' to close it.'));
 }
 
 function matcherStr(m) {
@@ -2223,6 +2262,8 @@ const HELP = `yay — a protocol for provable, signed AI code
   yay tags [--set id|add|remove|rename|desc|sets]  the project's Brief-tag vocabulary — every Brief is tagged
                              from it. --set <id> (or --set custom for blank placeholders) · add/remove "Tag" ·
                              rename "A" "B" (blocked once a tag is used in a signed Brief) · desc "Tag" "…" · sets
+  yay batch [<n>|off|on]      how the AI groups small changes into one Brief before signing (default barrier 5).
+                             "yay batch 8" raises it; "off" = a Brief per change. Batches are per-concern (tag).
   yay verify [--strict] [-d]  the gate — paint every Cell; -d/--details prints each spec, code & checks
                              --problems shows only non-green Cells · --no-mutate skips prover mutation grading
   yay plan [--provider anthropic|openai|custom] [--model m] [--base-url url]
@@ -2269,6 +2310,7 @@ async function main() {
     case 'constitution': case 'rules': return cmdConstitution(flags, positional);
     case 'gate': case 'ci': return cmdGate(flags, positional);
     case 'status': return cmdStatus(flags);
+    case 'batch': return cmdBatch(flags, positional);
     case 'policy': return cmdPolicy(flags);
     case undefined: case 'help': case '--help': case '-h': return console.log(HELP);
     default: console.error(U.c.red(`unknown command: ${cmd}`)); console.log(HELP); process.exitCode = 1;

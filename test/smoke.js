@@ -620,6 +620,17 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     sd.close();
   }
 
+  // Dashboard batch settings: set the barrier / toggle through the dashboard.
+  {
+    let saved = null;
+    const sd = await startDashboard({ buildMapHTML: () => ({ html: '<html><body></body></html>', count: 0 }), version: () => 'A',
+      batchSet: (op) => { saved = op; return { ok: true, batch: { enabled: op.enabled !== false, barrier: op.barrier || 5 } }; } }, { port: 0 });
+    const sb = 'http://127.0.0.1:' + sd.port;
+    const r = await fetch(sb + '/api/batch', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled: true, barrier: 8 }) }).then((x) => x.json());
+    ok(r.ok === true && r.batch.barrier === 8 && saved.barrier === 8, 'v2 batch: /api/batch sets the barrier');
+    sd.close();
+  }
+
   // Briefs ledger renders as a tab in the map (the readable history of what was ordered).
   {
     const { renderMap } = require('../src/map');
