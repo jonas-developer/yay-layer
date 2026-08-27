@@ -60,7 +60,7 @@ const COMMANDS = [
   { cmd: 'yay sign [--cell IDs]', desc: 'Approve the current specs — appends a signed seal. Uses THIS project’s signing method automatically (phone or local); no flag needed. If a dashboard is running, the request pops up on the phone you already scanned.', flags: [['--brief "<text>"', 'the signed Brief — the human-owned headline, REQUIRED by default (read-only on the phone: Accept or Send back; prompted if omitted at a terminal)'], ['--tags "A,B"', 'tag the Brief from the project pool (see yay tags) — required when a pool exists; --no-tags to skip'], ['--name "<signer>"', 'sign as / route to that signer — a teammate over relay gets it in their inbox (fire-and-return, returns a request id)'], ['--check [id]', 'collect a routed teammate’s signature and write the seal'], ['--phone / --local', 'force the device (default = the project’s method)'], ['--no-brief', 'skip the Brief for a trivial re-sign'], ['--relay / --lan', 'phone transport override'], ['--cell <ids>', 'only these Cells (comma-separated)']] },
   { cmd: 'yay inbox', desc: 'Print YOUR on-duty relay link (+ QR) — open it on your phone and leave it up to receive approval requests teammates address to you with `yay sign --name "You"`.', flags: [] },
   { cmd: 'yay requests [done <id>]', desc: 'The AI’s inbox of plain requests queued from the dashboard’s “Request a change” button. The AI turns each into a polished Brief + Cells to sign.', flags: [['done <id> / clear', 'remove a handled request (or all)']] },
-  { cmd: 'yay tags [--set id]', desc: 'The project’s Brief-tag vocabulary — every Brief is tagged from it, so work can be sorted by concern over time. Six starter sets; switch or extend anytime.', flags: [['--set <id>', 'switch to a starter set (technical, responsibility, component, layer, area, product)'], ['add "Tag" / remove "Tag"', 'edit the pool'], ['sets', 'list the six starter sets and their tags']] },
+  { cmd: 'yay tags [--set id]', desc: 'The project’s Brief-tag vocabulary — every Brief is tagged from it, so work can be sorted by concern over time. Six starter sets or a blank custom set; edit here or live in the dashboard Tags tab.', flags: [['--set <id>', 'switch to a starter set (technical, responsibility, component, layer, area, product) or custom (blank placeholders)'], ['add "Tag" / remove "Tag"', 'edit the pool'], ['rename "A" "B"', 'relabel a tag — blocked once it is used in a signed Brief (would split history)'], ['desc "Tag" "…"', 'set a tag’s description'], ['sets', 'list the six starter sets and their tags']] },
   { cmd: 'yay policy [--init|--set]', desc: 'Signing policy — who must sign what (neutral by default). A rule requires a specific person to sign Cells matched by path glob, spec tag, or module; the gate blocks any match they haven’t signed. Edit the draft in the dashboard Policy tab or the file, then --set owner-signs it into the roster (tamper-evident).', flags: [['--init', 'write a commented policy.json template'], ['--set', 'owner-sign the draft policy.json into effect (routes to your phone)']] },
   { cmd: 'yay grant [--for 2h] [--count 20]', desc: 'FREEDOM MODE: an owner-signed grant lets the AI auto-approve in-scope, non-sensitive Cells unattended until it expires or hits the count. Sensitive / code-pinned Cells always still need a real signature.', flags: [['--for <dur>', 'time window, e.g. 2h, 90m, 1d (default 2h)'], ['--count <n>', 'max auto-approvals (default 20)'], ['--cell <ids>', 'scope to named Cells (else all non-sensitive)'], ['list / revoke [id]', 'show active grants / stop one']] },
   { cmd: 'yay ratify [--sign]', desc: 'List Cells auto-approved under a grant (delegated, not human-reviewed); --sign signs them for real.', flags: [['--sign', 'sign the delegated approvals for real (human)']] },
@@ -235,7 +235,7 @@ function renderMap(manifest, verified, project, changes, times, planDoc, gov, br
     if (mc && mc.contains && mc.contains.length) continue; // container Cells aren't file units
     FILES.push({ file: res.file || (mc && mc.file) || 'other', name: (mc && (mc.unitName || (mc.spec && mc.spec.unit))) || res.name || id, id: 'u:' + id, state: res.state, line: res.line || (mc && mc.line) || 0 });
   }
-  const meta = { project: project || 'project', counts: verified.counts, passed: verified.passed, totalUnits, plan: planDoc || null, gov: gov || null, files: FILES, briefs: briefs || [], tags: (tagCfg && tagCfg.tags) || [], tagSet: (tagCfg && tagCfg.set) || null, policy: policyInfo || { enforced: [], draft: [], violations: [], signers: [] } };
+  const meta = { project: project || 'project', counts: verified.counts, passed: verified.passed, totalUnits, plan: planDoc || null, gov: gov || null, files: FILES, briefs: briefs || [], tags: (tagCfg && tagCfg.tags) || [], tagSet: (tagCfg && tagCfg.set) || null, tagDescriptions: (tagCfg && tagCfg.descriptions) || {}, policy: policyInfo || { enforced: [], draft: [], violations: [], signers: [] } };
   const payload = JSON.stringify({ root: 'system', nodes: YLnodes, edges: { system: modEdges }, details, changes: changes || [], needs, meta })
     .replace(/</g, '\\u003c');
 
@@ -691,17 +691,39 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
     Array.prototype.forEach.call(el.querySelectorAll('.mcell.known'),function(ch){ ch.addEventListener('click',function(){ openDetail(ch.getAttribute('data-uid')); }); });
   }
 
-  // ── Tags tab — the project vocabulary + what was built, sorted by tag over time ──
+  // ── Tags tab — the project vocabulary + what was built, sorted by tag over time. Under
+  // the live dashboard it's editable (relabel/describe/add/remove); a tag already in a
+  // signed Brief can't be renamed (that would split the history) but can be removed.
   function renderTags(){
     var el=document.getElementById('tags'); if(!el) return;
+    var LIVE=isLive();
     var pool=(DATA.meta&&DATA.meta.tags)||[];
     var setName=(DATA.meta&&DATA.meta.tagSet)||'';
+    var descs=(DATA.meta&&DATA.meta.tagDescriptions)||{};
     var briefs=(DATA.meta&&DATA.meta.briefs)||[];
-    if(!pool.length){ el.innerHTML='<h1>Tags</h1><div class="snote">No tag pool set. Choose one with <b>yay tags --set &lt;id&gt;</b> (six starter sets) — then every Brief is tagged from it, so you can sort what you build by concern over time.</div>'; return; }
     var lc=function(s){return String(s).toLowerCase();};
     var counts={}; briefs.forEach(function(b){ (b.tags||[]).forEach(function(t){ counts[lc(t)]=(counts[lc(t)]||0)+1; }); });
-    var html='<h1>Tags</h1><div class="snote" style="margin:0 0 14px">The project vocabulary'+(setName?(' ('+esc2(setName)+' set)'):'')+' — every Brief is tagged from this pool. Edit with <b>yay tags</b>.</div>';
-    html+='<div style="margin:0 0 22px">'+pool.map(function(t){var n=counts[lc(t)]||0;return '<span style="display:inline-block;font-size:.8rem;font-weight:600;padding:4px 11px;border-radius:100px;border:1px solid var(--rule);color:'+(n?'var(--accent)':'var(--mut)')+';margin:0 6px 8px 0">'+esc2(t)+(n?(' <span style="opacity:.55">'+n+'</span>'):'')+'</span>';}).join('')+'</div>';
+    function descOf(t){ for(var k in descs){ if(lc(k)===lc(t)) return descs[k]; } return ''; }
+    function post(u,b){return fetch(u,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b||{})}).then(function(r){return r.json();});}
+    if(!pool.length && !LIVE){ el.innerHTML='<h1>Tags</h1><div class="snote">No tag pool set. Choose one with <b>yay tags --set &lt;id&gt;</b> (six starter sets, or <b>--set custom</b> for blank placeholders) — then every Brief is tagged from it, so you can sort what you build by concern over time.</div>'; return; }
+    var html='<h1>Tags</h1><div class="snote" style="margin:0 0 14px">The project vocabulary'+(setName?(' ('+esc2(setName)+' set)'):'')+' — every Brief is tagged from this pool.'+(LIVE?' Relabel, describe, add or remove below. A tag already used in a signed Brief can’t be renamed (it would split the history), but can be removed.':' Edit with <b>yay tags</b>, or live in <b>yay dashboard</b>.')+'</div>';
+    if(LIVE){
+      html+='<div id="tag-editor" style="margin:0 0 22px">';
+      pool.forEach(function(t){
+        var n=counts[lc(t)]||0, d=descOf(t);
+        html+='<div class="tag-row" data-tag="'+esc2(t)+'" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;border:1px solid var(--rule);border-radius:10px;padding:8px 10px;margin:0 0 8px">';
+        if(n) html+='<span style="font-weight:700;color:var(--accent);min-width:120px">'+esc2(t)+'</span><span style="font-size:.72rem;color:var(--mut)" title="used in signed Briefs — locked from renaming">🔒 used ×'+n+'</span>';
+        else html+='<input class="tag-label" value="'+esc2(t)+'" style="font-weight:700;min-width:120px;padding:6px 8px;border-radius:7px;border:1px solid var(--rule);background:var(--paper);color:var(--ink)">';
+        html+='<input class="tag-desc" value="'+esc2(d)+'" placeholder="description (optional)" style="flex:1;min-width:150px;padding:6px 8px;border-radius:7px;border:1px solid var(--rule);background:var(--paper);color:var(--ink)">';
+        html+='<button class="tag-rm" style="border:1px solid var(--rule);background:none;color:#cf4436;border-radius:7px;padding:5px 9px;cursor:pointer;font-size:.8rem">remove</button></div>';
+      });
+      html+='<div style="display:flex;gap:8px;align-items:center;margin-top:10px"><input id="tag-new" placeholder="new tag label" style="flex:1;min-width:140px;padding:8px;border-radius:8px;border:1px solid var(--rule);background:var(--paper);color:var(--ink)"><button id="tag-add" style="padding:8px 14px;border-radius:8px;border:none;background:var(--brand);color:#04231a;font-weight:700;cursor:pointer">Add tag</button></div>';
+      html+='<div id="tag-msg" style="margin-top:8px;font-size:.82rem;color:var(--mut)"></div></div>';
+    } else {
+      html+='<div style="margin:0 0 16px">'+pool.map(function(t){var n=counts[lc(t)]||0,d=descOf(t);return '<span title="'+esc2(d)+'" style="display:inline-block;font-size:.8rem;font-weight:600;padding:4px 11px;border-radius:100px;border:1px solid var(--rule);color:'+(n?'var(--accent)':'var(--mut)')+';margin:0 6px 8px 0">'+esc2(t)+(n?(' <span style="opacity:.55">'+n+'</span>'):'')+'</span>';}).join('')+'</div>';
+      var anyD=pool.some(function(t){return descOf(t);});
+      if(anyD) html+='<div style="margin:0 0 20px">'+pool.filter(function(t){return descOf(t);}).map(function(t){return '<div style="font-size:.86rem;margin:0 0 4px"><b style="color:var(--accent)">'+esc2(t)+'</b> <span style="color:var(--mut)">— '+esc2(descOf(t))+'</span></div>';}).join('')+'</div>';
+    }
     if(briefs.length){
       html+='<div class="snote" style="margin:0 0 10px">What was built, by tag — newest first:</div>';
       pool.forEach(function(t){
@@ -715,10 +737,33 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
         });
         html+='</div>';
       });
+      var poolLc={}; pool.forEach(function(t){poolLc[lc(t)]=1;});
+      var retired={}; briefs.forEach(function(b){ (b.tags||[]).forEach(function(t){ if(!poolLc[lc(t)]) retired[lc(t)]=t; }); });
+      var rkeys=Object.keys(retired);
+      if(rkeys.length){
+        html+='<div style="margin:16px 0 0"><div style="font-weight:800;font-size:.8rem;color:var(--mut);margin-bottom:6px" title="Removed from the pool, but kept in the Briefs that used them">Retired · no longer offered, kept in history</div>';
+        rkeys.forEach(function(k){ var t=retired[k]; var items=briefs.filter(function(b){return (b.tags||[]).some(function(x){return lc(x)===k;});});
+          html+='<div style="margin:0 0 8px"><span style="font-weight:700;color:var(--mut)">'+esc2(t)+' · '+items.length+'</span>'+items.map(function(b){return '<div style="font-size:.86rem;color:var(--mut);padding:1px 0 1px 12px;border-left:2px solid var(--rule);margin:2px 0">'+esc2(b.text||'')+' <span style="font-size:.72rem">('+esc2(b.id||'')+')</span></div>';}).join('')+'</div>'; });
+        html+='</div>';
+      }
       var untagged=briefs.filter(function(b){return !(b.tags&&b.tags.length);});
       if(untagged.length){ html+='<div style="margin:14px 0 0"><div style="font-weight:800;font-size:.8rem;color:var(--mut);margin-bottom:6px">Untagged · '+untagged.length+'</div>'; untagged.forEach(function(b){ html+='<div style="font-size:.9rem;color:var(--mut);padding:2px 0 2px 12px;border-left:2px solid var(--rule);margin:0 0 6px">'+esc2(b.text||'')+' <span style="font-size:.74rem">('+esc2(b.id||'')+')</span></div>'; }); html+='</div>'; }
     }
     el.innerHTML=html;
+    if(LIVE){
+      var msg=document.getElementById('tag-msg');
+      function fail(m){ if(msg){msg.textContent='✗ '+m;msg.style.color='#cf4436';} }
+      Array.prototype.forEach.call(el.querySelectorAll('.tag-row'),function(row){
+        var orig=row.getAttribute('data-tag');
+        var lab=row.querySelector('.tag-label'), de=row.querySelector('.tag-desc'), rm=row.querySelector('.tag-rm');
+        if(lab) lab.addEventListener('change',function(){ var v=(lab.value||'').trim(); if(!v||v===orig){lab.value=orig;return;} post('/api/tags/edit',{action:'rename',from:orig,to:v}).then(function(j){ if(j&&j.ok) location.reload(); else { lab.value=orig; fail((j&&j.error)||'rename failed'); } }); });
+        if(de) de.addEventListener('change',function(){ post('/api/tags/edit',{action:'desc',label:orig,text:(de.value||'').trim()}).then(function(j){ if(j&&j.ok){ if(msg){msg.textContent='✓ description saved';msg.style.color='#1f9d57';} } else fail((j&&j.error)||'save failed'); }); });
+        if(rm) rm.addEventListener('click',function(){ var used=counts[lc(orig)]||0; if(used && !confirm('Remove “'+orig+'”? '+used+' signed Brief(s) keep it in their history (shown under Retired). It just won’t be offered for new Briefs.')) return; post('/api/tags/edit',{action:'remove',label:orig}).then(function(j){ if(j&&j.ok) location.reload(); else fail((j&&j.error)||'remove failed'); }); });
+      });
+      var addBtn=document.getElementById('tag-add'), addInp=document.getElementById('tag-new');
+      if(addBtn) addBtn.onclick=function(){ var v=(addInp.value||'').trim(); if(!v){fail('enter a tag label');return;} post('/api/tags/edit',{action:'add',label:v}).then(function(j){ if(j&&j.ok) location.reload(); else fail((j&&j.error)||'add failed'); }); };
+      if(addInp) addInp.addEventListener('keydown',function(e){ if(e.key==='Enter'&&addBtn) addBtn.onclick(); });
+    }
   }
 
   // ── Policy tab — who must sign what. Viewer (enforced vs draft + violations) plus,
@@ -825,7 +870,8 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
   function isLive(){ return !!document.getElementById('yd-bar'); }
   (function(){
     if(DATA.meta && DATA.meta.plan) Array.prototype.forEach.call(document.querySelectorAll('[data-tab="plan"]'),function(t){ t.style.display=''; });
-    if(DATA.meta && DATA.meta.tags && DATA.meta.tags.length) Array.prototype.forEach.call(document.querySelectorAll('[data-tab="tags"]'),function(t){ t.style.display=''; });
+    function revealTags(){ if(isLive() || (DATA.meta && DATA.meta.tags && DATA.meta.tags.length)) Array.prototype.forEach.call(document.querySelectorAll('[data-tab="tags"]'),function(t){ t.style.display=''; }); }
+    revealTags(); window.addEventListener('load', revealTags);
     var pol=(DATA.meta&&DATA.meta.policy)||{};
     function revealPolicy(){ if(isLive() || (pol.enforced&&pol.enforced.length) || (pol.draft&&pol.draft.length)) Array.prototype.forEach.call(document.querySelectorAll('[data-tab="policy"]'),function(t){ t.style.display=''; }); }
     revealPolicy(); window.addEventListener('load', revealPolicy); // re-check once yd-bar is in the DOM

@@ -591,6 +591,18 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     sd.close();
   }
 
+  // Dashboard tag-pool editor: add/rename/remove/describe route to tagsEdit (used-tag guard).
+  {
+    let last = null;
+    const sd = await startDashboard({ buildMapHTML: () => ({ html: '<html><body></body></html>', count: 0 }), version: () => 'A',
+      tagsEdit: (op) => { last = op; return (op.action === 'rename' && op.from === 'UI') ? { ok: false, error: 'used in signed Briefs' } : { ok: true }; } }, { port: 0 });
+    const sb = 'http://127.0.0.1:' + sd.port;
+    const sp = (path, b) => fetch(sb + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b || {}) }).then((r) => r.json());
+    ok((await sp('/api/tags/edit', { action: 'add', label: 'Payments' })).ok === true && last.label === 'Payments', 'v2 tags: /api/tags/edit routes an add to tagsEdit');
+    ok((await sp('/api/tags/edit', { action: 'rename', from: 'UI', to: 'X' })).ok === false, 'v2 tags: renaming a used tag is refused (would split history)');
+    sd.close();
+  }
+
   // Briefs ledger renders as a tab in the map (the readable history of what was ordered).
   {
     const { renderMap } = require('../src/map');
@@ -924,6 +936,7 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
   {
     const T = require('../src/tags');
     ok(T.TAG_SETS.length === 6 && new Set(T.TAG_SETS.map((s) => s.id)).size === 6, 'tags: six distinct starter sets');
+    ok(Array.isArray(T.CUSTOM_SEED) && T.CUSTOM_SEED.length === 4, 'tags: custom seed has 4 placeholders to relabel');
     ok(T.TAG_SETS.every((s) => Array.isArray(s.tags) && s.tags.length >= 8), 'tags: every set has a real tag list');
     const pool = T.setById('responsibility').tags;
     ok(JSON.stringify(T.parseTags(pool, 'ui, SECURITY')) === JSON.stringify(['UI', 'Security']), 'tags: parseTags canonicalizes case against the pool');

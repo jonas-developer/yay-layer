@@ -95,8 +95,12 @@ function tagPoolBlock(root) {
   try {
     const o = JSON.parse(fs.readFileSync(path.join(root, '.yaylayer', 'tags.json'), 'utf8'));
     if (o && Array.isArray(o.tags) && o.tags.length) {
-      return '\n\n---\n\n**Project tag pool** (Article 13) — tag every Brief with 1–3 of these, via `yay sign --tags "…"`:\n\n'
-        + o.tags.map((t) => '`' + t + '`').join(' · ') + '\n';
+      const d = o.descriptions || {};
+      const hasD = o.tags.some((t) => d[t]);
+      const body = hasD
+        ? o.tags.map((t) => '- `' + t + '`' + (d[t] ? ' — ' + d[t] : '')).join('\n')
+        : o.tags.map((t) => '`' + t + '`').join(' · ');
+      return '\n\n---\n\n**Project tag pool** (Article 13) — tag every Brief with 1–3 of these, via `yay sign --tags "…"`:\n\n' + body + '\n';
     }
   } catch (_) {}
   return '';

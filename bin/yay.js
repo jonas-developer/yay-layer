@@ -399,18 +399,25 @@ async function cmdInit(flags, positional) {
     if (tty) {
       console.log('\n' + U.c.bold('Brief tags') + U.c.dim(' — a small vocabulary every Brief is tagged with, so you can later sort what you built by concern + time. Pick a starter set:'));
       tagsMod.TAG_SETS.forEach((s, i) => console.log('  ' + U.c.bold(String(i + 1)) + ') ' + s.name.padEnd(22) + U.c.dim(s.desc)));
-      console.log('  ' + U.c.dim('(switch sets or add your own anytime with `yay tags`)'));
-      const ans = (await ask('  Choose 1–6, or Enter to skip tagging: ')).trim();
+      const customN = tagsMod.TAG_SETS.length + 1;
+      console.log('  ' + U.c.bold(String(customN)) + ') ' + 'Custom'.padEnd(22) + U.c.dim('blank placeholders (Custom 1–4) you relabel yourself later'));
+      console.log('  ' + U.c.dim('(switch sets, relabel, or add your own anytime with `yay tags` or the dashboard)'));
+      const ans = (await ask(`  Choose 1–${customN}, or Enter to skip tagging: `)).trim();
       const idx = parseInt(ans, 10);
-      tagChoice = (idx >= 1 && idx <= tagsMod.TAG_SETS.length) ? tagsMod.TAG_SETS[idx - 1].id : 'none';
+      tagChoice = (idx >= 1 && idx <= tagsMod.TAG_SETS.length) ? tagsMod.TAG_SETS[idx - 1].id : (idx === customN ? 'custom' : 'none');
     } else tagChoice = 'none';
   }
   if (tagChoice && tagChoice !== 'none' && !tagsMod.loadTags(p)) {
-    const set = tagsMod.setById(tagChoice);
-    if (!set) console.log(U.c.yellow(`  unknown tag set "${tagChoice}" — skipping (options: ${tagsMod.TAG_SETS.map((s) => s.id).join(', ')}).`));
-    else {
-      tagsMod.saveTags(p, { project: config.project, set: set.id, tags: set.tags.slice() });
-      console.log(U.c.green(`✓ tags: "${set.name}"`) + U.c.dim(` (${set.tags.length} tags) → .yaylayer/tags.json (commit this). Edit with `) + U.c.bold('yay tags') + U.c.dim('.'));
+    if (tagChoice === 'custom') {
+      tagsMod.saveTags(p, { project: config.project, set: 'custom', tags: tagsMod.CUSTOM_SEED.slice(), descriptions: {} });
+      console.log(U.c.green('✓ tags: custom placeholders') + U.c.dim(' (Custom 1–4) → .yaylayer/tags.json. Relabel them in the dashboard Tags tab, `yay tags rename`, or the file.'));
+    } else {
+      const set = tagsMod.setById(tagChoice);
+      if (!set) console.log(U.c.yellow(`  unknown tag set "${tagChoice}" — skipping (options: ${tagsMod.TAG_SETS.map((s) => s.id).join(', ')}, custom).`));
+      else {
+        tagsMod.saveTags(p, { project: config.project, set: set.id, tags: set.tags.slice() });
+        console.log(U.c.green(`✓ tags: "${set.name}"`) + U.c.dim(` (${set.tags.length} tags) → .yaylayer/tags.json (commit this). Edit with `) + U.c.bold('yay tags') + U.c.dim('.'));
+      }
     }
   }
 
@@ -1646,7 +1653,7 @@ function buildMapHTML(p, config, lock, flags) {
 function stateVersion(p) {
   const parts = [];
   const dir = path.dirname(p.config);
-  for (const f of ['config.json', 'lock.json', 'roster.json', 'plan.json']) {
+  for (const f of ['config.json', 'lock.json', 'roster.json', 'plan.json', 'tags.json', 'policy.json']) {
     try { parts.push(f + ':' + fs.statSync(path.join(dir, f)).mtimeMs); } catch (_) { parts.push(f + ':0'); }
   }
   try { for (const f of U.walk(p.root)) { if (/\.(js|ts|jsx|tsx|py|css|html)$/.test(f) && !f.includes('.yaylayer')) parts.push(f + ':' + fs.statSync(f).mtimeMs); } } catch (_) {}
@@ -1781,6 +1788,39 @@ async function cmdDashboard(flags) {
           ? { ok: true, output: out.replace(/\x1b\[[0-9;]*m/g, '').trim() }
           : { ok: false, error: (out.replace(/\x1b\[[0-9;]*m/g, '').trim() || ('policy --set exited ' + code)) }));
       }),
+      // Live tag-pool editing from the dashboard (add / remove / rename / describe). Renaming
+      // a tag already used in a signed Brief is refused — it would split the history.
+      tagsEdit: (op) => {
+        const st = loadState();
+        const cur = tagsMod.loadTags(st.p) || { project: st.config.project, set: 'custom', tags: [], descriptions: {} };
+        cur.descriptions = cur.descriptions || {};
+        const norm = tagsMod.norm;
+        const uses = {}; for (const a of (st.lock.approvals || [])) for (const t of ((a.brief && a.brief.tags) || [])) uses[norm(t)] = (uses[norm(t)] || 0) + 1;
+        const action = op && op.action;
+        if (action === 'add') {
+          const label = String((op.label != null ? op.label : '')).trim();
+          if (!label) return { ok: false, error: 'empty tag' };
+          if (!tagsMod.isKnown(cur.tags, label)) cur.tags.push(label);
+        } else if (action === 'remove') {
+          cur.tags = cur.tags.filter((t) => norm(t) !== norm(op.label));
+          for (const k of Object.keys(cur.descriptions)) if (norm(k) === norm(op.label)) delete cur.descriptions[k];
+        } else if (action === 'rename') {
+          const i = cur.tags.findIndex((t) => norm(t) === norm(op.from));
+          if (i < 0) return { ok: false, error: 'no such tag' };
+          if (uses[norm(op.from)]) return { ok: false, error: `"${cur.tags[i]}" is used in ${uses[norm(op.from)]} signed Brief(s) — renaming would split the history. Add a new tag, or remove this one.` };
+          const to = String((op.to != null ? op.to : '')).trim();
+          if (!to) return { ok: false, error: 'empty new label' };
+          const old = cur.tags[i]; cur.tags[i] = to;
+          if (cur.descriptions[old] !== undefined) { cur.descriptions[to] = cur.descriptions[old]; delete cur.descriptions[old]; }
+        } else if (action === 'desc') {
+          const canon = cur.tags.find((t) => norm(t) === norm(op.label));
+          if (!canon) return { ok: false, error: 'no such tag' };
+          const text = String((op.text != null ? op.text : '')).trim();
+          if (text) cur.descriptions[canon] = text; else delete cur.descriptions[canon];
+        } else return { ok: false, error: 'unknown action' };
+        tagsMod.saveTags(st.p, cur);
+        return { ok: true };
+      },
       // Queue a plain human request the AI will turn into a Brief + Cells (see `yay requests`).
       addRequest: (text) => {
         const rp = requestsPath(p);
@@ -1892,10 +1932,14 @@ function printRules(rules) {
 // `--set` owner-signs the draft into effect. Neutral (no rules) blocks nothing.
 // `yay tags` — the project's Brief-tag vocabulary. Choose/switch a starter set, or edit it.
 function cmdTags(flags, positional) {
-  const { p, config } = loadState();
+  const { p, config, lock } = loadState();
   if (!config) return fail('run `yay init` first');
   const sub = positional[0];
   const cur = tagsMod.loadTags(p);
+  // Tags already baked into signed Briefs — their label is inside the signature and can't be
+  // rewritten, so renaming one would split the history. Count uses to guard rename/remove.
+  const tagUses = {};
+  for (const a of (lock.approvals || [])) for (const t of ((a.brief && a.brief.tags) || [])) tagUses[tagsMod.norm(t)] = (tagUses[tagsMod.norm(t)] || 0) + 1;
 
   if (sub === 'sets' || flags['list-sets']) {
     console.log(U.c.bold('Starter tag sets') + U.c.dim(' — pick one with `yay tags --set <id>`:'));
@@ -1908,9 +1952,14 @@ function cmdTags(flags, positional) {
 
   const setId = (flags.set && flags.set !== true) ? String(flags.set) : (sub === 'set' ? positional[1] : null);
   if (setId) {
+    if (setId === 'custom') {
+      // tags.json is COMMITTED (a shared project vocabulary) — never gitignored.
+      tagsMod.saveTags(p, { project: config.project, set: 'custom', tags: tagsMod.CUSTOM_SEED.slice(), descriptions: {} });
+      console.log(U.c.green('✓ custom placeholders') + U.c.dim(' (Custom 1–4) → .yaylayer/tags.json. Relabel with ') + U.c.bold('yay tags rename "Custom 1" "…"') + U.c.dim(' or the dashboard Tags tab.'));
+      return;
+    }
     const set = tagsMod.setById(setId);
-    if (!set) return fail(`unknown tag set "${setId}" — options: ${tagsMod.TAG_SETS.map((s) => s.id).join(', ')} (see \`yay tags sets\`)`);
-    // tags.json is COMMITTED (a shared project vocabulary) — never gitignored.
+    if (!set) return fail(`unknown tag set "${setId}" — options: ${tagsMod.TAG_SETS.map((s) => s.id).join(', ')}, custom (see \`yay tags sets\`)`);
     tagsMod.saveTags(p, { project: config.project, set: set.id, tags: set.tags.slice() });
     console.log(U.c.green(`✓ tag set → "${set.name}"`) + U.c.dim(` (${set.tags.length} tags). Commit .yaylayer/tags.json.`));
     return;
@@ -1929,21 +1978,51 @@ function cmdTags(flags, positional) {
     if (!cur) return fail('no tag pool yet — `yay tags --set <id>` first.');
     const toRem = tagsMod.parseTags([], positional.slice(1).join(','));
     const before = cur.tags.length;
+    const removedUsed = toRem.map((r) => tagUses[tagsMod.norm(r)] || 0).reduce((a, b) => a + b, 0);
     cur.tags = cur.tags.filter((x) => !toRem.some((r) => tagsMod.norm(r) === tagsMod.norm(x)));
+    if (cur.descriptions) for (const r of toRem) for (const k of Object.keys(cur.descriptions)) if (tagsMod.norm(k) === tagsMod.norm(r)) delete cur.descriptions[k];
     tagsMod.saveTags(p, cur);
     console.log(U.c.green(`✓ removed ${before - cur.tags.length} tag(s)`) + U.c.dim(` — pool is now ${cur.tags.length}. Commit .yaylayer/tags.json.`));
+    if (removedUsed) console.log(U.c.dim(`  note: ${removedUsed} signed Brief(s) still carry a removed tag in their history (shown under “Retired” in the dashboard) — that's preserved, it just won't be offered for new Briefs.`));
+    return;
+  }
+  if (sub === 'rename') {
+    if (!cur) return fail('no tag pool yet — `yay tags --set <id>` first.');
+    const from = positional[1]; const to = positional[2];
+    if (!from || !to) return fail('usage: yay tags rename "Custom 1" "Payments"');
+    const i = cur.tags.findIndex((t) => tagsMod.norm(t) === tagsMod.norm(from));
+    if (i < 0) return fail(`no tag "${from}" in the pool.`);
+    if (tagUses[tagsMod.norm(from)]) return fail(`"${cur.tags[i]}" is already in ${tagUses[tagsMod.norm(from)]} signed Brief(s) — renaming it would split the history (past Briefs keep the old label in their signatures). Add a new tag with \`yay tags add\` instead, or \`yay tags remove\` it to stop offering it.`);
+    const old = cur.tags[i]; cur.tags[i] = String(to).trim();
+    cur.descriptions = cur.descriptions || {};
+    if (cur.descriptions[old] !== undefined) { cur.descriptions[cur.tags[i]] = cur.descriptions[old]; delete cur.descriptions[old]; }
+    tagsMod.saveTags(p, cur);
+    console.log(U.c.green(`✓ renamed "${old}" → "${cur.tags[i]}"`) + U.c.dim(' — Commit .yaylayer/tags.json.'));
+    return;
+  }
+  if (sub === 'desc' || sub === 'describe') {
+    if (!cur) return fail('no tag pool yet — `yay tags --set <id>` first.');
+    const label = positional[1]; const text = positional.slice(2).join(' ').trim();
+    if (!label) return fail('usage: yay tags desc "Tag" "what this tag covers"');
+    const canon = cur.tags.find((t) => tagsMod.norm(t) === tagsMod.norm(label));
+    if (!canon) return fail(`no tag "${label}" in the pool.`);
+    cur.descriptions = cur.descriptions || {};
+    if (text) cur.descriptions[canon] = text; else delete cur.descriptions[canon];
+    tagsMod.saveTags(p, cur);
+    console.log(U.c.green(`✓ ${text ? 'set' : 'cleared'} description for "${canon}"`) + U.c.dim(' — Commit .yaylayer/tags.json.'));
     return;
   }
 
   if (!cur) {
     console.log(U.c.dim('No tag pool set yet. Pick a starter set (Briefs are tagged from it):'));
-    console.log('  ' + U.c.bold('yay tags --set responsibility') + U.c.dim('   (see all six with ') + U.c.bold('yay tags sets') + U.c.dim(')'));
+    console.log('  ' + U.c.bold('yay tags --set responsibility') + U.c.dim('   (see all six with ') + U.c.bold('yay tags sets') + U.c.dim(', or ') + U.c.bold('--set custom') + U.c.dim(' for blank placeholders)'));
     return;
   }
   const set = tagsMod.setById(cur.set);
+  const descs = cur.descriptions || {};
   console.log(U.c.bold('Brief tags') + U.c.dim(` — set: ${set ? set.name : cur.set} · ${cur.tags.length} tags · every Brief is tagged from this pool:`));
-  console.log('  ' + cur.tags.map((t) => U.c.accent(t)).join(U.c.dim(' · ')));
-  console.log('\n' + U.c.dim('switch: ') + U.c.bold('yay tags --set <id>') + U.c.dim(' · add: ') + U.c.bold('yay tags add "Tag"') + U.c.dim(' · remove: ') + U.c.bold('yay tags remove "Tag"') + U.c.dim(' · sets: ') + U.c.bold('yay tags sets'));
+  cur.tags.forEach((t) => console.log('  ' + U.c.accent(t) + (descs[t] ? U.c.dim(' — ' + descs[t]) : '')));
+  console.log('\n' + U.c.dim('switch: ') + U.c.bold('yay tags --set <id>') + U.c.dim(' · add/remove: ') + U.c.bold('yay tags add|remove "Tag"') + U.c.dim(' · relabel: ') + U.c.bold('yay tags rename "A" "B"') + U.c.dim(' · describe: ') + U.c.bold('yay tags desc "Tag" "…"'));
 }
 
 async function cmdPolicy(flags) {
@@ -2041,8 +2120,9 @@ const HELP = `yay — a protocol for provable, signed AI code
   yay inbox                   print YOUR on-duty relay link — open it on your phone to receive requests addressed to you
   yay requests [done <id>]    list plain requests queued from the dashboard's "Request a change" button (the AI
                              turns each into a Brief + Cells); "done <id>" or "clear" removes handled ones
-  yay tags [--set id|add|remove|sets]  the project's Brief-tag vocabulary — every Brief is tagged from it.
-                             pick a starter set (--set responsibility), add/remove tags, or list the six sets
+  yay tags [--set id|add|remove|rename|desc|sets]  the project's Brief-tag vocabulary — every Brief is tagged
+                             from it. --set <id> (or --set custom for blank placeholders) · add/remove "Tag" ·
+                             rename "A" "B" (blocked once a tag is used in a signed Brief) · desc "Tag" "…" · sets
   yay verify [--strict] [-d]  the gate — paint every Cell; -d/--details prints each spec, code & checks
                              --problems shows only non-green Cells · --no-mutate skips prover mutation grading
   yay plan [--provider anthropic|openai|custom] [--model m] [--base-url url]

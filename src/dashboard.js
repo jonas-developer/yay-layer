@@ -280,6 +280,14 @@ function startDashboard(deps, opts) {
       try { return sendJSON(res, 200, await deps.addRequest(text)); }
       catch (e) { return sendJSON(res, 200, { ok: false, error: String((e && e.message) || e) }); }
     }
+    // Tag-pool editor (live): add / remove / rename / describe tags in .yaylayer/tags.json.
+    if (req.method === 'POST' && url === '/api/tags/edit') {
+      if (!isLocal(req)) return sendJSON(res, 403, { error: 'local only' });
+      if (!deps.tagsEdit) return sendJSON(res, 200, { ok: false, error: 'tag editing not available' });
+      const b = await readBody(req);
+      try { return sendJSON(res, 200, deps.tagsEdit(b)); }
+      catch (e) { return sendJSON(res, 200, { ok: false, error: String((e && e.message) || e) }); }
+    }
     // Policy editor: edit the DRAFT (.yaylayer/policy.json), then owner-sign it into effect.
     if (req.method === 'POST' && url === '/api/policy/rule') {
       if (!isLocal(req)) return sendJSON(res, 403, { error: 'local only' });

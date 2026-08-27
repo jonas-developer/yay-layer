@@ -25,6 +25,10 @@ const TAG_SETS = [
 ];
 const setById = (id) => TAG_SETS.find((s) => s.id === id) || null;
 
+// "Custom" isn't a preset — it seeds blank placeholders the user relabels afterwards
+// (in the Dashboard Tags tab, or by editing .yaylayer/tags.json directly).
+const CUSTOM_SEED = ['Custom 1', 'Custom 2', 'Custom 3', 'Custom 4'];
+
 function tagsPath(p) { return path.join(path.dirname(p.config), 'tags.json'); }
 function loadTags(p) {
   try { const o = JSON.parse(fs.readFileSync(tagsPath(p), 'utf8')); return (o && Array.isArray(o.tags)) ? o : null; }
@@ -47,4 +51,4 @@ function parseTags(pool, raw) {
 }
 function unknownTags(pool, tags) { return (tags || []).filter((t) => !isKnown(pool, t)); }
 
-module.exports = { TAG_SETS, setById, tagsPath, loadTags, saveTags, canonicalTag, isKnown, parseTags, unknownTags, norm };
+module.exports = { TAG_SETS, setById, CUSTOM_SEED, tagsPath, loadTags, saveTags, canonicalTag, isKnown, parseTags, unknownTags, norm };
