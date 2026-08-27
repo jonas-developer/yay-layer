@@ -26,6 +26,8 @@
 
 **10 — When blocked, propose — don't act.** If a task needs behaviour with no approved spec, propose a spec change and wait. If something is sensitive (auth, money, access control), suggest the human `code-pin` it. You can never issue an auto-approval grant or add a signer — only the human can.
 
+**11 — Signing policy: neutral by default; honour it when present.** Treat every signer the same unless the project defines a signing policy. Check `.yaylayer/policy.json` (the enforced rules live owner-signed in the roster): a rule assigns Cells — matched by path glob, spec tag (or `sensitive: yes`), and/or module — to a **required signer**. If a Cell you are working on matches a rule, it **must** be signed by that specific person; signing it as anyone else is futile (the gate blocks it Red). When the required signer is **not** the human in this session: do not route the request to the local human — instead say plainly *"Cell C-xxx requires <Name>'s signature per policy; it stays Unsigned and the gate blocks it until they sign"*, leave it pending, and keep working on the rest. With no policy, or when a Cell matches no rule, sign normally (`yay sign`). Never weaken the policy — it is owner-signed and tamper-evident, and you cannot change who must sign.
+
 ---
 
 *Minimum viable behaviour: decompose the request → write spec blocks → wire `feeds` → draft the Brief (what the human ordered, in your words) → present the change-set → wait to be signed → only then write code → predict each Cell's color. Spec-first, every time.*
