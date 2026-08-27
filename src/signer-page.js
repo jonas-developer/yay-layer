@@ -330,8 +330,9 @@ function approveFlow(sess){
   // it can't be reworded on the phone, because a Brief change must pull its Cells with it and
   // only the AI loop can do that. The choice is Accept, or Send back (with an optional note).
   var brief=sess.approval&&sess.approval.brief;
+  var tagChips=(brief&&brief.tags&&brief.tags.length)?('<div style="margin-top:9px">'+brief.tags.map(function(t){return '<span style="display:inline-block;font-size:.68rem;font-weight:700;padding:2px 9px;border-radius:100px;border:1px solid var(--rule);color:var(--accent);margin:0 5px 5px 0">'+esc(t)+'</span>';}).join('')+'</div>'):'';
   var briefCard=brief?('<div class="mcard"><div class="mlab"><span class="mtag">Brief</span></div>'
-    +'<div class="mtxt">'+esc(brief.text)+'</div>'
+    +'<div class="mtxt">'+esc(brief.text)+'</div>'+tagChips
     +'<div class="msub">covers '+((sess.summary||[]).length)+' part(s) · sign it, or send it back for changes</div></div>'):'';
   h(gate.banner+briefCard+'<div class="help">Approve these <b>'+((sess.summary||[]).length)+'</b> change(s) — tap a part to see its spec.</div>'+rows+(gate.ok?'<button id="go" class="btn" style="margin-top:16px">Accept &amp; sign</button><button id="sb" class="btn ghost">Send back</button>':''));
   var taps=document.querySelectorAll('.cell.tap');

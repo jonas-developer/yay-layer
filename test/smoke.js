@@ -904,5 +904,23 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     ok(sbBack && sbBack.rejected === true && sbBack.reason === 'rate-limit signup too', 'router: a send-back (rejected + note) round-trips to the requester');
   }
 
+  // 19) Brief tags — pool vocabulary + tags ride inside the signed Brief (tamper-evident).
+  {
+    const T = require('../src/tags');
+    ok(T.TAG_SETS.length === 6 && new Set(T.TAG_SETS.map((s) => s.id)).size === 6, 'tags: six distinct starter sets');
+    ok(T.TAG_SETS.every((s) => Array.isArray(s.tags) && s.tags.length >= 8), 'tags: every set has a real tag list');
+    const pool = T.setById('responsibility').tags;
+    ok(JSON.stringify(T.parseTags(pool, 'ui, SECURITY')) === JSON.stringify(['UI', 'Security']), 'tags: parseTags canonicalizes case against the pool');
+    ok(JSON.stringify(T.parseTags(pool, 'API, api, Api')) === JSON.stringify(['API']), 'tags: parseTags de-dupes case-insensitively');
+    ok(JSON.stringify(T.unknownTags(pool, ['UI', 'Payments'])) === JSON.stringify(['Payments']), 'tags: unknownTags flags out-of-pool tags');
+    // a Brief carries its tags, and the signature covers them → editing a tag breaks it
+    const kp = C.generateKeypair();
+    const appr = { id: 'A-1', project: 'x', nonce: 'n', at: 't', signer: 'z', items: { 'C-1': 'h' }, brief: { text: 'add login throttle', tags: ['Security', 'API'] } };
+    const sig = C.sign(canonical(appr), kp.privDer); // sign the tag-bearing Brief
+    ok(C.verify(canonical(appr), sig, kp.pubB64), 'tags: a tagged Brief signs + verifies');
+    const tampered = JSON.parse(JSON.stringify(appr)); tampered.brief.tags = ['UI'];
+    ok(!C.verify(canonical(tampered), sig, kp.pubB64), 'tags: changing a tag after signing breaks the signature (tamper-evident)');
+  }
+
   console.log(`\nAll ${n} checks passed.`);
 })().catch((e) => { console.error('smoke failed:', e); process.exit(1); });

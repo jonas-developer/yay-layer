@@ -30,6 +30,7 @@ const plan = require('../src/plan');
 const E2E = require('../src/e2e');
 const grantsMod = require('../src/grants');
 const policyMod = require('../src/policy');
+const tagsMod = require('../src/tags');
 
 // Load .env / .env.local into process.env (without overriding what's already set).
 // Lets users keep their own ANTHROPIC_API_KEY in a gitignored .env file.
@@ -389,6 +390,27 @@ async function cmdInit(flags, positional) {
     else {
       console.log(U.c.green(`✓ adopt: scaffolded ${res.total} draft Cell(s) across ${res.report.length} file(s)`));
       console.log(U.c.dim('  each is DERIVED + unsigned — prune them, then `yay sign`.'));
+    }
+  }
+
+  // 3.5 ── Brief tags: a project vocabulary so what you build can be sorted by concern.
+  let tagChoice = (typeof flags.tags === 'string') ? flags.tags.toLowerCase() : null;
+  if (!tagChoice && !tagsMod.loadTags(p)) {
+    if (tty) {
+      console.log('\n' + U.c.bold('Brief tags') + U.c.dim(' — a small vocabulary every Brief is tagged with, so you can later sort what you built by concern + time. Pick a starter set:'));
+      tagsMod.TAG_SETS.forEach((s, i) => console.log('  ' + U.c.bold(String(i + 1)) + ') ' + s.name.padEnd(22) + U.c.dim(s.desc)));
+      console.log('  ' + U.c.dim('(switch sets or add your own anytime with `yay tags`)'));
+      const ans = (await ask('  Choose 1–6, or Enter to skip tagging: ')).trim();
+      const idx = parseInt(ans, 10);
+      tagChoice = (idx >= 1 && idx <= tagsMod.TAG_SETS.length) ? tagsMod.TAG_SETS[idx - 1].id : 'none';
+    } else tagChoice = 'none';
+  }
+  if (tagChoice && tagChoice !== 'none' && !tagsMod.loadTags(p)) {
+    const set = tagsMod.setById(tagChoice);
+    if (!set) console.log(U.c.yellow(`  unknown tag set "${tagChoice}" — skipping (options: ${tagsMod.TAG_SETS.map((s) => s.id).join(', ')}).`));
+    else {
+      tagsMod.saveTags(p, { project: config.project, set: set.id, tags: set.tags.slice() });
+      console.log(U.c.green(`✓ tags: "${set.name}"`) + U.c.dim(` (${set.tags.length} tags) → .yaylayer/tags.json (commit this). Edit with `) + U.c.bold('yay tags') + U.c.dim('.'));
     }
   }
 
@@ -834,6 +856,28 @@ async function cmdSign(flags, positional) {
     if (!briefText) return fail('a Brief is required (Standard §5) — pass --brief "<what you ordered>", or --no-brief for a trivial re-sign.');
   }
   if (briefText) approval.brief = { text: briefText, orderedBy: 'human (AI-drafted, human-approved)' };
+
+  // ── Brief tags (Standard §5) ── if the project defines a pool, every Brief is tagged from
+  // it. Tags ride inside the (signed) brief, so they're attributed + tamper-evident.
+  if (approval.brief) {
+    const tagCfg = tagsMod.loadTags(p);
+    if (tagCfg) {
+      let tags = tagsMod.parseTags(tagCfg.tags, (flags.tags && flags.tags !== true) ? String(flags.tags) : '');
+      if (!tags.length && !flags['no-tags']) {
+        if (process.stdin.isTTY) {
+          console.log(U.c.accent('▸ ') + U.c.bold('Tags') + U.c.dim(' — comma-separated (1–3 ideal), from: ') + U.c.dim(tagCfg.tags.join(', ')));
+          tags = tagsMod.parseTags(tagCfg.tags, await ask('  tags: '));
+        }
+        if (!tags.length) return fail(`this project tags every Brief — pass --tags "Tag1,Tag2" from: ${tagCfg.tags.join(', ')} (or --no-tags to skip).`);
+      }
+      if (tags.length) {
+        const unknown = tagsMod.unknownTags(tagCfg.tags, tags);
+        if (unknown.length) console.log(U.c.yellow(`  ⚠ not in the tag pool: ${unknown.join(', ')}`) + U.c.dim(' — add with `yay tags add`, or pick from the pool.'));
+        if (tags.length > 4) console.log(U.c.yellow(`  ⚠ ${tags.length} tags on one Brief`) + U.c.dim(' — mixing concerns? Consider splitting into separate Briefs (1–3 tags each).'));
+        approval.brief.tags = tags;
+      }
+    }
+  }
 
   // ── Cross-signer routing ── when --name targets someone OTHER than this machine's own
   // signer (over the relay), seal the request to THEIR inbox and return. Nothing pops on
@@ -1803,6 +1847,62 @@ function printRules(rules) {
 // `yay policy` — the ENFORCED policy lives owner-signed in the roster (tamper-evident);
 // `.yaylayer/policy.json` is the editable DRAFT. `--init` writes a neutral template;
 // `--set` owner-signs the draft into effect. Neutral (no rules) blocks nothing.
+// `yay tags` — the project's Brief-tag vocabulary. Choose/switch a starter set, or edit it.
+function cmdTags(flags, positional) {
+  const { p, config } = loadState();
+  if (!config) return fail('run `yay init` first');
+  const sub = positional[0];
+  const cur = tagsMod.loadTags(p);
+
+  if (sub === 'sets' || flags['list-sets']) {
+    console.log(U.c.bold('Starter tag sets') + U.c.dim(' — pick one with `yay tags --set <id>`:'));
+    for (const s of tagsMod.TAG_SETS) {
+      console.log('  ' + U.c.accent(s.id.padEnd(15)) + s.name + U.c.dim(' — ' + s.desc));
+      console.log('    ' + U.c.dim(s.tags.join(', ')));
+    }
+    return;
+  }
+
+  const setId = (flags.set && flags.set !== true) ? String(flags.set) : (sub === 'set' ? positional[1] : null);
+  if (setId) {
+    const set = tagsMod.setById(setId);
+    if (!set) return fail(`unknown tag set "${setId}" — options: ${tagsMod.TAG_SETS.map((s) => s.id).join(', ')} (see \`yay tags sets\`)`);
+    // tags.json is COMMITTED (a shared project vocabulary) — never gitignored.
+    tagsMod.saveTags(p, { project: config.project, set: set.id, tags: set.tags.slice() });
+    console.log(U.c.green(`✓ tag set → "${set.name}"`) + U.c.dim(` (${set.tags.length} tags). Commit .yaylayer/tags.json.`));
+    return;
+  }
+
+  if (sub === 'add') {
+    const t = cur || { project: config.project, set: 'custom', tags: [] };
+    const toAdd = tagsMod.parseTags([], positional.slice(1).join(','));
+    if (!toAdd.length) return fail('nothing to add — e.g. `yay tags add "Payments"`');
+    let n = 0; for (const x of toAdd) if (!tagsMod.isKnown(t.tags, x)) { t.tags.push(x); n++; }
+    tagsMod.saveTags(p, t);
+    console.log(U.c.green(`✓ added ${n} tag(s)`) + U.c.dim(` — pool is now ${t.tags.length}. Commit .yaylayer/tags.json.`));
+    return;
+  }
+  if (sub === 'remove' || sub === 'rm') {
+    if (!cur) return fail('no tag pool yet — `yay tags --set <id>` first.');
+    const toRem = tagsMod.parseTags([], positional.slice(1).join(','));
+    const before = cur.tags.length;
+    cur.tags = cur.tags.filter((x) => !toRem.some((r) => tagsMod.norm(r) === tagsMod.norm(x)));
+    tagsMod.saveTags(p, cur);
+    console.log(U.c.green(`✓ removed ${before - cur.tags.length} tag(s)`) + U.c.dim(` — pool is now ${cur.tags.length}. Commit .yaylayer/tags.json.`));
+    return;
+  }
+
+  if (!cur) {
+    console.log(U.c.dim('No tag pool set yet. Pick a starter set (Briefs are tagged from it):'));
+    console.log('  ' + U.c.bold('yay tags --set responsibility') + U.c.dim('   (see all six with ') + U.c.bold('yay tags sets') + U.c.dim(')'));
+    return;
+  }
+  const set = tagsMod.setById(cur.set);
+  console.log(U.c.bold('Brief tags') + U.c.dim(` — set: ${set ? set.name : cur.set} · ${cur.tags.length} tags · every Brief is tagged from this pool:`));
+  console.log('  ' + cur.tags.map((t) => U.c.accent(t)).join(U.c.dim(' · ')));
+  console.log('\n' + U.c.dim('switch: ') + U.c.bold('yay tags --set <id>') + U.c.dim(' · add: ') + U.c.bold('yay tags add "Tag"') + U.c.dim(' · remove: ') + U.c.bold('yay tags remove "Tag"') + U.c.dim(' · sets: ') + U.c.bold('yay tags sets'));
+}
+
 async function cmdPolicy(flags) {
   const { p, config, lock } = loadState();
   if (!config) return fail('run `yay init` first');
@@ -1898,6 +1998,8 @@ const HELP = `yay — a protocol for provable, signed AI code
   yay inbox                   print YOUR on-duty relay link — open it on your phone to receive requests addressed to you
   yay requests [done <id>]    list plain requests queued from the dashboard's "Request a change" button (the AI
                              turns each into a Brief + Cells); "done <id>" or "clear" removes handled ones
+  yay tags [--set id|add|remove|sets]  the project's Brief-tag vocabulary — every Brief is tagged from it.
+                             pick a starter set (--set responsibility), add/remove tags, or list the six sets
   yay verify [--strict] [-d]  the gate — paint every Cell; -d/--details prints each spec, code & checks
                              --problems shows only non-green Cells · --no-mutate skips prover mutation grading
   yay plan [--provider anthropic|openai|custom] [--model m] [--base-url url]
@@ -1925,6 +2027,7 @@ async function main() {
     case 'sign': return cmdSign(flags, positional);
     case 'inbox': return cmdInbox(flags);
     case 'requests': case 'request': return cmdRequests(flags, positional);
+    case 'tags': case 'tag': return cmdTags(flags, positional);
     case 'pair': return cmdPair(flags);
     case 'enroll': return cmdEnroll(flags);
     case 'invite': return cmdInvite(flags, positional);

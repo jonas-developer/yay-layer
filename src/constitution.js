@@ -90,8 +90,19 @@ function header(method) {
 function constitutionText() {
   return fs.readFileSync(path.join(__dirname, '..', 'CONSTITUTION.md'), 'utf8').trim();
 }
-function block(method) {
-  return `${BEGIN}\n${header(method)}${constitutionText()}\n${END}\n`;
+// The project's own tag pool, embedded so the AI sees the ACTUAL tags to use (Article 13).
+function tagPoolBlock(root) {
+  try {
+    const o = JSON.parse(fs.readFileSync(path.join(root, '.yaylayer', 'tags.json'), 'utf8'));
+    if (o && Array.isArray(o.tags) && o.tags.length) {
+      return '\n\n---\n\n**Project tag pool** (Article 13) — tag every Brief with 1–3 of these, via `yay sign --tags "…"`:\n\n'
+        + o.tags.map((t) => '`' + t + '`').join(' · ') + '\n';
+    }
+  } catch (_) {}
+  return '';
+}
+function block(method, root) {
+  return `${BEGIN}\n${header(method)}${constitutionText()}${root ? tagPoolBlock(root) : ''}\n${END}\n`;
 }
 
 function mergeInto(existing, blk) {
@@ -113,7 +124,7 @@ function resolveKeys(spec) {
 // Write/merge the constitution into the chosen harness files. Returns a report
 // [{ key, label, path, action:'created'|'updated'|'appended'|'unchanged' } | { key, error }].
 function writeConstitution(root, keys, method) {
-  const blk = block(method);
+  const blk = block(method, root);
   const report = [];
   for (const key of keys) {
     const h = harnessByKey(key);

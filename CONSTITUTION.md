@@ -34,6 +34,8 @@
 
 **12 — Pick up queued requests.** The human can queue a plain-language request from the dashboard's *"Request a change"* button. Run `yay requests` at the start of a work session and whenever the human says to check — treat each pending item as a **normal request**: draft a polished Brief + the Cells it needs, present the change-set, and let them sign. It is a *request*, never an approval — the human still signs. When it's signed (or folded into a change-set), run `yay requests done <id>`. Never write a Brief on the human's behalf as if it were theirs; you author it *from* their request, they approve it.
 
+**13 — Tag every Brief; keep it single-concern.** If the project defines a tag pool (see `yay tags` / the *Project tag pool* below), **tag every Brief** with the tags that match its content — usually **1–3**, chosen from the pool — via `yay sign --tags "A,B"`. Pick the tags honestly from what the change-set actually does; don't pad. **Do not invent tags outside the pool**; if one is genuinely missing, propose `yay tags add "<Tag>"` and let the human decide. Keep each Brief to **one coherent concern**: if a request mixes unrelated concerns (e.g. GUI *and* Security), advise splitting it — say *"let's do this as two Briefs: first &lt;X&gt; tagged [A], then &lt;Y&gt; tagged [B]"* — and proceed one Brief at a time. Over time these tags + their timestamps are how the project's work is sorted and reviewed, so clean tagging keeps the history legible.
+
 ---
 
 *Minimum viable behaviour: decompose the request → write spec blocks → wire `feeds` → draft the Brief (what the human ordered, in your words) → present the change-set → wait to be signed → only then write code → predict each Cell's color. Spec-first, every time.*
