@@ -704,7 +704,9 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
       +'<div style="font-size:.77rem;color:var(--mut);margin-top:7px">Controls how the <b style="color:var(--ink-2)">AI groups changes into Briefs</b> before you sign — and is shared with your team. It does <b style="color:var(--ink-2)">not</b> affect how Briefs are displayed here.</div>'
       +'</div>'):'';
     var hint=briefView==='clouds'?'Each tag is a cloud; inside, its Briefs newest-first. A Brief with several tags appears in every matching cloud — tap one to see its parts.':'Click a tag to filter; “Group by tag” orders by tag first, date second.';
-    var html='<h1>Briefs</h1><div class="snote" style="margin:0 0 12px">What was ordered, in plain language. '+hint+'</div>'+toolbar+batchbar;
+    // Order: description → project setting (batch) → view controls + their hint → the Briefs.
+    // The List/Clouds/Group controls sit right above the Briefs they display.
+    var html='<h1>Briefs</h1><div class="snote" style="margin:0 0 14px">What was ordered, in plain language.</div>'+batchbar+toolbar+'<div class="snote" style="margin:2px 0 14px;font-size:.82rem">'+hint+'</div>';
 
     if(briefView==='clouds'){
       var tagMap={};
