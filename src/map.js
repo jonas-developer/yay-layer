@@ -907,6 +907,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
   var curTab='map';
   function setTab(name){
     curTab=name;
+    try{ sessionStorage.setItem('yay.tab', name); }catch(e){} // remember across reloads (e.g. after a tag/policy save)
     MAP_ELS.forEach(function(s){ showSel(s, name==='map'); });
     showSel('#plan', name==='plan'); showSel('#signers', name==='signers'); showSel('#files', name==='files'); showSel('#commands', name==='commands'); showSel('#briefs', name==='briefs'); showSel('#tags', name==='tags'); showSel('#policy', name==='policy');
     Array.prototype.forEach.call(document.querySelectorAll('.tab'),function(b){ b.classList.toggle('active', b.getAttribute('data-tab')===name); });
@@ -932,6 +933,9 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
     Array.prototype.forEach.call(document.querySelectorAll('.tab'),function(b){ b.addEventListener('click',function(){ setTab(b.getAttribute('data-tab')); }); });
     var nb=document.getElementById('navburger'), nm=document.getElementById('navmenu');
     if(nb && nm) nb.addEventListener('click',function(){ var open=nm.classList.toggle('open'); nb.textContent=open?'✕':'☰'; nb.setAttribute('aria-expanded',open?'true':'false'); });
+    // Restore the tab the user was on before a reload (registered after the reveal listeners
+    // so hidden tabs like Tags/Policy are visible by the time we restore).
+    window.addEventListener('load',function(){ try{ var t=sessionStorage.getItem('yay.tab'); if(t && t!=='map'){ var b=document.querySelector('[data-tab="'+t+'"]'); if(b && b.style.display!=='none') setTab(t); } }catch(e){} });
   })();
 
   window.addEventListener('resize',function(){ if(curTab==='plan') renderPlan(); else if(curTab==='map') draw(); });
