@@ -96,10 +96,12 @@ The queue/anti-clobber/reply-sealing live in **one** inbox engine that both path
 
 Add a short §12-bis (Routing) to STANDARD.md, and note the two-key (sign + box) derivation in §9.
 
-## Build order
+## Build order — ALL SHIPPED
 
-1. **Crypto foundation** — Ed25519↔X25519 conversion + anonymous sealed-box (seal to a signing pubkey / open with the signing secret) on both sides (node `e2e.js` + browser `recovery.js`); inbox-channel = `hash("yay-inbox:v1:"+signPub)`. Tests: seal(node)→open(phone) round-trip, and that it round-trips from the 24 words.
-2. **Relay** — per-request queue endpoints keyed by inbox + request id (additive to the current single-pending path); bounded depth + TTL.
-3. **CLI** — `yay sign --name "<other>"` seals to their inbox + returns an id; `yay sign --check <id>`; `yay inbox` prints the on-duty link.
-4. **Phone** — inbox mode (poll, decrypt, queue, approve) reusing the approve/gate UI.
-5. **Constitution + Standard** — the delegation guidance above.
+1. ✅ **Crypto foundation** — Ed25519↔X25519 conversion + anonymous sealed-box (seal to a signing pubkey / open with the signing secret) on both sides (node `e2e.js` + browser `recovery.js`); inbox-channel = `hash("yay-inbox:v1:"+signPub)`. Tested: seal(node)→open(phone) round-trip + wrong-key rejection + channel agreement (smoke §17).
+2. ✅ **Relay** — per-request queue endpoints keyed by inbox + request id (`api/inbox.js`, additive to the single-pending path); CAP=20, TTL=3d, no clobber.
+3. ✅ **CLI** — `yay sign --name "<other>"` seals to their inbox + returns an id (fire-and-return; `.yaylayer/pending/`); `yay sign --check [id]` collects + verifies + writes the seal; `yay inbox` prints the on-duty link. Reply round-trip tested (smoke §18).
+4. ✅ **Phone** — `#inbox=<pub>` on-duty mode (poll, decrypt, queue, approve) reusing the approve/gate UI; reply sealed with the per-request replyKey.
+5. ✅ **Constitution + Standard** — Article 11-bis (Routing is fire-and-return) + Standard §11 (Signing policy / Routing).
+
+Reply mechanism: the sender mints a symmetric `replyKey` (`E2E.newKey`), seals it *inside* the request (only the target reads it); the phone seals its reply `{signature, brief?}` with that key and posts it to the inbox reply slot; the sender polls `--check` and opens with the key it kept. Cross-signer is non-blocking (returns a request id); self-sign stays blocking (you're at your own phone).

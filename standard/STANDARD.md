@@ -117,6 +117,10 @@ A **delegation grant** — signed once on the phone (Face ID), scoped and time/c
 
 Each person holds their own key; a signed **roster** maps keys → names, so every seal attributes to a *named* human. Optional **role-based rights** and **M-of-N multi-sig** for sensitive Cells. Adding a signer is a privileged, signed (owner) action. Merges union per-Cell seals; the CI gate re-proves the merged whole and catches logical merge conflicts git can't. *(Roadmap; the reference impl records `signer` per approval today.)*
 
+**Signing policy.** A project may declare, in an owner-signed policy (derived from the roster, so it is tamper-evident), that Cells matched by path glob, spec tag / `sensitive`, or module **must** be signed by a named person. The gate holds any matching Cell Red until that specific signer seals it. Neutral by default — with no policy every signer is equal.
+
+**Routing (signer inbox).** Each signer has a deterministic **inbox channel** — a public hash of their public key. A request can be *addressed* to one person by sealing it (an anonymous X25519 sealed box, from their existing ed25519 key — no extra key) to that inbox; only they can open it, and it appears only on their on-duty phone (`yay inbox`), never anyone else's. Addressing is **fire-and-return**: `yay sign --name "<Name>"` seals the request, returns a request id, and leaves the Cells Unsigned (gate-blocked) until that person approves asynchronously; `yay sign --check` collects the sealed reply (the reply rides back under a per-request symmetric key the requester keeps). The relay only ever stores opaque ciphertext.
+
 ## 12. Language reach
 
 Adapter order: **JS/TS first** (covers JS, TS, React, Node, Next) → **HTML/CSS** (structural Green) → **Python** → **Rust, then Solidity (deferred)**. A language without its full adapter runs "structural-lite" and caps at Yellow.
