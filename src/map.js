@@ -760,35 +760,21 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
       html+='<div style="display:flex;gap:8px;align-items:center;margin-top:10px"><input id="tag-new" placeholder="new tag label" style="flex:1;min-width:140px;padding:8px;border-radius:8px;border:1px solid var(--rule);background:var(--paper);color:var(--ink)"><button id="tag-add" style="padding:8px 14px;border-radius:8px;border:none;background:var(--brand);color:#04231a;font-weight:700;cursor:pointer">Add tag</button></div>';
       html+='<div id="tag-msg" style="margin-top:8px;font-size:.82rem;color:var(--mut)"></div></div>';
     } else {
-      html+='<div style="margin:0 0 16px">'+pool.map(function(t){var n=counts[lc(t)]||0,d=descOf(t);return '<span title="'+esc2(d)+'" style="display:inline-block;font-size:.8rem;font-weight:600;padding:4px 11px;border-radius:100px;border:1px solid var(--rule);color:'+(n?'var(--accent)':'var(--mut)')+';margin:0 6px 8px 0">'+esc2(t)+(n?(' <span style="opacity:.55">'+n+'</span>'):'')+'</span>';}).join('')+'</div>';
-      var anyD=pool.some(function(t){return descOf(t);});
-      if(anyD) html+='<div style="margin:0 0 20px">'+pool.filter(function(t){return descOf(t);}).map(function(t){return '<div style="font-size:.86rem;margin:0 0 4px"><b style="color:var(--accent)">'+esc2(t)+'</b> <span style="color:var(--mut)">— '+esc2(descOf(t))+'</span></div>';}).join('')+'</div>';
+      html+='<div style="font-weight:800;font-size:.8rem;color:var(--mut);margin:0 0 8px">'+pool.length+' tag'+(pool.length===1?'':'s')+' to pick from</div>';
+      html+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,230px),1fr));gap:9px;margin:0 0 6px">'+pool.map(function(t){var n=counts[lc(t)]||0,d=descOf(t);
+        return '<div style="border:1px solid var(--rule);border-radius:11px;padding:10px 13px;background:var(--card2)"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span style="font-weight:800;color:var(--accent);font-size:.92rem">'+esc2(t)+'</span><span style="font-size:.68rem;font-weight:700;color:var(--mut);background:var(--paper);border:1px solid var(--rule);border-radius:100px;padding:1px 8px" title="used in '+n+' Brief(s)">'+n+'</span></div>'+(d?('<div style="font-size:.78rem;color:var(--mut);margin-top:4px;line-height:1.35">'+esc2(d)+'</div>'):'')+'</div>';
+      }).join('')+'</div>';
     }
-    if(briefs.length){
-      html+='<div class="snote" style="margin:0 0 10px">What was built, by tag — newest first:</div>';
-      pool.forEach(function(t){
-        var items=briefs.filter(function(b){return (b.tags||[]).some(function(x){return lc(x)===lc(t);});});
-        if(!items.length) return;
-        html+='<div style="margin:0 0 16px"><div style="font-weight:800;letter-spacing:.04em;font-size:.8rem;color:var(--accent);margin-bottom:6px">'+esc2(t)+' <span style="color:var(--mut);font-weight:600">· '+items.length+'</span></div>';
-        items.forEach(function(b){
-          var when=b.at?String(b.at).slice(0,10):'';
-          var others=(b.tags||[]).filter(function(x){return lc(x)!==lc(t);});
-          html+='<div style="border-left:2px solid var(--rule);padding:2px 0 2px 12px;margin:0 0 7px"><div style="font-size:.95rem;font-weight:'+(b.title?'700':'400')+';color:var(--ink)">'+esc2(b.title||b.text||'')+'</div>'+(b.title?('<div style="font-size:.82rem;color:var(--mut)">'+esc2(b.text||'')+'</div>'):'')+'<div style="font-size:.74rem;color:var(--mut)">'+esc2(b.id||'')+' · '+esc2(when)+(b.signer?(' · '+esc2(b.signer)):'')+(others.length?(' · also: '+others.map(esc2).join(', ')):'')+'</div></div>';
-        });
-        html+='</div>';
-      });
-      var poolLc={}; pool.forEach(function(t){poolLc[lc(t)]=1;});
-      var retired={}; briefs.forEach(function(b){ (b.tags||[]).forEach(function(t){ if(!poolLc[lc(t)]) retired[lc(t)]=t; }); });
-      var rkeys=Object.keys(retired);
-      if(rkeys.length){
-        html+='<div style="margin:16px 0 0"><div style="font-weight:800;font-size:.8rem;color:var(--mut);margin-bottom:6px" title="Removed from the pool, but kept in the Briefs that used them">Retired · no longer offered, kept in history</div>';
-        rkeys.forEach(function(k){ var t=retired[k]; var items=briefs.filter(function(b){return (b.tags||[]).some(function(x){return lc(x)===k;});});
-          html+='<div style="margin:0 0 8px"><span style="font-weight:700;color:var(--mut)">'+esc2(t)+' · '+items.length+'</span>'+items.map(function(b){return '<div style="font-size:.86rem;color:var(--mut);padding:1px 0 1px 12px;border-left:2px solid var(--rule);margin:2px 0">'+esc2(b.text||'')+' <span style="font-size:.72rem">('+esc2(b.id||'')+')</span></div>';}).join('')+'</div>'; });
-        html+='</div>';
-      }
-      var untagged=briefs.filter(function(b){return !(b.tags&&b.tags.length);});
-      if(untagged.length){ html+='<div style="margin:14px 0 0"><div style="font-weight:800;font-size:.8rem;color:var(--mut);margin-bottom:6px">Untagged · '+untagged.length+'</div>'; untagged.forEach(function(b){ html+='<div style="font-size:.9rem;color:var(--mut);padding:2px 0 2px 12px;border-left:2px solid var(--rule);margin:0 0 6px">'+esc2(b.text||'')+' <span style="font-size:.74rem">('+esc2(b.id||'')+')</span></div>'; }); html+='</div>'; }
+    // Retired = tags that appear in past Briefs but are no longer in the pool. Vocabulary
+    // context only (names + counts) — browsing Briefs by tag lives in the Briefs tab.
+    var poolLc={}; pool.forEach(function(t){poolLc[lc(t)]=1;});
+    var retired={}; briefs.forEach(function(b){ (b.tags||[]).forEach(function(t){ if(!poolLc[lc(t)]) retired[lc(t)]=t; }); });
+    var rkeys=Object.keys(retired);
+    if(rkeys.length){
+      html+='<div style="margin:18px 0 0"><div style="font-weight:800;font-size:.8rem;color:var(--mut);margin-bottom:6px" title="Used in past Briefs but no longer offered for new ones">Retired · in history, not in the pool</div>'
+        +'<div>'+rkeys.map(function(k){return '<span style="display:inline-block;font-size:.76rem;font-weight:600;color:var(--mut);border:1px dashed var(--rule);border-radius:100px;padding:3px 10px;margin:0 6px 6px 0">'+esc2(retired[k])+' <span style="opacity:.6">'+(counts[k]||0)+'</span></span>';}).join('')+'</div></div>';
     }
+    html+='<div class="snote" style="margin:18px 0 0">This tab manages the vocabulary. To <b>browse Briefs by tag</b>, open the <b>Briefs</b> tab — its <b>Clouds</b> view shows a card per tag, or use <b>Group by tag</b> in the list.</div>';
     el.innerHTML=html;
     if(LIVE){
       var msg=document.getElementById('tag-msg');
