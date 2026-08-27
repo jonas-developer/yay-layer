@@ -945,11 +945,13 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     ok(JSON.stringify(T.unknownTags(pool, ['UI', 'Payments'])) === JSON.stringify(['Payments']), 'tags: unknownTags flags out-of-pool tags');
     // a Brief carries its tags, and the signature covers them → editing a tag breaks it
     const kp = C.generateKeypair();
-    const appr = { id: 'A-1', project: 'x', nonce: 'n', at: 't', signer: 'z', items: { 'C-1': 'h' }, brief: { text: 'add login throttle', tags: ['Security', 'API'] } };
-    const sig = C.sign(canonical(appr), kp.privDer); // sign the tag-bearing Brief
-    ok(C.verify(canonical(appr), sig, kp.pubB64), 'tags: a tagged Brief signs + verifies');
+    const appr = { id: 'A-1', project: 'x', nonce: 'n', at: 't', signer: 'z', items: { 'C-1': 'h' }, brief: { title: 'Login throttle', text: 'add login throttle', tags: ['Security', 'API'] } };
+    const sig = C.sign(canonical(appr), kp.privDer); // sign the title+tag-bearing Brief
+    ok(C.verify(canonical(appr), sig, kp.pubB64), 'tags: a titled+tagged Brief signs + verifies');
     const tampered = JSON.parse(JSON.stringify(appr)); tampered.brief.tags = ['UI'];
     ok(!C.verify(canonical(tampered), sig, kp.pubB64), 'tags: changing a tag after signing breaks the signature (tamper-evident)');
+    const tt = JSON.parse(JSON.stringify(appr)); tt.brief.title = 'Something else';
+    ok(!C.verify(canonical(tt), sig, kp.pubB64), 'brief: changing the title after signing breaks the signature (tamper-evident)');
   }
 
   console.log(`\nAll ${n} checks passed.`);

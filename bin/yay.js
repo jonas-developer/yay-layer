@@ -867,7 +867,13 @@ async function cmdSign(flags, positional) {
     }
     if (!briefText) return fail('a Brief is required (Standard §5) — pass --brief "<what you ordered>", or --no-brief for a trivial re-sign.');
   }
-  if (briefText) approval.brief = { text: briefText, orderedBy: 'human (AI-drafted, human-approved)' };
+  // A short TITLE (headline) over the Brief prose — like a commit subject over its body —
+  // so the ledger, clouds and phone card are scannable. Signed with the Brief (tamper-evident).
+  let titleText = (flags.title && flags.title !== true) ? String(flags.title).trim() : '';
+  if (briefText && !titleText && !flags['no-title'] && process.stdin.isTTY) {
+    titleText = (await ask('  title (short headline, optional): ')).trim();
+  }
+  if (briefText) approval.brief = Object.assign({ text: briefText, orderedBy: 'human (AI-drafted, human-approved)' }, titleText ? { title: titleText } : {});
 
   // ── Brief tags (Standard §5) ── if the project defines a pool, every Brief is tagged from
   // it. Tags ride inside the (signed) brief, so they're attributed + tamper-evident.
@@ -1619,7 +1625,7 @@ function collectBriefs(config, lock, drv) {
     const trustedPubs = (drv.roster && drv.roster[a.signer]) || U.pubKeysOf(cfgSigners[a.signer]) || [];
     let valid = false;
     try { valid = !!signature && trustedPubs.some((pub) => pub && C.verify(U.canonical(rest), signature, pub)); } catch (_) { valid = false; }
-    return { id: a.id, at: a.at, signer: a.signer, text: b.text, orderedBy: (b.orderedBy || ''), tags: b.tags || [], cells: Object.keys(a.items || {}), valid };
+    return { id: a.id, at: a.at, signer: a.signer, title: (b.title || ''), text: b.text, orderedBy: (b.orderedBy || ''), tags: b.tags || [], cells: Object.keys(a.items || {}), valid };
   }).reverse();
 }
 
@@ -1637,7 +1643,8 @@ function cmdBriefs(flags) {
   const line = (b) => {
     const when = String(b.at || '').slice(0, 10);
     console.log('  ' + (b.valid ? U.c.green('✓') : U.c.red('⚠')) + ' ' + U.c.accent(b.id) + U.c.dim(' · ' + when + (b.signer ? ' · ' + b.signer : '')));
-    console.log('    ' + b.text);
+    if (b.title) { console.log('    ' + U.c.bold(b.title)); console.log('    ' + U.c.dim(b.text)); }
+    else console.log('    ' + b.text);
     if ((b.tags || []).length) console.log('    ' + b.tags.map((t) => U.c.dim('#') + U.c.bold(t)).join('  '));
   };
   if (flags['by-tag']) {
@@ -2154,7 +2161,8 @@ const HELP = `yay — a protocol for provable, signed AI code
   yay ratify [--sign]        list auto-approved (delegated) Cells; --sign signs them for real (human)
   yay sign [--cell IDs]       approve specs using THIS project's method (phone or local) — no flag needed
                              override with --phone / --local · SSL on by default (--no-https) · --cell to sign a subset
-                             a Brief is required by default (Standard §5): --brief "<what you ordered>" supplies it
+                             a Brief is required by default (Standard §5): --brief "<what you ordered>" supplies it,
+                             --title "<headline>" gives it a scannable title (prompted at a terminal)
                              (editable on the phone) · you're prompted if omitted at a terminal · --no-brief skips a trivial re-sign
                              --name "<teammate>" (relay projects) routes the request to THEIR inbox and returns a request id
                              (fire-and-return); collect it later with --check <id> (or --check for all pending)
