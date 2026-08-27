@@ -11,8 +11,16 @@
     "spec-first",
     "vibe-coding"
   ],
-  "author": "L.J Bergman",
+  "author": "L.J Bergman <contact@yaylayer.com>",
   "license": "MIT",
+  "homepage": "https://yaylayer.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jonas-developer/yay-layer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jonas-developer/yay-layer/issues"
+  },
   "type": "commonjs",
   "bin": {
     "yay": "bin/yay.js"
