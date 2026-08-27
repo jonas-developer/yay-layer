@@ -754,8 +754,15 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
       ph+='<div class="setpick" data-set="custom" style="border:1px dashed var(--rule);border-radius:12px;padding:12px 14px;background:var(--card2)'+(LIVE?';cursor:pointer':'')+'"><div style="font-weight:800;color:var(--mut)">Custom</div><div style="font-size:.78rem;color:var(--mut);margin-top:3px">blank placeholders (Custom 1–4) you relabel yourself</div></div>';
       ph+='</div>';
       ph+='<div class="snote" style="margin:12px 0 0">'+(LIVE?'Tap a set to use it.':'Set one with <b>yay tags --set &lt;id&gt;</b> (e.g. <b>responsibility</b>, or <b>custom</b>).')+'</div>';
+      if(LIVE){ ph+='<div style="margin:16px 0 0"><div style="font-weight:800;font-size:.8rem;color:var(--mut);margin-bottom:6px">…or start your own</div>'
+        +'<div style="display:flex;gap:8px;align-items:center"><input id="tag-new" placeholder="type a tag label" style="flex:1;min-width:140px;padding:8px;border-radius:8px;border:1px solid var(--rule);background:var(--paper);color:var(--ink)"><button id="tag-add" style="padding:8px 14px;border-radius:8px;border:none;background:var(--brand);color:#04231a;font-weight:700;cursor:pointer">Add tag</button></div><div id="tag-msg" style="margin-top:8px;font-size:.82rem;color:var(--mut)"></div></div>'; }
       el.innerHTML=ph;
-      if(LIVE) Array.prototype.forEach.call(el.querySelectorAll('.setpick'),function(c){ c.onclick=function(){ post('/api/tags/edit',{action:'set',set:c.getAttribute('data-set')}).then(function(j){ if(j&&j.ok) location.reload(); }); }; });
+      if(LIVE){
+        Array.prototype.forEach.call(el.querySelectorAll('.setpick'),function(c){ c.onclick=function(){ post('/api/tags/edit',{action:'set',set:c.getAttribute('data-set')}).then(function(j){ if(j&&j.ok) location.reload(); }); }; });
+        var an=document.getElementById('tag-add'), ai=document.getElementById('tag-new'), am=document.getElementById('tag-msg');
+        function addOwn(){ var v=(ai.value||'').trim(); if(!v){ if(am){am.textContent='✗ enter a tag label';am.style.color='#cf4436';} return; } post('/api/tags/edit',{action:'add',label:v}).then(function(j){ if(j&&j.ok) location.reload(); else if(am){am.textContent='✗ '+((j&&j.error)||'failed');am.style.color='#cf4436';} }); }
+        if(an) an.onclick=addOwn; if(ai) ai.addEventListener('keydown',function(e){ if(e.key==='Enter') addOwn(); });
+      }
       return;
     }
     var html='<h1>Tags</h1><div class="snote" style="margin:0 0 14px">The project vocabulary'+(setName?(' ('+esc2(setName)+' set)'):'')+' — every Brief is tagged from this pool.'+(LIVE?' Relabel, describe, add or remove below. A tag already used in a signed Brief can’t be renamed (it would split the history), but can be removed.':' Edit with <b>yay tags</b>, or live in <b>yay dashboard</b>.')+'</div>';
