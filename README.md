@@ -321,6 +321,17 @@ Chrome/Safari read the macOS **system keychain**; **Firefox** keeps its own stor
 - **Phone signing** keeps the private key **only on your phone**, so it never touches the AI's machine — choose Mobile-LAN or Mobile-relay at `yay init`. The **Local** option (a passphrase-encrypted keystore on disk) is available for solo work and CI; treat that keystore as sensitive since the key lives on the machine.
 - Verification always **recomputes hashes from the real files** and checks signatures against public keys — nothing is trusted on a stored say-so.
 
+## Contributing
+
+YayLayer is early, MIT-licensed, and built in the open — a great time to help shape the protocol. High-leverage areas:
+
+- **Language adapters** — per-language AST + behavioural proving so the *signed-only* tier (Python, C#, Rust, Go, Solidity, …) can also earn machine-**proven** Green.
+- **Teams & policy** — M-of-N multi-sig for crown-jewel Cells, safe merge re-proving, and the richer Policy engine (mandate / prohibit / grant).
+- **Real-world use** — try it on a project and open issues: rough edges, confusing docs, missing comment syntaxes. Field feedback shapes the roadmap most.
+- **Docs & examples** — walkthroughs, example projects, integrations.
+
+How to start: read [`CONSTITUTION.md`](CONSTITUTION.md) and [`standard/STANDARD.md`](standard/STANDARD.md) (the protocol's source of truth), run `node test/smoke.js` before a PR, and **open an issue to discuss anything non-trivial first**. Keep changes spec-first — YayLayer is built with YayLayer, so `yay verify` should stay green. Issues and PRs: [github.com/jonas-developer/yay-layer](https://github.com/jonas-developer/yay-layer).
+
 ## License
 
 MIT © L.J Bergman. See [`LICENSE`](LICENSE).
