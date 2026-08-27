@@ -663,41 +663,69 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
   }
 
   // ── Briefs tab — the plain-English ledger of what was ordered (Standard §5) ──
-  var briefTagFilter=null, briefGroupBy=false; // Briefs-tab view state (click a tag / group by tag)
+  var briefTagFilter=null, briefGroupBy=false, briefView='list'; // Briefs-tab view state
   function renderBriefs(){
     var el=document.getElementById('briefs'); if(!el) return;
     var ms=(DATA.meta&&DATA.meta.briefs)||[];
     if(!ms.length){ el.innerHTML='<h1>Briefs</h1><div class="snote">No briefs yet. A Brief is the plain-English record of what you ordered, signed together with each change-set. Sign with <b>yay sign --brief "…"</b> (your AI supplies it automatically).</div>'; return; }
     var lc=function(s){return String(s).toLowerCase();};
+    function cellChips(cells){ return (cells||[]).map(function(c){ var uid='u:'+c; var known=!!DETAILS[uid]; return '<span class="mcell'+(known?' known':'')+'"'+(known?(' data-uid="'+esc2(uid)+'"'):'')+' title="'+(known?'Open this Cell':'This Cell is no longer in the codebase')+'">'+esc2(c)+'</span>'; }).join(''); }
     function briefCard(m){
       var when=m.at?String(m.at).slice(0,10):'';
-      var cells=m.cells||[];
-      var chips=cells.map(function(c){ var uid='u:'+c; var known=!!DETAILS[uid]; return '<span class="mcell'+(known?' known':'')+'"'+(known?(' data-uid="'+esc2(uid)+'"'):'')+' title="'+(known?'Open this Cell':'This Cell is no longer in the codebase')+'">'+esc2(c)+'</span>'; }).join('');
-      var valid=m.valid!==false; var bar=valid?'var(--accent)':'#cf4436';
+      var cells=m.cells||[]; var valid=m.valid!==false; var bar=valid?'var(--accent)':'#cf4436';
       var badge=valid?'<span style="font-size:.72rem;font-weight:700;color:#1f9d57" title="Signature verifies against a trusted signer">✓ signed</span>':'<span style="font-size:.72rem;font-weight:700;color:#cf4436" title="This seal does NOT verify — the brief or approval was tampered with, or it was not signed by a trusted key">⚠ seal invalid</span>';
       var tagline=(m.tags&&m.tags.length)?('<div style="margin:0 0 8px">'+m.tags.map(function(t){var on=briefTagFilter&&lc(t)===lc(briefTagFilter);return '<span class="btag" data-tag="'+esc2(t)+'" title="Filter Briefs by this tag" style="display:inline-block;font-size:.68rem;font-weight:700;padding:2px 9px;border-radius:100px;border:1px solid '+(on?'var(--accent)':'var(--rule)')+';margin:0 5px 4px 0;cursor:pointer;'+(on?'background:var(--accent);color:#fff':'color:var(--accent)')+'">'+esc2(t)+'</span>';}).join('')+'</div>'):'';
       return '<div style="border:1px solid var(--rule);border-left:3px solid '+bar+';border-radius:12px;padding:14px 16px;margin:0 0 12px;background:var(--card2)">'
         +'<div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline;margin-bottom:6px"><span style="font-weight:800;letter-spacing:.06em;font-size:.72rem;color:var(--accent)">BRIEF '+esc2(m.id||'')+'</span><span style="font-size:.78rem;color:var(--mut)">'+badge+' · '+esc2(when)+(m.signer?(' · '+esc2(m.signer)):'')+'</span></div>'
         +'<div style="font-size:1.02rem;line-height:1.45;color:var(--ink);margin-bottom:8px">'+esc2(m.text||'')+'</div>'+tagline
         +'<div style="font-size:.8rem;color:var(--mut)">covers '+cells.length+' part'+(cells.length===1?'':'s')+(cells.length?' — click to open:':'')+'</div>'
-        +(cells.length?('<div style="margin-top:2px">'+chips+'</div>'):'')+'</div>';
+        +(cells.length?('<div style="margin-top:2px">'+cellChips(cells)+'</div>'):'')+'</div>';
     }
-    var toolbar='<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 14px">'
-      +'<button id="bf-group" class="tab'+(briefGroupBy?' active':'')+'" style="border:1px solid '+(briefGroupBy?'var(--accent)':'var(--rule)')+'">'+(briefGroupBy?'✓ ':'')+'Group by tag</button>'
-      +(briefTagFilter?('<span style="display:inline-flex;align-items:center;gap:6px;font-size:.78rem;font-weight:700;color:var(--accent);border:1px solid var(--accent);border-radius:100px;padding:3px 11px">#'+esc2(briefTagFilter)+' <span id="bf-clear" style="cursor:pointer;opacity:.7" title="Clear filter">✕</span></span>'):'')
+    // View toggle: List (flat / grouped) vs Clouds (a card per tag)
+    function vbtn(v,label){ var on=briefView===v; return '<button class="bf-view" data-v="'+v+'" style="border:none;padding:6px 15px;font-weight:600;cursor:pointer;font-family:inherit;font-size:.8rem;'+(on?'background:var(--accent);color:#fff':'background:transparent;color:var(--ink)')+'">'+label+'</button>'; }
+    var seg='<div style="display:inline-flex;border:1px solid var(--rule);border-radius:9px;overflow:hidden;margin-right:4px">'+vbtn('list','List')+vbtn('clouds','Clouds')+'</div>';
+    var toolbar='<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 14px">'+seg
+      +(briefView==='list'?('<button id="bf-group" class="tab'+(briefGroupBy?' active':'')+'" style="border:1px solid '+(briefGroupBy?'var(--accent)':'var(--rule)')+'">'+(briefGroupBy?'✓ ':'')+'Group by tag</button>'
+        +(briefTagFilter?('<span style="display:inline-flex;align-items:center;gap:6px;font-size:.78rem;font-weight:700;color:var(--accent);border:1px solid var(--accent);border-radius:100px;padding:3px 11px">#'+esc2(briefTagFilter)+' <span id="bf-clear" style="cursor:pointer;opacity:.7" title="Clear filter">✕</span></span>'):'')):'')
       +'</div>';
-    var list=briefTagFilter?ms.filter(function(b){return (b.tags||[]).some(function(t){return lc(t)===lc(briefTagFilter);});}):ms;
-    var html='<h1>Briefs</h1><div class="snote" style="margin:0 0 12px">What was ordered, in plain language. Click a tag to filter; “Group by tag” orders by tag first, date second.</div>'+toolbar;
-    if(!list.length){ html+='<div class="snote">No Briefs with that tag.</div>'; }
-    else if(briefGroupBy){
-      var byTag={}; list.forEach(function(b){ ((b.tags&&b.tags.length)?b.tags:['(untagged)']).forEach(function(t){ (byTag[t]=byTag[t]||[]).push(b); }); });
-      var names=Object.keys(byTag).sort(function(a,z){return a==='(untagged)'?1:z==='(untagged)'?-1:a.localeCompare(z);});
-      names.forEach(function(t){ html+='<div style="font-weight:800;font-size:.82rem;color:var(--accent);margin:14px 0 8px">'+(t==='(untagged)'?'Untagged':'#'+esc2(t))+' <span style="color:var(--mut);font-weight:600">· '+byTag[t].length+'</span></div>'; byTag[t].forEach(function(b){ html+=briefCard(b); }); });
-    } else { list.forEach(function(b){ html+=briefCard(b); }); }
+    var hint=briefView==='clouds'?'Each tag is a cloud; inside, its Briefs newest-first. A Brief with several tags appears in every matching cloud — tap one to see its parts.':'Click a tag to filter; “Group by tag” orders by tag first, date second.';
+    var html='<h1>Briefs</h1><div class="snote" style="margin:0 0 12px">What was ordered, in plain language. '+hint+'</div>'+toolbar;
+
+    if(briefView==='clouds'){
+      var tagMap={};
+      ms.forEach(function(b){ ((b.tags&&b.tags.length)?b.tags:['(untagged)']).forEach(function(t){ var k=lc(t); if(!tagMap[k])tagMap[k]={label:(String(t)==='(untagged)'?'Untagged':t),briefs:[]}; tagMap[k].briefs.push(b); }); });
+      var keys=Object.keys(tagMap).sort(function(a,z){ if(a==='(untagged)')return 1; if(z==='(untagged)')return -1; return String((tagMap[z].briefs[0]||{}).at||'').localeCompare(String((tagMap[a].briefs[0]||{}).at||'')); });
+      html+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,290px),1fr));gap:14px;align-items:start">';
+      keys.forEach(function(k){ var c=tagMap[k]; var untag=(k==='(untagged)');
+        var rows=c.briefs.map(function(b){ var when=String(b.at||'').slice(0,10); var vc=(b.valid!==false)?'var(--accent)':'#cf4436';
+          return '<div class="cbrief" style="padding:7px 9px;border-radius:9px;cursor:pointer;border-left:2px solid '+vc+';margin:0 0 5px;background:var(--paper)">'
+            +'<div style="display:flex;gap:8px;justify-content:space-between;align-items:baseline"><span style="font-size:.9rem;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc2(b.text||'')+'</span><span style="font-size:.68rem;color:var(--mut);font-variant-numeric:tabular-nums;white-space:nowrap">'+esc2(when)+'</span></div>'
+            +'<div class="cbdetail" style="display:none;margin-top:7px;padding-top:7px;border-top:1px solid var(--rule)">'
+              +'<div style="font-size:.72rem;color:var(--mut);margin-bottom:5px">'+esc2(b.id||'')+' · '+((b.valid!==false)?'✓ signed':'⚠ seal invalid')+(b.signer?(' · '+esc2(b.signer)):'')+'</div>'
+              +((b.cells&&b.cells.length)?('<div style="font-size:.72rem;color:var(--mut);margin-bottom:3px">covers '+b.cells.length+' part'+(b.cells.length===1?'':'s')+':</div><div>'+cellChips(b.cells)+'</div>'):'<div style="font-size:.72rem;color:var(--mut)">no parts</div>')
+              +((b.tags&&b.tags.length>1)?('<div style="font-size:.7rem;color:var(--mut);margin-top:5px">also in: '+b.tags.filter(function(t){return lc(t)!==k;}).map(esc2).join(', ')+'</div>'):'')
+            +'</div></div>';
+        }).join('');
+        html+='<div style="border:1px solid var(--rule);border-radius:16px;background:var(--card2);box-shadow:var(--shadow);overflow:hidden">'
+          +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--rule)"><span style="font-weight:800;font-size:.9rem;color:'+(untag?'var(--mut)':'var(--accent)')+'">'+(untag?'Untagged':'#'+esc2(c.label))+'</span><span style="font-size:.72rem;font-weight:700;color:var(--mut);background:var(--paper);border:1px solid var(--rule);border-radius:100px;padding:1px 9px">'+c.briefs.length+'</span></div>'
+          +'<div style="padding:10px 12px;max-height:340px;overflow:auto">'+rows+'</div></div>';
+      });
+      html+='</div>';
+    } else {
+      var list=briefTagFilter?ms.filter(function(b){return (b.tags||[]).some(function(t){return lc(t)===lc(briefTagFilter);});}):ms;
+      if(!list.length){ html+='<div class="snote">No Briefs with that tag.</div>'; }
+      else if(briefGroupBy){
+        var byTag={}; list.forEach(function(b){ ((b.tags&&b.tags.length)?b.tags:['(untagged)']).forEach(function(t){ (byTag[t]=byTag[t]||[]).push(b); }); });
+        var names=Object.keys(byTag).sort(function(a,z){return a==='(untagged)'?1:z==='(untagged)'?-1:a.localeCompare(z);});
+        names.forEach(function(t){ html+='<div style="font-weight:800;font-size:.82rem;color:var(--accent);margin:14px 0 8px">'+(t==='(untagged)'?'Untagged':'#'+esc2(t))+' <span style="color:var(--mut);font-weight:600">· '+byTag[t].length+'</span></div>'; byTag[t].forEach(function(b){ html+=briefCard(b); }); });
+      } else { list.forEach(function(b){ html+=briefCard(b); }); }
+    }
     el.innerHTML=html;
+    Array.prototype.forEach.call(el.querySelectorAll('.bf-view'),function(bt){ bt.onclick=function(){ briefView=bt.getAttribute('data-v'); renderBriefs(); }; });
     var g=document.getElementById('bf-group'); if(g) g.onclick=function(){ briefGroupBy=!briefGroupBy; renderBriefs(); };
     var clr=document.getElementById('bf-clear'); if(clr) clr.onclick=function(){ briefTagFilter=null; renderBriefs(); };
     Array.prototype.forEach.call(el.querySelectorAll('.btag'),function(ch){ ch.onclick=function(){ briefTagFilter=ch.getAttribute('data-tag'); renderBriefs(); }; });
+    Array.prototype.forEach.call(el.querySelectorAll('.cbrief'),function(row){ row.onclick=function(e){ if(e.target.classList&&e.target.classList.contains('mcell')) return; var d=row.querySelector('.cbdetail'); if(d) d.style.display=(d.style.display==='none'?'block':'none'); }; });
     Array.prototype.forEach.call(el.querySelectorAll('.mcell.known'),function(ch){ ch.addEventListener('click',function(){ openDetail(ch.getAttribute('data-uid')); }); });
   }
 
