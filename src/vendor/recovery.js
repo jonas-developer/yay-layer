@@ -197,7 +197,21 @@
     return out ? b64(out) : null; // null = wrong PIN / tampered blob
   }
 
-  var R = { sha256: sha256, hmacSha512: hmacSha512, pbkdf2Sha512: pbkdf2Sha512, entropyToMnemonic: entropyToMnemonic, newMnemonic: newMnemonic, mnemonicToEntropy: mnemonicToEntropy, mnemonicToSeed: mnemonicToSeed, mnemonicToKeypair: mnemonicToKeypair, normalizeMnemonic: normalizeMnemonic, sealSecret: sealSecret, openSecret: openSecret, b64: b64 };
+  // ── Sealed-box RECEIVE side (the phone/inbox): decrypt a request addressed to THIS
+  // signer by converting its ed25519 SECRET to X25519 (matches e2e.js on the laptop).
+  function b64url(u) { return b64(u).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+  function edSecToX(edSec64) { var h = sha512(edSec64.subarray(0, 32)); var s = h.slice(0, 32); s[0] &= 248; s[31] &= 127; s[31] |= 64; return s; }
+  // This signer's inbox channel — a public, deterministic hash of its (SPKI) public key.
+  function inboxChannel(pubB64) { return b64url(sha512(utf8('yay-inbox:v1:' + pubB64)).subarray(0, 18)); }
+  function openSealed(secB64, sealed) {
+    try {
+      var xsec = edSecToX(unb64(secB64));
+      var m = nacl.box.open(unb64(sealed.c), unb64(sealed.n), unb64(sealed.epk), xsec);
+      return m ? JSON.parse(new TextDecoder().decode(m)) : null;
+    } catch (e) { return null; }
+  }
+
+  var R = { sha256: sha256, hmacSha512: hmacSha512, pbkdf2Sha512: pbkdf2Sha512, entropyToMnemonic: entropyToMnemonic, newMnemonic: newMnemonic, mnemonicToEntropy: mnemonicToEntropy, mnemonicToSeed: mnemonicToSeed, mnemonicToKeypair: mnemonicToKeypair, normalizeMnemonic: normalizeMnemonic, sealSecret: sealSecret, openSecret: openSecret, b64: b64, b64url: b64url, edSecToX: edSecToX, inboxChannel: inboxChannel, openSealed: openSealed };
   if (typeof module !== 'undefined' && module.exports) module.exports = R;
   if (typeof window !== 'undefined') window.YayRecovery = R;
 })();

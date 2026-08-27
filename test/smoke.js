@@ -860,5 +860,23 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     ok(!drvTampered.ok, 'policy(roster): editing the rules without re-signing invalidates the roster (tamper-evident)');
   }
 
+  // 17) inbox crypto foundation — Ed25519↔X25519 sealed box (signer-router step 1).
+  {
+    const E2 = require('../src/e2e');
+    const R = require('../src/vendor/recovery.js');
+    const nacl = require('../src/vendor/tweetnacl.min.js');
+    const kp = R.mnemonicToKeypair(R.newMnemonic(new Uint8Array(require('crypto').randomBytes(32))));
+    const msg = { approval: 'A-1', secret: true };
+    const sealed = E2.sealTo(kp.pub, msg);
+    ok(JSON.stringify(E2.openSealed(kp.sec, sealed)) === JSON.stringify(msg), 'inbox: laptop seals → laptop opens (round-trip)');
+    ok(JSON.stringify(R.openSealed(kp.sec, sealed)) === JSON.stringify(msg), 'inbox: laptop seals → phone (recovery.js) opens (cross-side)');
+    const kp2 = R.mnemonicToKeypair(R.newMnemonic(new Uint8Array(require('crypto').randomBytes(32))));
+    ok(E2.openSealed(kp2.sec, sealed) === null && R.openSealed(kp2.sec, sealed) === null, 'inbox: a different key cannot open the sealed request');
+    ok(E2.inboxChannel(kp.pub) === R.inboxChannel(kp.pub) && /^[A-Za-z0-9_-]{24}$/.test(E2.inboxChannel(kp.pub)), 'inbox: laptop & phone derive the same url-safe inbox channel');
+    const secB = new Uint8Array(Buffer.from(kp.sec, 'base64'));
+    const pubRaw = ((u) => u.subarray(u.length - 32))(new Uint8Array(Buffer.from(kp.pub, 'base64')));
+    ok(Buffer.from(nacl.scalarMult.base(E2.edSecToX(secB))).toString('hex') === Buffer.from(E2.edPubToX(pubRaw)).toString('hex'), 'inbox: X25519 pub from the secret == from the ed25519 pub (conversion is consistent)');
+  }
+
   console.log(`\nAll ${n} checks passed.`);
 })().catch((e) => { console.error('smoke failed:', e); process.exit(1); });
