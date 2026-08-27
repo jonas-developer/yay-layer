@@ -1625,9 +1625,9 @@ function buildMapHTML(p, config, lock, flags) {
     const trustedPubs = (drv.roster && drv.roster[a.signer]) || U.pubKeysOf(cfgSigners[a.signer]) || [];
     let valid = false;
     try { valid = !!signature && trustedPubs.some((pub) => pub && C.verify(U.canonical(rest), signature, pub)); } catch (_) { valid = false; }
-    return { id: a.id, at: a.at, signer: a.signer, text: b.text, orderedBy: (b.orderedBy || ''), cells: Object.keys(a.items || {}), valid };
+    return { id: a.id, at: a.at, signer: a.signer, text: b.text, orderedBy: (b.orderedBy || ''), tags: b.tags || [], cells: Object.keys(a.items || {}), valid };
   }).reverse();
-  return { html: renderMap(manifest, verified, config && config.project, changes, times, planDoc, gov, briefs), count: Object.keys(verified.results).length };
+  return { html: renderMap(manifest, verified, config && config.project, changes, times, planDoc, gov, briefs, tagsMod.loadTags(p)), count: Object.keys(verified.results).length };
 }
 
 // A cheap fingerprint of the state the map depends on, so the dashboard can tell

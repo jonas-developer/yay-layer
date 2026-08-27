@@ -49,7 +49,7 @@ function hlCode(escLine) {
 }
 
 const COMMANDS = [
-  { cmd: 'yay init [dir]', desc: 'Guided setup: files → signing key → adopt → Constitution → optional System Plan. Signing key: local, mobile over your LAN, or mobile over relay.yaylayer.com (for off-LAN, end-to-end encrypted).', flags: [['--key local|mobile', 'signing-key type (mobile = pair your phone)'], ['--relay / --lan', 'mobile transport: hosted relay.yaylayer.com (off-LAN) or your local network'], ['--name <you>', 'signer name on every seal'], ['--adopt / --no-adopt', 'scaffold specs over existing code'], ['--constitution <keys|all>', 'write the Constitution into AI-harness files'], ['--plan / --no-plan', 'enable AI System Plan'], ['--provider anthropic|openai|custom', 'plan LLM (+ --base-url, --model, --api-key)']] },
+  { cmd: 'yay init [dir]', desc: 'Guided setup: files → signing key → adopt → Brief tags → Constitution → optional System Plan. Signing key: local, mobile over your LAN, or mobile over relay.yaylayer.com (for off-LAN, end-to-end encrypted).', flags: [['--key local|mobile', 'signing-key type (mobile = pair your phone)'], ['--relay / --lan', 'mobile transport: hosted relay.yaylayer.com (off-LAN) or your local network'], ['--name <you>', 'signer name on every seal'], ['--tags <set>', 'Brief-tag starter set (technical, responsibility, component, layer, area, product)'], ['--adopt / --no-adopt', 'scaffold specs over existing code'], ['--constitution <keys|all>', 'write the Constitution into AI-harness files'], ['--plan / --no-plan', 'enable AI System Plan'], ['--provider anthropic|openai|custom', 'plan LLM (+ --base-url, --model, --api-key)']] },
   { cmd: 'yay keygen --name <you>', desc: 'Create your ed25519 signing key (public → roster, private → encrypted keystore).', flags: [['--passphrase <p>', 'or the YAY_PASSPHRASE env var']] },
   { cmd: 'yay pair [--name you]', desc: 'Pair your phone as the signer — scan the QR; the private key stays on the phone. The FIRST pairing (no roster yet) makes the phone the trust root itself, so no local key is ever needed. Served over HTTPS by default.', flags: [['--name <you>', 'attach the phone key to this identity'], ['--relay / --lan', 'route via relay.yaylayer.com (off-LAN, E2E) or the local network'], ['--no-https', 'disable TLS (default: mkcert-trusted cert if available, else self-signed)']] },
   { cmd: 'yay enroll --name X --pubkey <b64>', desc: 'Enroll another signer via an OWNER-signed roster event.', flags: [['--role owner|signer', 'role to grant (default signer)'], ['--by <owner>', 'which owner authorizes it'], ['--phone', 'authorize on an owner’s phone (no local key needed)']] },
@@ -57,13 +57,16 @@ const COMMANDS = [
   { cmd: 'yay revoke --name X', desc: 'Revoke a compromised/rotated key (or a whole identity) via an owner-signed event. Past approvals stay attributed; refuses if it would leave no owner.', flags: [['--pubkey <b64>', 'revoke just this key (omit to remove the whole identity)'], ['--phone', 'authorize on an owner’s phone']] },
   { cmd: 'yay reroot', desc: 'Retire the current trust root and establish a new one — recovery for a lost/compromised root key. A trust discontinuity: re-sign specs and repoint the CI pin afterward.', flags: [['--phone', 'root the new key on your phone (phone-as-genesis)'], ['--name <you>', 'new local owner name'], ['--force', 'skip the confirmation prompt']] },
   { cmd: 'yay adopt [path]', desc: 'Scaffold draft (unsigned) spec blocks over existing code.', flags: [['--dry', 'preview what would be added']] },
-  { cmd: 'yay sign [--cell IDs]', desc: 'Approve the current specs — appends a signed seal. Uses THIS project’s signing method automatically (phone or local); no flag needed. If a dashboard is running, the request pops up on the phone you already scanned.', flags: [['--phone / --local', 'force the device (default = the project’s method)'], ['--no-https', 'disable TLS for the phone (on by default)'], ['--brief "<text>"', 'the signed Brief — the human-owned headline over this change-set, REQUIRED by default (editable on the phone; you are prompted if omitted at a terminal)'], ['--no-brief', 'skip the Brief for a trivial re-sign'], ['--relay / --lan', 'phone transport override (project default is set at init)'], ['--cell <ids>', 'only these Cells (comma-separated)'], ['--name <signer>', 'which signer']] },
+  { cmd: 'yay sign [--cell IDs]', desc: 'Approve the current specs — appends a signed seal. Uses THIS project’s signing method automatically (phone or local); no flag needed. If a dashboard is running, the request pops up on the phone you already scanned.', flags: [['--brief "<text>"', 'the signed Brief — the human-owned headline, REQUIRED by default (read-only on the phone: Accept or Send back; prompted if omitted at a terminal)'], ['--tags "A,B"', 'tag the Brief from the project pool (see yay tags) — required when a pool exists; --no-tags to skip'], ['--name "<signer>"', 'sign as / route to that signer — a teammate over relay gets it in their inbox (fire-and-return, returns a request id)'], ['--check [id]', 'collect a routed teammate’s signature and write the seal'], ['--phone / --local', 'force the device (default = the project’s method)'], ['--no-brief', 'skip the Brief for a trivial re-sign'], ['--relay / --lan', 'phone transport override'], ['--cell <ids>', 'only these Cells (comma-separated)']] },
+  { cmd: 'yay inbox', desc: 'Print YOUR on-duty relay link (+ QR) — open it on your phone and leave it up to receive approval requests teammates address to you with `yay sign --name "You"`.', flags: [] },
+  { cmd: 'yay requests [done <id>]', desc: 'The AI’s inbox of plain requests queued from the dashboard’s “Request a change” button. The AI turns each into a polished Brief + Cells to sign.', flags: [['done <id> / clear', 'remove a handled request (or all)']] },
+  { cmd: 'yay tags [--set id]', desc: 'The project’s Brief-tag vocabulary — every Brief is tagged from it, so work can be sorted by concern over time. Six starter sets; switch or extend anytime.', flags: [['--set <id>', 'switch to a starter set (technical, responsibility, component, layer, area, product)'], ['add "Tag" / remove "Tag"', 'edit the pool'], ['sets', 'list the six starter sets and their tags']] },
   { cmd: 'yay verify [--strict] [-d]', desc: 'The gate: paint every Cell + run the behavioural prover & mutation grading.', flags: [['--strict', 'non-zero exit if blocked (for CI)'], ['-d, --details', 'print each spec, code & checks'], ['--problems', 'show only non-green Cells'], ['--no-mutate', 'skip mutation grading']] },
   { cmd: 'yay test [--test "cmd"]', desc: 'Run the project’s OWN test suite (package.json "test" / config.test) — the runtime backstop for what per-Cell checks can’t reach. Non-zero exit on failure (for CI).', flags: [['--test "<cmd>"', 'the command to run (else package.json test)']] },
   { cmd: 'yay adversary [--cell IDs]', desc: 'Spec-only adversary: an LLM sees ONLY each Cell’s spec (never the code) and writes probes to BREAK it, run against the real code. A break is a genuine spec↔code violation. Needs an LLM key.', flags: [['--cell <ids>', 'only these Cells'], ['--provider …', 'same provider config as the System Plan']] },
   { cmd: 'yay plan', desc: 'AI-synthesize the high-level System Plan → .yaylayer/plan.json.', flags: [['--provider anthropic|openai|custom', 'LLM provider (key from .env)'], ['--base-url <url>', 'custom / OpenAI-compatible endpoint (Ollama, LM Studio, vLLM — key optional)'], ['--model <m>', 'model id']] },
-  { cmd: 'yay map [-o file.html]', desc: 'Write this HTML site (Map / Files / System Plan / Signers / Commands).', flags: [['-o <file>', 'output path'], ['--no-plan', 'omit the System Plan entirely'], ['--replan', 'force plan regeneration']] },
-  { cmd: 'yay dashboard [--port N]', desc: 'Live control panel + phone relay: serves the map (auto-refreshes) with on-demand buttons — ✍ Sign changes (push a brief to your phone to approve), Changes, Run tests, Adversary, Regenerate System Plan — AND routes pair/sign/authorize to the phone you scanned ONCE. Has a Briefs tab (the ledger of what was ordered). Leave it running. HTTPS by default; the phone installs the cert from the /trust page for warning-free https.', flags: [['--port <n>', 'port (default 48757)'], ['--open', 'open it in your browser'], ['--no-https', 'disable TLS (default: mkcert-trusted cert if available, else self-signed)']] },
+  { cmd: 'yay map [-o file.html]', desc: 'Write this HTML site (Map / Files / System Plan / Briefs / Tags / Signers / Commands).', flags: [['-o <file>', 'output path'], ['--no-plan', 'omit the System Plan entirely'], ['--replan', 'force plan regeneration']] },
+  { cmd: 'yay dashboard [--port N]', desc: 'Live control panel + phone relay: serves the map (auto-refreshes) with on-demand buttons — ➕ Request a change (queue a request your AI turns into a Brief to sign), Changes, Run tests, Adversary, Regenerate System Plan — AND routes pair/sign/authorize to the phone you scanned ONCE. Has Briefs and Tags tabs. Leave it running. HTTPS by default; the phone installs the cert from the /trust page for warning-free https.', flags: [['--port <n>', 'port (default 48757)'], ['--open', 'open it in your browser'], ['--no-https', 'disable TLS (default: mkcert-trusted cert if available, else self-signed)']] },
   { cmd: 'yay gate [dir]', desc: 'Write the CI gate workflow and print the branch-protection steps.', flags: [['--hook', 'also install a local pre-push gate'], ['--scope <dir>', 'gate only a subfolder'], ['--force', 'overwrite existing files']] },
   { cmd: 'yay constitution --for <keys>', desc: 'Write the Constitution where an AI harness auto-reads it.', flags: [['--for <keys|all>', 'claude, agents, copilot, cursor, windsurf, cline, gemini, generic'], ['--list', 'list the harnesses']] },
   { cmd: 'yay status', desc: 'One-line health summary of the project.', flags: [] },
@@ -154,7 +157,7 @@ function detailInner(cell, res, t) {
     ${checks}`;
 }
 
-function renderMap(manifest, verified, project, changes, times, planDoc, gov, briefs) {
+function renderMap(manifest, verified, project, changes, times, planDoc, gov, briefs, tagCfg) {
   // Build the hierarchy: system → module → sub-group → unit.
   const nodes = {}; const details = {};
   const ensure = (id, label, kind, parent) => {
@@ -229,7 +232,7 @@ function renderMap(manifest, verified, project, changes, times, planDoc, gov, br
     if (mc && mc.contains && mc.contains.length) continue; // container Cells aren't file units
     FILES.push({ file: res.file || (mc && mc.file) || 'other', name: (mc && (mc.unitName || (mc.spec && mc.spec.unit))) || res.name || id, id: 'u:' + id, state: res.state, line: res.line || (mc && mc.line) || 0 });
   }
-  const meta = { project: project || 'project', counts: verified.counts, passed: verified.passed, totalUnits, plan: planDoc || null, gov: gov || null, files: FILES, briefs: briefs || [] };
+  const meta = { project: project || 'project', counts: verified.counts, passed: verified.passed, totalUnits, plan: planDoc || null, gov: gov || null, files: FILES, briefs: briefs || [], tags: (tagCfg && tagCfg.tags) || [], tagSet: (tagCfg && tagCfg.set) || null };
   const payload = JSON.stringify({ root: 'system', nodes: YLnodes, edges: { system: modEdges }, details, changes: changes || [], needs, meta })
     .replace(/</g, '\\u003c');
 
@@ -434,9 +437,9 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
 </style></head><body>
 <header class="nav"><div class="nav-in">
 <div class="brand"><span class="logo"><svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><rect width="26" height="26" rx="7" fill="#3ecf8e"/><path d="M6.5 13.5l4 4L20 7.5" fill="none" stroke="#04231a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="brandname">YayLayer</span><span class="brandsep">/</span><span class="brandproj">${esc(project || 'project')}</span></div>
-<div class="nav-right"><nav class="tabs"><button class="tab active" data-tab="map">Map</button><button class="tab" data-tab="files">Files</button><button class="tab" data-tab="plan" id="tab-plan" style="display:none">System Plan</button><button class="tab" data-tab="briefs">Briefs</button><button class="tab" data-tab="signers">Signers</button><button class="tab" data-tab="commands">Commands</button></nav><button id="themebtn" class="themebtn" aria-label="Toggle theme">Dark</button><button id="navburger" class="navburger" aria-label="Menu" aria-expanded="false">☰</button></div>
+<div class="nav-right"><nav class="tabs"><button class="tab active" data-tab="map">Map</button><button class="tab" data-tab="files">Files</button><button class="tab" data-tab="plan" id="tab-plan" style="display:none">System Plan</button><button class="tab" data-tab="briefs">Briefs</button><button class="tab" data-tab="tags" id="tab-tags" style="display:none">Tags</button><button class="tab" data-tab="signers">Signers</button><button class="tab" data-tab="commands">Commands</button></nav><button id="themebtn" class="themebtn" aria-label="Toggle theme">Dark</button><button id="navburger" class="navburger" aria-label="Menu" aria-expanded="false">☰</button></div>
 </div>
-<div id="navmenu" class="navmenu"><button class="tab active" data-tab="map">Map</button><button class="tab" data-tab="files">Files</button><button class="tab" data-tab="plan" style="display:none">System Plan</button><button class="tab" data-tab="briefs">Briefs</button><button class="tab" data-tab="signers">Signers</button><button class="tab" data-tab="commands">Commands</button></div>
+<div id="navmenu" class="navmenu"><button class="tab active" data-tab="map">Map</button><button class="tab" data-tab="files">Files</button><button class="tab" data-tab="plan" style="display:none">System Plan</button><button class="tab" data-tab="briefs">Briefs</button><button class="tab" data-tab="tags" style="display:none">Tags</button><button class="tab" data-tab="signers">Signers</button><button class="tab" data-tab="commands">Commands</button></div>
 </header>
 <div class="wrap">
 <div class="pagehead"><h1>System map</h1><p class="sub">${totalUnits} units · ${verified.passed ? 'gate PASS' : 'gate BLOCKED'}${verified.counts.GREEN ? ` · ${verified.counts.proven || 0} proven / ${verified.counts.unproven || 0} unproven` : ''}</p></div>
@@ -448,6 +451,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
 <div class="logwrap"><div class="logh">Recent changes</div><ol id="log" class="log"></ol></div>
 <div id="plan" class="plan" style="display:none"></div>
 <div id="briefs" class="signers" style="display:none"></div>
+<div id="tags" class="signers" style="display:none"></div>
 <div id="signers" class="signers" style="display:none"></div>
 <div id="files" class="files" style="display:none"></div>
 <div id="commands" class="commands" style="display:none">${commandsHTML()}</div>
@@ -683,6 +687,36 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
     Array.prototype.forEach.call(el.querySelectorAll('.mcell.known'),function(ch){ ch.addEventListener('click',function(){ openDetail(ch.getAttribute('data-uid')); }); });
   }
 
+  // ── Tags tab — the project vocabulary + what was built, sorted by tag over time ──
+  function renderTags(){
+    var el=document.getElementById('tags'); if(!el) return;
+    var pool=(DATA.meta&&DATA.meta.tags)||[];
+    var setName=(DATA.meta&&DATA.meta.tagSet)||'';
+    var briefs=(DATA.meta&&DATA.meta.briefs)||[];
+    if(!pool.length){ el.innerHTML='<h1>Tags</h1><div class="snote">No tag pool set. Choose one with <b>yay tags --set &lt;id&gt;</b> (six starter sets) — then every Brief is tagged from it, so you can sort what you build by concern over time.</div>'; return; }
+    var lc=function(s){return String(s).toLowerCase();};
+    var counts={}; briefs.forEach(function(b){ (b.tags||[]).forEach(function(t){ counts[lc(t)]=(counts[lc(t)]||0)+1; }); });
+    var html='<h1>Tags</h1><div class="snote" style="margin:0 0 14px">The project vocabulary'+(setName?(' ('+esc2(setName)+' set)'):'')+' — every Brief is tagged from this pool. Edit with <b>yay tags</b>.</div>';
+    html+='<div style="margin:0 0 22px">'+pool.map(function(t){var n=counts[lc(t)]||0;return '<span style="display:inline-block;font-size:.8rem;font-weight:600;padding:4px 11px;border-radius:100px;border:1px solid var(--rule);color:'+(n?'var(--accent)':'var(--mut)')+';margin:0 6px 8px 0">'+esc2(t)+(n?(' <span style="opacity:.55">'+n+'</span>'):'')+'</span>';}).join('')+'</div>';
+    if(briefs.length){
+      html+='<div class="snote" style="margin:0 0 10px">What was built, by tag — newest first:</div>';
+      pool.forEach(function(t){
+        var items=briefs.filter(function(b){return (b.tags||[]).some(function(x){return lc(x)===lc(t);});});
+        if(!items.length) return;
+        html+='<div style="margin:0 0 16px"><div style="font-weight:800;letter-spacing:.04em;font-size:.8rem;color:var(--accent);margin-bottom:6px">'+esc2(t)+' <span style="color:var(--mut);font-weight:600">· '+items.length+'</span></div>';
+        items.forEach(function(b){
+          var when=b.at?String(b.at).slice(0,10):'';
+          var others=(b.tags||[]).filter(function(x){return lc(x)!==lc(t);});
+          html+='<div style="border-left:2px solid var(--rule);padding:2px 0 2px 12px;margin:0 0 7px"><div style="font-size:.95rem;color:var(--ink)">'+esc2(b.text||'')+'</div><div style="font-size:.74rem;color:var(--mut)">'+esc2(b.id||'')+' · '+esc2(when)+(b.signer?(' · '+esc2(b.signer)):'')+(others.length?(' · also: '+others.map(esc2).join(', ')):'')+'</div></div>';
+        });
+        html+='</div>';
+      });
+      var untagged=briefs.filter(function(b){return !(b.tags&&b.tags.length);});
+      if(untagged.length){ html+='<div style="margin:14px 0 0"><div style="font-weight:800;font-size:.8rem;color:var(--mut);margin-bottom:6px">Untagged · '+untagged.length+'</div>'; untagged.forEach(function(b){ html+='<div style="font-size:.9rem;color:var(--mut);padding:2px 0 2px 12px;border-left:2px solid var(--rule);margin:0 0 6px">'+esc2(b.text||'')+' <span style="font-size:.74rem">('+esc2(b.id||'')+')</span></div>'; }); html+='</div>'; }
+    }
+    el.innerHTML=html;
+  }
+
   // ── Files tab — classic file tree, problem states marked in colour ────────
   var SEVN={GREEN:0,YELLOW:2,UNSIGNED:3,PINK:4,RED:5};
   function worse(a,b){ return (SEVN[b]||0)>(SEVN[a]||0)?b:a; }
@@ -713,17 +747,19 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
   function setTab(name){
     curTab=name;
     MAP_ELS.forEach(function(s){ showSel(s, name==='map'); });
-    showSel('#plan', name==='plan'); showSel('#signers', name==='signers'); showSel('#files', name==='files'); showSel('#commands', name==='commands'); showSel('#briefs', name==='briefs');
+    showSel('#plan', name==='plan'); showSel('#signers', name==='signers'); showSel('#files', name==='files'); showSel('#commands', name==='commands'); showSel('#briefs', name==='briefs'); showSel('#tags', name==='tags');
     Array.prototype.forEach.call(document.querySelectorAll('.tab'),function(b){ b.classList.toggle('active', b.getAttribute('data-tab')===name); });
     var nm=document.getElementById('navmenu'); if(nm) nm.classList.remove('open');
     var nb=document.getElementById('navburger'); if(nb){ nb.textContent='☰'; nb.setAttribute('aria-expanded','false'); }
     if(name==='plan') renderPlan();
     if(name==='signers') renderSigners();
     if(name==='briefs') renderBriefs();
+    if(name==='tags') renderTags();
     if(name==='files') renderFiles();
   }
   (function(){
     if(DATA.meta && DATA.meta.plan) Array.prototype.forEach.call(document.querySelectorAll('[data-tab="plan"]'),function(t){ t.style.display=''; });
+    if(DATA.meta && DATA.meta.tags && DATA.meta.tags.length) Array.prototype.forEach.call(document.querySelectorAll('[data-tab="tags"]'),function(t){ t.style.display=''; });
     Array.prototype.forEach.call(document.querySelectorAll('.tab'),function(b){ b.addEventListener('click',function(){ setTab(b.getAttribute('data-tab')); }); });
     var nb=document.getElementById('navburger'), nm=document.getElementById('navmenu');
     if(nb && nm) nb.addEventListener('click',function(){ var open=nm.classList.toggle('open'); nb.textContent=open?'✕':'☰'; nb.setAttribute('aria-expanded',open?'true':'false'); });
