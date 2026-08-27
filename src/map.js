@@ -690,9 +690,19 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
         +(briefTagFilter?('<span style="display:inline-flex;align-items:center;gap:6px;font-size:.78rem;font-weight:700;color:var(--accent);border:1px solid var(--accent);border-radius:100px;padding:3px 11px">#'+esc2(briefTagFilter)+' <span id="bf-clear" style="cursor:pointer;opacity:.7" title="Clear filter">✕</span></span>'):'')):'')
       +'</div>';
     var bcfg=(DATA.meta&&DATA.meta.batch)||{enabled:true,barrier:5};
-    var batchbar=isLive()?('<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 16px;padding:10px 13px;border:1px solid var(--rule);border-radius:10px;background:var(--card2);font-size:.85rem;color:var(--ink-2)">'
-      +'<b style="color:var(--ink)">Batch</b><label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="bf-batch-en"'+(bcfg.enabled?' checked':'')+'>on</label><span style="color:var(--mut)">·</span>sign after <input id="bf-batch-n" type="number" min="1" max="100" value="'+bcfg.barrier+'" style="width:54px;padding:4px 6px;border-radius:7px;border:1px solid var(--rule);background:var(--paper);color:var(--ink)"> small changes'
-      +'<span id="bf-batch-msg" style="color:var(--mut);margin-left:4px"></span></div>'):'';
+    // A real PROJECT SETTING (changes the AI's behaviour) — styled distinctly from the
+    // List/Clouds/Group view controls above so it can't be mistaken for a display toggle.
+    var batchbar=isLive()?('<div style="border:1px solid var(--rule);border-left:3px solid var(--accent);border-radius:10px;padding:11px 14px;margin:0 0 18px;background:var(--card2)">'
+      +'<div style="display:flex;flex-wrap:wrap;gap:9px;align-items:center">'
+        +'<span style="font-family:var(--mono);font-size:.6rem;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--accent)">⚙ Project setting</span>'
+        +'<b style="color:var(--ink);font-size:.9rem">Batch</b>'
+        +'<label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:.85rem;color:var(--ink-2)"><input type="checkbox" id="bf-batch-en"'+(bcfg.enabled?' checked':'')+'>on</label>'
+        +'<span style="color:var(--mut)">·</span>'
+        +'<span style="font-size:.85rem;color:var(--ink-2)">sign after <input id="bf-batch-n" type="number" min="1" max="100" value="'+bcfg.barrier+'" style="width:52px;padding:4px 6px;border-radius:7px;border:1px solid var(--rule);background:var(--paper);color:var(--ink)"> small changes</span>'
+        +'<span id="bf-batch-msg" style="color:var(--mut);font-size:.8rem;margin-left:auto"></span>'
+      +'</div>'
+      +'<div style="font-size:.77rem;color:var(--mut);margin-top:7px">Controls how the <b style="color:var(--ink-2)">AI groups changes into Briefs</b> before you sign — and is shared with your team. It does <b style="color:var(--ink-2)">not</b> affect how Briefs are displayed here.</div>'
+      +'</div>'):'';
     var hint=briefView==='clouds'?'Each tag is a cloud; inside, its Briefs newest-first. A Brief with several tags appears in every matching cloud — tap one to see its parts.':'Click a tag to filter; “Group by tag” orders by tag first, date second.';
     var html='<h1>Briefs</h1><div class="snote" style="margin:0 0 12px">What was ordered, in plain language. '+hint+'</div>'+toolbar+batchbar;
 
