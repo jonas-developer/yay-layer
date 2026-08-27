@@ -11,6 +11,7 @@
     "spec-first",
     "vibe-coding"
   ],
+  "author": "L.J Bergman",
   "license": "MIT",
   "type": "commonjs",
   "bin": {

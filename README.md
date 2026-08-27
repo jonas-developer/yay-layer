@@ -291,4 +291,4 @@ Chrome/Safari read the macOS **system keychain**; **Firefox** keeps its own stor
 
 ## License
 
-MIT © the YayLayer authors. See [`LICENSE`](LICENSE).
+MIT © L.J Bergman. See [`LICENSE`](LICENSE).
