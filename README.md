@@ -151,17 +151,35 @@ function calcPortfolioValue(holdings) {
 }
 ```
 
+## What a signature attests to
+
+**A signature covers the *specification* — the spec block's hash plus the Brief — and *never the implementation*.** The signed bytes are `canonical(approval)`, whose `items` map is `{ Cell-id → sha256(normalized spec block) }`, together with the Brief (title, prose, tags). **No code hash is ever part of the signed object.**
+
+That single choice *is* the architecture — call it **A**: the human attests only to the spec, and the verifier continually re-establishes implementation → specification.
+
+- **`yay verify` re-derives code → spec on every run** from the real files — static checks (the unit exists, declared `pure`/`effects` hold, no undeclared effects) plus, for JS/TS, a behavioural prover with mutation grading. This link is **never signed; it is re-checked, always,** against whatever the code currently is.
+- **Edit the code, not the spec:** the seal still verifies (it's over the spec), and `verify` decides the colour — a faithful refactor stays **Green**, a drift from the promise flips **Red**. You refactor freely, no re-approval needed.
+- **Edit the spec or the Brief:** the hash changes, the seal no longer matches, and the Cell drops to **Unsigned** — the promise itself changed, so it needs a fresh human signature.
+
+So a **Green** Cell asserts two independent facts at once: *a human signed this exact promise* (the seal — cryptographic, offline-verifiable) **and** *the code provably keeps that promise right now* (verify — continuously re-derived). It is emphatically **not** option B (an implementation hash baked into the seal); the seal deliberately says nothing about the code, which is what lets refactors stay Green while genuine drift goes Red. Tampering with either half is caught: the lock is an append-only `prev`-chain, and verify never trusts a stored say-so — it recomputes from source every time.
+
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `yay init [dir] [--project <name>]` | set up YayLayer in `[dir]` (or the current folder); `--project` is a free-form display name (defaults to the folder name) |
-| `yay keygen --name <you>` | create your signing key; public key → roster, private key → encrypted keystore |
-| `yay adopt [path] [--dry]` | insert draft (unsigned) spec blocks above un-tagged functions |
-| `yay sign [--all \| --cell C-040,C-041] [--name <you>]` | sign a change-set (append a seal to the lock) |
-| `yay verify [--strict] [-d] [--dir <path>]` | the gate; `--strict` exits non-zero if blocked (for CI); `-d`/`--details` prints each Cell's spec, code & checks |
-| `yay map [-o file.html]` | write the flowchart — Cells grouped into collapsible modules with roll-up health + module-flow arrows (defaults to `yay-layer-map.html`) |
-| `yay status` | one-line summary |
+| `yay init [dir] [--project <name>]` | guided setup — signing method, adopt, Brief tags, Constitution, optional plan |
+| `yay keygen --name <you>` | create a local signing key (public → roster, private → encrypted keystore) |
+| `yay pair [--name you]` | pair your **phone** as the signer (key stays on the phone); first pairing roots trust |
+| `yay adopt [path] [--dry]` | insert draft (unsigned) spec blocks above un-tagged units |
+| `yay sign [--cell IDs] [--brief "…"] [--title "…"] [--tags "…"]` | ask for approval — routes to your phone; `--name "<other>"` routes to a teammate's inbox, `--check` collects it |
+| `yay verify [--strict] [-d]` | the gate — paint every Cell + run the prover; `--strict` exits non-zero if blocked (CI) |
+| `yay dashboard [--port N]` | live control panel + phone relay — map, Preview (run scripts), tests, sign requests |
+| `yay briefs [--by-tag] [--tag X]` | the Brief ledger (newest-first, or grouped/filtered by tag) |
+| `yay tags [--set id\|add\|remove\|rename\|sets]` | the project's Brief-tag vocabulary (six sets or custom) |
+| `yay inbox` / `yay requests` | your on-duty relay link · plain requests queued from the dashboard |
+| `yay invite "Name"` · `yay enroll` · `yay revoke` · `yay reroot` | team roster — one-tap join, enroll/revoke a key, re-root trust |
+| `yay policy [--init\|--set]` · `yay grant` · `yay ratify` | signing policy (who must sign) · freedom-mode grants · ratify delegated approvals |
+| `yay map [-o file.html]` · `yay gate` · `yay constitution --for <keys>` · `yay status` | write the HTML map · write the CI gate · write the Constitution into your AI harness · one-line summary |
 
 ## Colors
 
@@ -189,7 +207,7 @@ Run `node bin/yay.js verify --dir examples` and `C-900` shows **Red** — *"roll
 
 **Policies (`P-…`) — roadmap.** Cross-cutting concerns that span many Cells and live in no single one (auth, logging, error handling) are modeled as first-class **Policies**: a selector (which Cells) + a checkable rule, verified as a **"for all matched Cells"** check — e.g. *"every route is behind auth."* Flavors: mandate / prohibit / grant. Designed in [`standard/STANDARD.md`](standard/STANDARD.md) §7 and `docs/`; not yet in the reference implementation.
 
-**Implemented today:** `contains` roll-up, the `feeds` graph, and broken-edge detection. Full flow-contract checking (`producer.out ⊨ consumer.in`) and the Policy engine are on the roadmap.
+**Implemented today:** `contains` roll-up, the `feeds` graph, and broken-edge detection — plus a **signing policy** (a different, shipped thing: owner-signed "who must sign what" rules, matched by path / tag / module, enforced at the gate — see the Standard §11). Full flow-contract checking (`producer.out ⊨ consumer.in`) and the richer checkable **Policy** engine (mandate / prohibit / grant) are on the roadmap.
 
 ## CI gate
 
@@ -203,15 +221,17 @@ Anything Red or Unsigned fails the check, so it can't be merged. The real enforc
 
 ## What's built vs planned
 
-This is a **v0.1 reference implementation of the protocol's spine** — one dependency (`@babel/parser`), honest about scope.
+A **working reference implementation** of the protocol — honest about scope.
 
-**Working today:** marker extraction · manifest + `sha256` spec hashing · **ed25519** keygen, encrypted keystore, sign & verify · the green/yellow/red/unsigned gate with static code⇔spec checks (unit exists, declared purity holds, undeclared-effect flags with the offending line pinpointed) · **AST-based coverage** (`@babel/parser` — **JS, TS, JSX, TSX**) — every named unit (functions, methods, class methods, arrow-props, at any depth) with no spec shows **Pink** and blocks the gate · **AST-based `adopt`** that scaffolds specs over all of them · the interactive HTML map — a real **hierarchy** (Module → Public API / Internal / classes → units), collapsible zoom, roll-up health, and **module-flow from the call graph** · guided `yay init` wizard · `--strict` CI exit code.
+**Verification & the gate:** marker extraction · manifest + `sha256` spec hashing · **ed25519** sign & verify over an append-only, `prev`-chained lock · the green/yellow/red/unsigned/**pink** gate with static code⇔spec checks (unit exists, declared purity holds, undeclared-effect flags with the offending line pinpointed) **plus a behavioural prover + mutation grading for JS/TS** · **AST coverage** (`@babel/parser` — **JS, TS, JSX, TSX**) so every named unit with no spec shows **Pink** and blocks the gate, and **comment-agnostic spec parsing** for many more languages (Python, C#, Rust, Go, Solidity, Ruby, …) capped honestly at **Yellow** · **`adopt`** · the interactive map (hierarchy, zoom, roll-up, module-flow, plus **Briefs / Tags / Policy / Signers** tabs) · guided `yay init` · `--strict` CI gate.
 
-**Roadmap** (designed in `docs/`, not yet built): the **phone signer + encrypted rendezvous channel** (the local keystore is today's stand-in) · 24-word **mnemonic** backup · property tests from `ensures`, real effect analysis, **mutation scoring** · scope-aware flow resolution · the **Policy** engine · **freedom-mode** grants + ratification queue · **multi-sig / roles** · LLM-driven `adopt` intent derivation.
+**Phone signing is built** (not a stand-in): pair your phone over the **LAN** or via the end-to-end-encrypted **`relay.yaylayer.com`** — the key is generated on the phone and never touches the AI's machine · **24-word mnemonic** recovery · a live **dashboard** (`yay dashboard` — run tests, run `package.json` scripts, request changes, sign) · **teams** — a signed, hash-chained roster with owner/signer roles and `yay invite` / `enroll` / `revoke` / `reroot` · **signer routing** (`yay sign --name` → a teammate's inbox; fire-and-return) · **freedom-mode** grants + ratification (`yay grant` / `yay ratify`) · a **signing policy** (who-must-sign, owner-signed into the roster) · **Brief tags** for organising history.
 
-## Mobile signing — the safety model *(roadmap)*
+**Roadmap:** per-language behavioural proving so the signed-only tier can also earn machine-**proven** Green · **M-of-N multi-sig** · richer **Policy** flavors (mandate / prohibit / grant as checkable "for all matched Cells" rules) · scope-aware flow-contract checking · automated merge re-proving · LLM-driven `adopt` intent derivation.
 
-Every color in YayLayer ultimately rests on one thing: a **human signature** over the spec. That makes the signing key the crown jewel — whoever holds it can approve code *as you*. If that key ever sat on the machine the AI runs on, the AI (or any malware there) could forge your approval and paint its own code Green. **Mobile signing removes the key from the AI's reach entirely.** *(Designed in [`standard/STANDARD.md`](standard/STANDARD.md) §8; not yet built — the local passphrase-encrypted keystore is today's stand-in.)*
+## Mobile signing — the safety model
+
+Every color in YayLayer ultimately rests on one thing: a **human signature** over the spec. That makes the signing key the crown jewel — whoever holds it can approve code *as you*. If that key ever sat on the machine the AI runs on, the AI (or any malware there) could forge your approval and paint its own code Green. **Mobile signing removes the key from the AI's reach entirely** — and it's built: pick it at `yay init` (Mobile-LAN or Mobile-relay), then `yay pair` your phone. *(A local passphrase-encrypted keystore is still available for solo work and CI, chosen with the Local option.)*
 
 **Where the key lives.** Your private key is generated on your **phone** and never leaves it — held in the phone's secure hardware (Secure Enclave / Android Keystore) and released only by **Face ID / biometric**, per signature. The AI's machine only ever sees your **public** key (in the committed roster).
 
@@ -233,10 +253,39 @@ So *"can someone with a private key fake-sign?"* — only the holder of **your p
 
 **If you lose the phone.** Your key backs up as a **24-word mnemonic + passphrase**, and you can enroll a **second key** — so a lost phone restores the *same* identity with nothing to re-sign. Re-issuing a fresh trust root is a rare, deliberate one-signature fallback.
 
+## Who runs `yay sign`: the AI asks, you approve
+
+Signing has **two roles**, and keeping them straight avoids a lot of confusion:
+
+- **The AI runs `yay sign`** — this is *asking for approval*. The command builds the change-set and sends the request to your phone; it then **blocks until you answer**.
+- **You approve on the phone** — this is *giving the signature*. Your phone is the only place the key exists; you review the Brief + specs and tap **Accept** (or **Send back**).
+
+So **let your AI run `yay sign` as its own tool call** and wait for your tap. If *you* run `yay sign` yourself in a separate terminal, the AI that's building for you didn't launch it — it can't see the result and won't automatically continue once you've approved. (Running it yourself is fine when *you're* the one driving; just don't do it in parallel with an AI that's waiting on its own request.) The phone shows the requested signer's name and blocks the wrong person from approving; on a team, use `yay sign --name "<Teammate>"` to route the request to *their* inbox instead (see **signer routing** in the Standard).
+
+## HTTPS & trusting the certificate on your phone
+
+Phone signing is served over **HTTPS by default** (`--no-https` opts out). This is about *server identity*, **not** signature security: your ed25519 signatures are safe over any transport — the seal covers the spec hash and is verified offline — so a certificate warning never weakens what you're signing. HTTPS just stops a same-network attacker from impersonating the signing page.
+
+A self-signed cert works but the phone will warn once. To make it **warning-free**:
+
+**1. Trust the CA on your laptop (mkcert).**
+```bash
+brew install mkcert && mkcert -install
+```
+Chrome/Safari read the macOS **system keychain**; **Firefox** keeps its own store, so also `brew install nss`. **After installing mkcert you must restart `yay dashboard`** — a running server keeps serving the *old* self-signed cert until restarted. Chrome caches its "not secure" verdict, so fully quit (⌘Q) and reopen. (Safari shows no padlock detail for local certs — "no warning" *is* the pass.)
+
+**2. Get the CA onto the phone.** The root is at `~/Library/Application Support/mkcert/rootCA.pem` — copy it to your Desktop and **AirDrop** it to the phone (or open `<dashboard-url>/trust` on the phone for a guided flow).
+
+**3a. iOS — the two-screen gotcha.** Installing the profile is only step 1: **Settings → General → VPN & Device Management** → install the profile (there's *no* trust toggle here). The trust toggle is somewhere else: **Settings → General → About → (scroll to the very bottom) → Certificate Trust Settings → Enable Full Trust For Root Certificates → toggle the mkcert entry ON.** If that row is missing, the file was opened as a preview rather than installed — re-transfer it.
+
+**3b. Android.** **Settings → Security (or Security & privacy) → Encryption & credentials / More security → Install a certificate → CA certificate** → pick the file → accept the warning. (Android 7+ apps don't trust user-added CAs by default, but **browser** traffic does, so the signing page works. Menu names vary by manufacturer.)
+
+**Note:** the cert is bound to your machine's **LAN IP** (in the SAN), so it regenerates when that IP changes; the phone key is per-origin, so a new IP just means restoring the key from your 24 words. A future hosted domain with a real CA cert removes this whole dance.
+
 ## Security notes
 
 - **Never commit private keys or secrets.** `.yaylayer/keys/`, `*.keystore`, and `.env*` are gitignored. `config.json` (public keys) and `lock.json` (seals) *are* committed — that's the shared proof state.
-- The MVP keystore is a local, passphrase-encrypted stand-in. The production model keeps the private key **only on your phone** (Face ID), so it never touches the AI's machine. Treat the local keystore accordingly.
+- **Phone signing** keeps the private key **only on your phone**, so it never touches the AI's machine — choose Mobile-LAN or Mobile-relay at `yay init`. The **Local** option (a passphrase-encrypted keystore on disk) is available for solo work and CI; treat that keystore as sensitive since the key lives on the machine.
 - Verification always **recomputes hashes from the real files** and checks signatures against public keys — nothing is trusted on a stored say-so.
 
 ## License
