@@ -1627,7 +1627,18 @@ function buildMapHTML(p, config, lock, flags) {
     try { valid = !!signature && trustedPubs.some((pub) => pub && C.verify(U.canonical(rest), signature, pub)); } catch (_) { valid = false; }
     return { id: a.id, at: a.at, signer: a.signer, text: b.text, orderedBy: (b.orderedBy || ''), tags: b.tags || [], cells: Object.keys(a.items || {}), valid };
   }).reverse();
-  return { html: renderMap(manifest, verified, config && config.project, changes, times, planDoc, gov, briefs, tagsMod.loadTags(p)), count: Object.keys(verified.results).length };
+  // Signing policy for the Policy tab: enforced (owner-signed, in the roster) vs the draft
+  // file, plus the Cells currently violating it.
+  const polViol = Object.keys(verified.results)
+    .filter((id) => verified.results[id].policyOk === false)
+    .map((id) => ({ id, note: ((verified.results[id].notes || []).find((n) => /^policy:/.test(n.text)) || {}).text || 'requires a specific signer' }));
+  const policyInfo = {
+    enforced: (drv.policy && drv.policy.rules) || [],
+    draft: policyMod.loadPolicy(p).rules,
+    violations: polViol,
+    signers: signers.map((s) => s.name),
+  };
+  return { html: renderMap(manifest, verified, config && config.project, changes, times, planDoc, gov, briefs, tagsMod.loadTags(p), policyInfo), count: Object.keys(verified.results).length };
 }
 
 // A cheap fingerprint of the state the map depends on, so the dashboard can tell
@@ -1738,6 +1749,38 @@ async function cmdDashboard(flags) {
       // Teammate enrollment from the dashboard: run the normal `yay enroll --phone`
       // as a child, which routes the OWNER-signed approval to the phone (or panel) and
       // writes the roster. All trust-critical logic is the existing enroll path.
+      // Policy editor (draft): append / remove a rule in .yaylayer/policy.json. Editing the
+      // draft enforces nothing on its own — `policyApply` owner-signs it into the roster.
+      policyAddRule: (rule) => {
+        if (!rule || !rule.match || (!rule.match.path && !rule.match.tag && !rule.match.module) || (!rule.signer && !(rule.signers && rule.signers.length))) {
+          return { ok: false, error: 'a rule needs a matcher (path/tag/module) and a required signer' };
+        }
+        const rules = policyMod.loadPolicy(p).rules;
+        const clean = { match: {}, };
+        for (const k of ['path', 'tag', 'module']) if (rule.match[k]) clean.match[k] = String(rule.match[k]);
+        if (rule.signer) clean.signer = String(rule.signer);
+        rules.push(clean);
+        U.writeJSON(policyMod.policyPath(p), { rules });
+        return { ok: true, rules };
+      },
+      policyRemoveRule: (index) => {
+        const rules = policyMod.loadPolicy(p).rules;
+        if (!(index >= 0 && index < rules.length)) return { ok: false, error: 'no such rule' };
+        rules.splice(index, 1);
+        U.writeJSON(policyMod.policyPath(p), { rules });
+        return { ok: true, rules };
+      },
+      // Owner-sign the draft policy into the roster — routes to the phone (reuses yay policy --set).
+      policyApply: () => new Promise((resolve) => {
+        const child = require('child_process').spawn(process.execPath, [process.argv[1], 'policy', '--set'], { cwd: p.root });
+        let out = '';
+        child.stdout.on('data', (d) => { out += d; });
+        child.stderr.on('data', (d) => { out += d; });
+        child.on('error', (e) => resolve({ ok: false, error: String((e && e.message) || e) }));
+        child.on('exit', (code) => resolve(code === 0
+          ? { ok: true, output: out.replace(/\x1b\[[0-9;]*m/g, '').trim() }
+          : { ok: false, error: (out.replace(/\x1b\[[0-9;]*m/g, '').trim() || ('policy --set exited ' + code)) }));
+      }),
       // Queue a plain human request the AI will turn into a Brief + Cells (see `yay requests`).
       addRequest: (text) => {
         const rp = requestsPath(p);

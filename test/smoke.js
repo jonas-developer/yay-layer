@@ -575,6 +575,22 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     sd.close();
   }
 
+  // Dashboard policy editor: add/remove a draft rule + apply routes owner-sign to the phone.
+  {
+    let rules = []; let applied = false;
+    const sd = await startDashboard({ buildMapHTML: () => ({ html: '<html><body></body></html>', count: 0 }), version: () => 'A',
+      policyAddRule: (r) => { if (!r.signer) return { ok: false, error: 'need a signer' }; rules.push(r); return { ok: true, rules }; },
+      policyRemoveRule: (i) => { rules.splice(i, 1); return { ok: true, rules }; },
+      policyApply: () => { applied = true; return Promise.resolve({ ok: true, output: 'signed' }); } }, { port: 0 });
+    const sb = 'http://127.0.0.1:' + sd.port;
+    const sp = (path, b) => fetch(sb + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b || {}) }).then((r) => r.json());
+    ok((await sp('/api/policy/rule', { match: { path: '**/auth/**' }, signer: 'Sara' })).ok === true && rules.length === 1, 'v2 policy: /api/policy/rule adds a draft rule');
+    ok((await sp('/api/policy/rule', { match: { tag: 'security' } })).ok === false, 'v2 policy: a rule with no signer is rejected');
+    ok((await sp('/api/policy/apply', {})).ok === true && applied, 'v2 policy: /api/policy/apply owner-signs the draft');
+    ok((await sp('/api/policy/remove', { index: 0 })).ok === true && rules.length === 0, 'v2 policy: /api/policy/remove drops a draft rule');
+    sd.close();
+  }
+
   // Briefs ledger renders as a tab in the map (the readable history of what was ordered).
   {
     const { renderMap } = require('../src/map');

@@ -61,12 +61,15 @@ const COMMANDS = [
   { cmd: 'yay inbox', desc: 'Print YOUR on-duty relay link (+ QR) — open it on your phone and leave it up to receive approval requests teammates address to you with `yay sign --name "You"`.', flags: [] },
   { cmd: 'yay requests [done <id>]', desc: 'The AI’s inbox of plain requests queued from the dashboard’s “Request a change” button. The AI turns each into a polished Brief + Cells to sign.', flags: [['done <id> / clear', 'remove a handled request (or all)']] },
   { cmd: 'yay tags [--set id]', desc: 'The project’s Brief-tag vocabulary — every Brief is tagged from it, so work can be sorted by concern over time. Six starter sets; switch or extend anytime.', flags: [['--set <id>', 'switch to a starter set (technical, responsibility, component, layer, area, product)'], ['add "Tag" / remove "Tag"', 'edit the pool'], ['sets', 'list the six starter sets and their tags']] },
+  { cmd: 'yay policy [--init|--set]', desc: 'Signing policy — who must sign what (neutral by default). A rule requires a specific person to sign Cells matched by path glob, spec tag, or module; the gate blocks any match they haven’t signed. Edit the draft in the dashboard Policy tab or the file, then --set owner-signs it into the roster (tamper-evident).', flags: [['--init', 'write a commented policy.json template'], ['--set', 'owner-sign the draft policy.json into effect (routes to your phone)']] },
+  { cmd: 'yay grant [--for 2h] [--count 20]', desc: 'FREEDOM MODE: an owner-signed grant lets the AI auto-approve in-scope, non-sensitive Cells unattended until it expires or hits the count. Sensitive / code-pinned Cells always still need a real signature.', flags: [['--for <dur>', 'time window, e.g. 2h, 90m, 1d (default 2h)'], ['--count <n>', 'max auto-approvals (default 20)'], ['--cell <ids>', 'scope to named Cells (else all non-sensitive)'], ['list / revoke [id]', 'show active grants / stop one']] },
+  { cmd: 'yay ratify [--sign]', desc: 'List Cells auto-approved under a grant (delegated, not human-reviewed); --sign signs them for real.', flags: [['--sign', 'sign the delegated approvals for real (human)']] },
   { cmd: 'yay verify [--strict] [-d]', desc: 'The gate: paint every Cell + run the behavioural prover & mutation grading.', flags: [['--strict', 'non-zero exit if blocked (for CI)'], ['-d, --details', 'print each spec, code & checks'], ['--problems', 'show only non-green Cells'], ['--no-mutate', 'skip mutation grading']] },
   { cmd: 'yay test [--test "cmd"]', desc: 'Run the project’s OWN test suite (package.json "test" / config.test) — the runtime backstop for what per-Cell checks can’t reach. Non-zero exit on failure (for CI).', flags: [['--test "<cmd>"', 'the command to run (else package.json test)']] },
   { cmd: 'yay adversary [--cell IDs]', desc: 'Spec-only adversary: an LLM sees ONLY each Cell’s spec (never the code) and writes probes to BREAK it, run against the real code. A break is a genuine spec↔code violation. Needs an LLM key.', flags: [['--cell <ids>', 'only these Cells'], ['--provider …', 'same provider config as the System Plan']] },
   { cmd: 'yay plan', desc: 'AI-synthesize the high-level System Plan → .yaylayer/plan.json.', flags: [['--provider anthropic|openai|custom', 'LLM provider (key from .env)'], ['--base-url <url>', 'custom / OpenAI-compatible endpoint (Ollama, LM Studio, vLLM — key optional)'], ['--model <m>', 'model id']] },
-  { cmd: 'yay map [-o file.html]', desc: 'Write this HTML site (Map / Files / System Plan / Briefs / Tags / Signers / Commands).', flags: [['-o <file>', 'output path'], ['--no-plan', 'omit the System Plan entirely'], ['--replan', 'force plan regeneration']] },
-  { cmd: 'yay dashboard [--port N]', desc: 'Live control panel + phone relay: serves the map (auto-refreshes) with on-demand buttons — ➕ Request a change (queue a request your AI turns into a Brief to sign), Changes, Run tests, Adversary, Regenerate System Plan — AND routes pair/sign/authorize to the phone you scanned ONCE. Has Briefs and Tags tabs. Leave it running. HTTPS by default; the phone installs the cert from the /trust page for warning-free https.', flags: [['--port <n>', 'port (default 48757)'], ['--open', 'open it in your browser'], ['--no-https', 'disable TLS (default: mkcert-trusted cert if available, else self-signed)']] },
+  { cmd: 'yay map [-o file.html]', desc: 'Write this HTML site (Map / Files / System Plan / Briefs / Tags / Policy / Signers / Commands).', flags: [['-o <file>', 'output path'], ['--no-plan', 'omit the System Plan entirely'], ['--replan', 'force plan regeneration']] },
+  { cmd: 'yay dashboard [--port N]', desc: 'Live control panel + phone relay: serves the map (auto-refreshes) with on-demand buttons — ➕ Request a change (queue a request your AI turns into a Brief to sign), Changes, Run tests, Adversary, Regenerate System Plan — AND routes pair/sign/authorize to the phone you scanned ONCE. Has Briefs, Tags and Policy tabs. Leave it running. HTTPS by default; the phone installs the cert from the /trust page for warning-free https.', flags: [['--port <n>', 'port (default 48757)'], ['--open', 'open it in your browser'], ['--no-https', 'disable TLS (default: mkcert-trusted cert if available, else self-signed)']] },
   { cmd: 'yay gate [dir]', desc: 'Write the CI gate workflow and print the branch-protection steps.', flags: [['--hook', 'also install a local pre-push gate'], ['--scope <dir>', 'gate only a subfolder'], ['--force', 'overwrite existing files']] },
   { cmd: 'yay constitution --for <keys>', desc: 'Write the Constitution where an AI harness auto-reads it.', flags: [['--for <keys|all>', 'claude, agents, copilot, cursor, windsurf, cline, gemini, generic'], ['--list', 'list the harnesses']] },
   { cmd: 'yay status', desc: 'One-line health summary of the project.', flags: [] },
@@ -157,7 +160,7 @@ function detailInner(cell, res, t) {
     ${checks}`;
 }
 
-function renderMap(manifest, verified, project, changes, times, planDoc, gov, briefs, tagCfg) {
+function renderMap(manifest, verified, project, changes, times, planDoc, gov, briefs, tagCfg, policyInfo) {
   // Build the hierarchy: system → module → sub-group → unit.
   const nodes = {}; const details = {};
   const ensure = (id, label, kind, parent) => {
@@ -232,7 +235,7 @@ function renderMap(manifest, verified, project, changes, times, planDoc, gov, br
     if (mc && mc.contains && mc.contains.length) continue; // container Cells aren't file units
     FILES.push({ file: res.file || (mc && mc.file) || 'other', name: (mc && (mc.unitName || (mc.spec && mc.spec.unit))) || res.name || id, id: 'u:' + id, state: res.state, line: res.line || (mc && mc.line) || 0 });
   }
-  const meta = { project: project || 'project', counts: verified.counts, passed: verified.passed, totalUnits, plan: planDoc || null, gov: gov || null, files: FILES, briefs: briefs || [], tags: (tagCfg && tagCfg.tags) || [], tagSet: (tagCfg && tagCfg.set) || null };
+  const meta = { project: project || 'project', counts: verified.counts, passed: verified.passed, totalUnits, plan: planDoc || null, gov: gov || null, files: FILES, briefs: briefs || [], tags: (tagCfg && tagCfg.tags) || [], tagSet: (tagCfg && tagCfg.set) || null, policy: policyInfo || { enforced: [], draft: [], violations: [], signers: [] } };
   const payload = JSON.stringify({ root: 'system', nodes: YLnodes, edges: { system: modEdges }, details, changes: changes || [], needs, meta })
     .replace(/</g, '\\u003c');
 
@@ -437,9 +440,9 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
 </style></head><body>
 <header class="nav"><div class="nav-in">
 <div class="brand"><span class="logo"><svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><rect width="26" height="26" rx="7" fill="#3ecf8e"/><path d="M6.5 13.5l4 4L20 7.5" fill="none" stroke="#04231a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="brandname">YayLayer</span><span class="brandsep">/</span><span class="brandproj">${esc(project || 'project')}</span></div>
-<div class="nav-right"><nav class="tabs"><button class="tab active" data-tab="map">Map</button><button class="tab" data-tab="files">Files</button><button class="tab" data-tab="plan" id="tab-plan" style="display:none">System Plan</button><button class="tab" data-tab="briefs">Briefs</button><button class="tab" data-tab="tags" id="tab-tags" style="display:none">Tags</button><button class="tab" data-tab="signers">Signers</button><button class="tab" data-tab="commands">Commands</button></nav><button id="themebtn" class="themebtn" aria-label="Toggle theme">Dark</button><button id="navburger" class="navburger" aria-label="Menu" aria-expanded="false">☰</button></div>
+<div class="nav-right"><nav class="tabs"><button class="tab active" data-tab="map">Map</button><button class="tab" data-tab="files">Files</button><button class="tab" data-tab="plan" id="tab-plan" style="display:none">System Plan</button><button class="tab" data-tab="briefs">Briefs</button><button class="tab" data-tab="tags" id="tab-tags" style="display:none">Tags</button><button class="tab" data-tab="policy" id="tab-policy" style="display:none">Policy</button><button class="tab" data-tab="signers">Signers</button><button class="tab" data-tab="commands">Commands</button></nav><button id="themebtn" class="themebtn" aria-label="Toggle theme">Dark</button><button id="navburger" class="navburger" aria-label="Menu" aria-expanded="false">☰</button></div>
 </div>
-<div id="navmenu" class="navmenu"><button class="tab active" data-tab="map">Map</button><button class="tab" data-tab="files">Files</button><button class="tab" data-tab="plan" style="display:none">System Plan</button><button class="tab" data-tab="briefs">Briefs</button><button class="tab" data-tab="tags" style="display:none">Tags</button><button class="tab" data-tab="signers">Signers</button><button class="tab" data-tab="commands">Commands</button></div>
+<div id="navmenu" class="navmenu"><button class="tab active" data-tab="map">Map</button><button class="tab" data-tab="files">Files</button><button class="tab" data-tab="plan" style="display:none">System Plan</button><button class="tab" data-tab="briefs">Briefs</button><button class="tab" data-tab="tags" style="display:none">Tags</button><button class="tab" data-tab="policy" style="display:none">Policy</button><button class="tab" data-tab="signers">Signers</button><button class="tab" data-tab="commands">Commands</button></div>
 </header>
 <div class="wrap">
 <div class="pagehead"><h1>System map</h1><p class="sub">${totalUnits} units · ${verified.passed ? 'gate PASS' : 'gate BLOCKED'}${verified.counts.GREEN ? ` · ${verified.counts.proven || 0} proven / ${verified.counts.unproven || 0} unproven` : ''}</p></div>
@@ -452,6 +455,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
 <div id="plan" class="plan" style="display:none"></div>
 <div id="briefs" class="signers" style="display:none"></div>
 <div id="tags" class="signers" style="display:none"></div>
+<div id="policy" class="signers" style="display:none"></div>
 <div id="signers" class="signers" style="display:none"></div>
 <div id="files" class="files" style="display:none"></div>
 <div id="commands" class="commands" style="display:none">${commandsHTML()}</div>
@@ -717,6 +721,63 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
     el.innerHTML=html;
   }
 
+  // ── Policy tab — who must sign what. Viewer (enforced vs draft + violations) plus,
+  // when live under the dashboard, an editor that owner-signs the draft via the phone.
+  function renderPolicy(){
+    var el=document.getElementById('policy'); if(!el) return;
+    var pol=(DATA.meta&&DATA.meta.policy)||{enforced:[],draft:[],violations:[],signers:[]};
+    var enforced=pol.enforced||[], draft=pol.draft||[], viol=pol.violations||[], signers=pol.signers||[];
+    function ruleLine(r){
+      var m=r.match||{}, parts=[];
+      if(m.path) parts.push('path <code>'+esc2(m.path)+'</code>');
+      if(m.tag) parts.push('tag <code>'+esc2(m.tag)+'</code>');
+      if(m.module) parts.push('module <code>'+esc2(m.module)+'</code>');
+      var who=r.signer?esc2(r.signer):((r.signers||[]).map(esc2).join(' or '));
+      return (parts.join(' &amp; ')||'(no matcher)')+' → must be signed by <b>'+who+'</b>';
+    }
+    var same=JSON.stringify(enforced)===JSON.stringify(draft);
+    var html='<h1>Policy</h1><div class="snote" style="margin:0 0 14px">Who must sign what. Neutral by default — a rule requires a specific person to sign matching Cells, and the gate blocks any match they haven’t signed. Enforced rules are <b>owner-signed</b> into the roster (tamper-evident).</div>';
+    if(!enforced.length){ html+='<div class="snote" style="margin:0 0 14px">Enforced: <b>none</b> — every enrolled signer is treated the same.</div>'; }
+    else { html+='<div style="margin:0 0 16px"><div style="font-weight:800;font-size:.8rem;color:var(--accent);margin-bottom:6px">ENFORCED · owner-signed</div>'+enforced.map(function(r){return '<div style="border:1px solid var(--rule);border-left:3px solid var(--accent);border-radius:10px;padding:9px 12px;margin:0 0 8px;font-size:.92rem">'+ruleLine(r)+'</div>';}).join('')+'</div>'; }
+    if(viol.length){ html+='<div style="margin:0 0 16px"><div style="font-weight:800;font-size:.8rem;color:#cf4436;margin-bottom:6px">VIOLATIONS · '+viol.length+'</div>'+viol.map(function(v){return '<div style="font-size:.88rem;color:#cf4436;padding:2px 0 2px 12px;border-left:2px solid #cf4436;margin:0 0 6px">'+esc2(v.id)+' — '+esc2(v.note)+'</div>';}).join('')+'</div>'; }
+    html+='<div style="margin:18px 0 6px;font-weight:800;font-size:.8rem;color:var(--mut)">DRAFT · .yaylayer/policy.json'+(same?' (matches enforced)':' (differs — not yet signed)')+'</div>';
+    if(!draft.length){ html+='<div class="snote" style="margin:0 0 10px">No draft rules.</div>'; }
+    else { html+=draft.map(function(r,i){return '<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;border:1px dashed var(--rule);border-radius:10px;padding:9px 12px;margin:0 0 8px;font-size:.92rem"><span>'+ruleLine(r)+'</span>'+(LIVE?('<button class="pol-rm" data-i="'+i+'" style="border:1px solid var(--rule);background:none;color:#cf4436;border-radius:8px;padding:3px 9px;cursor:pointer;font-size:.8rem">remove</button>'):'')+'</div>';}).join(''); }
+    if(LIVE){
+      var sigOpts=signers.map(function(s){return '<option value="'+esc2(s)+'">'+esc2(s)+'</option>';}).join('');
+      html+='<div style="border:1px solid var(--rule);border-radius:12px;padding:14px;margin:12px 0 0;background:var(--card2)">'
+        +'<div style="font-weight:700;margin-bottom:10px">Add a rule</div>'
+        +'<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">'
+        +'<select id="pol-mtype" style="padding:8px;border-radius:8px;border:1px solid var(--rule);background:var(--paper);color:var(--ink)"><option value="path">path glob</option><option value="tag">spec tag</option><option value="module">module</option></select>'
+        +'<input id="pol-mval" placeholder="e.g. **/auth/**" style="flex:1;min-width:150px;padding:8px;border-radius:8px;border:1px solid var(--rule);background:var(--paper);color:var(--ink)">'
+        +'<span style="color:var(--mut)">→</span>'
+        +'<select id="pol-signer" style="padding:8px;border-radius:8px;border:1px solid var(--rule);background:var(--paper);color:var(--ink)">'+(sigOpts||'<option value="">(no signers)</option>')+'</select>'
+        +'<button id="pol-add" style="padding:8px 14px;border-radius:8px;border:none;background:var(--brand);color:#04231a;font-weight:700;cursor:pointer">Add to draft</button>'
+        +'</div>'
+        +(!same?('<div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button id="pol-apply" style="padding:9px 16px;border-radius:8px;border:none;background:var(--accent);color:#fff;font-weight:700;cursor:pointer">Apply — owner-sign on your phone</button><span style="color:var(--mut);font-size:.85rem">signs the draft into the roster</span></div>'):'')
+        +'<div id="pol-msg" style="margin-top:10px;font-size:.85rem;color:var(--mut)"></div></div>';
+    } else if(!same){
+      html+='<div class="snote" style="margin:10px 0 0">The draft differs from what’s enforced. Apply it with <b>yay policy --set</b> (owner-signs on your phone), or edit it live in <b>yay dashboard</b>.</div>';
+    }
+    el.innerHTML=html;
+    if(LIVE){
+      var msg=document.getElementById('pol-msg');
+      function post(u,b){return fetch(u,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b||{})}).then(function(r){return r.json();});}
+      Array.prototype.forEach.call(el.querySelectorAll('.pol-rm'),function(btn){ btn.onclick=function(){ post('/api/policy/remove',{index:parseInt(btn.getAttribute('data-i'),10)}).then(function(){ location.reload(); }); }; });
+      var add=document.getElementById('pol-add'); if(add) add.onclick=function(){
+        var t=document.getElementById('pol-mtype').value, v=(document.getElementById('pol-mval').value||'').trim(), s=document.getElementById('pol-signer').value;
+        if(!v){ if(msg){msg.textContent='Enter a value to match.';msg.style.color='#cf4436';} return; }
+        if(!s){ if(msg){msg.textContent='No signer selected — enroll one first.';msg.style.color='#cf4436';} return; }
+        var match={}; match[t]=v;
+        post('/api/policy/rule',{match:match,signer:s}).then(function(j){ if(j&&j.ok){location.reload();} else if(msg){msg.textContent='✗ '+((j&&j.error)||'failed');msg.style.color='#cf4436';} });
+      };
+      var ap=document.getElementById('pol-apply'); if(ap) ap.onclick=function(){
+        if(msg){msg.textContent='Sending to your phone to owner-sign…';msg.style.color='';}
+        post('/api/policy/apply',{}).then(function(j){ if(j&&j.ok){ if(msg){msg.textContent='✓ Applied — reloading…';msg.style.color='#1f9d57';} setTimeout(function(){location.reload();},1200);} else if(msg){msg.textContent='✗ '+((j&&j.error)||'failed');msg.style.color='#cf4436';} });
+      };
+    }
+  }
+
   // ── Files tab — classic file tree, problem states marked in colour ────────
   var SEVN={GREEN:0,YELLOW:2,UNSIGNED:3,PINK:4,RED:5};
   function worse(a,b){ return (SEVN[b]||0)>(SEVN[a]||0)?b:a; }
@@ -747,7 +808,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
   function setTab(name){
     curTab=name;
     MAP_ELS.forEach(function(s){ showSel(s, name==='map'); });
-    showSel('#plan', name==='plan'); showSel('#signers', name==='signers'); showSel('#files', name==='files'); showSel('#commands', name==='commands'); showSel('#briefs', name==='briefs'); showSel('#tags', name==='tags');
+    showSel('#plan', name==='plan'); showSel('#signers', name==='signers'); showSel('#files', name==='files'); showSel('#commands', name==='commands'); showSel('#briefs', name==='briefs'); showSel('#tags', name==='tags'); showSel('#policy', name==='policy');
     Array.prototype.forEach.call(document.querySelectorAll('.tab'),function(b){ b.classList.toggle('active', b.getAttribute('data-tab')===name); });
     var nm=document.getElementById('navmenu'); if(nm) nm.classList.remove('open');
     var nb=document.getElementById('navburger'); if(nb){ nb.textContent='☰'; nb.setAttribute('aria-expanded','false'); }
@@ -755,11 +816,14 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
     if(name==='signers') renderSigners();
     if(name==='briefs') renderBriefs();
     if(name==='tags') renderTags();
+    if(name==='policy') renderPolicy();
     if(name==='files') renderFiles();
   }
+  var LIVE=!!document.getElementById('yd-bar'); // running under the dashboard (editable)
   (function(){
     if(DATA.meta && DATA.meta.plan) Array.prototype.forEach.call(document.querySelectorAll('[data-tab="plan"]'),function(t){ t.style.display=''; });
     if(DATA.meta && DATA.meta.tags && DATA.meta.tags.length) Array.prototype.forEach.call(document.querySelectorAll('[data-tab="tags"]'),function(t){ t.style.display=''; });
+    var pol=(DATA.meta&&DATA.meta.policy)||{}; if(LIVE || (pol.enforced&&pol.enforced.length) || (pol.draft&&pol.draft.length)) Array.prototype.forEach.call(document.querySelectorAll('[data-tab="policy"]'),function(t){ t.style.display=''; });
     Array.prototype.forEach.call(document.querySelectorAll('.tab'),function(b){ b.addEventListener('click',function(){ setTab(b.getAttribute('data-tab')); }); });
     var nb=document.getElementById('navburger'), nm=document.getElementById('navmenu');
     if(nb && nm) nb.addEventListener('click',function(){ var open=nm.classList.toggle('open'); nb.textContent=open?'✕':'☰'; nb.setAttribute('aria-expanded',open?'true':'false'); });
