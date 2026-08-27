@@ -1,6 +1,8 @@
 <div align="center">
 
-# 🟢 YayLayer
+<img src="https://yaylayer.com/logo.svg" width="76" height="76" alt="YayLayer" />
+
+# YayLayer
 
 **A protocol for provable, signed AI code.**
 
