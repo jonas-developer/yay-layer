@@ -1,6 +1,19 @@
-# YayLayer
+<div align="center">
+
+# 🟢 YayLayer
 
 **A protocol for provable, signed AI code.**
+
+<sub>Approved blueprints first · an inspector that checks the build matches · it can't ship until it passes.</sub>
+
+[![AI code: provable & signed](https://img.shields.io/badge/AI%20code-provable%20%26%20signed-177f52.svg)](#)
+[![license: MIT](https://img.shields.io/badge/license-MIT-177f52.svg)](LICENSE)
+[![node](https://img.shields.io/badge/node-%E2%89%A518-177f52.svg)](package.json)
+[![gate: no false green](https://img.shields.io/badge/gate-no%20false%20green-1f9d57.svg)](#colors)
+
+</div>
+
+---
 
 > YayLayer is a **building permit for AI-written code**: approved blueprints first, an inspector who checks the build matches them, and you can't move in until it passes.
 
@@ -11,7 +24,7 @@ You describe what you want; the AI writes a tiny, human-readable **spec** above 
 - **Attributable authorship** — every approval is cryptographically signed by a *named* human.
 - **CI-enforced** — unsigned or mismatched code can't reach `main`.
 
-See the design in [`docs/`](docs/) · the spec in [`standard/STANDARD.md`](standard/STANDARD.md) · the AI rules in [`CONSTITUTION.md`](CONSTITUTION.md).
+Read the spec in [`standard/STANDARD.md`](standard/STANDARD.md) · the AI rules in [`CONSTITUTION.md`](CONSTITUTION.md).
 
 ---
 
@@ -184,7 +197,7 @@ So a **Green** Cell asserts two independent facts at once: *a human signed this 
 
 ## Colors
 
-**GREEN** code proven to match a signed spec · **YELLOW** matches but flagged (prose-only, undeclared effect, unproven) · **RED** code ≠ spec (or tampered signature) · **UNSIGNED** awaiting a signature · **PINK** code with **no formal specification at all** — untracked, never described or signed.
+🟢 **GREEN** code proven to match a signed spec · 🟡 **YELLOW** matches but flagged (prose-only, undeclared effect, unproven) · 🔴 **RED** code ≠ spec (or tampered signature) · ⚪ **UNSIGNED** awaiting a signature · 🩷 **PINK** code with **no formal specification at all** — untracked, never described or signed.
 
 **Total coverage is the whole point.** PINK is the most dangerous state — unknown territory where silent bugs hide — so it **blocks the gate just like Red and Unsigned.** YayLayer never silently ignores code it doesn't understand: **any named unit** with no spec block — a function, object method, class method, or arrow-prop, *even nested inside an IIFE, object, or class* — shows up **Pink** (`«unitName»`) until you `yay adopt` it and sign it. Top-level imperative code that runs at load is flagged too. That way "green gate" honestly means *the whole project is covered*, not just the parts someone happened to tag. (The signature covers the **spec**, so you can still refactor freely; only a changed promise re-prompts you. Coverage uses a real parser — [`@babel/parser`](https://babeljs.io/docs/babel-parser) — so **JS, TypeScript, JSX and TSX** are all handled; genuinely unparseable files degrade gracefully to file-level grouping.)
 
