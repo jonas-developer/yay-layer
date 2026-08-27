@@ -878,5 +878,27 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     ok(Buffer.from(nacl.scalarMult.base(E2.edSecToX(secB))).toString('hex') === Buffer.from(E2.edPubToX(pubRaw)).toString('hex'), 'inbox: X25519 pub from the secret == from the ed25519 pub (conversion is consistent)');
   }
 
+  // 18) router reply round-trip (signer-router step 3) — the sender seals a request WITH a
+  // symmetric replyKey to the target's inbox; the target opens it, seals a reply with that
+  // key, and only the original sender can read the reply back. Relay sees opaque blobs.
+  {
+    const E2 = require('../src/e2e');
+    const R = require('../src/vendor/recovery.js');
+    const sara = R.mnemonicToKeypair(R.newMnemonic(new Uint8Array(require('crypto').randomBytes(32))));
+    const replyKey = E2.b64url(E2.newKey());
+    // Sender (Lisa's machine) → Sara's inbox
+    const wire = { mode: 'approve', approval: { id: 'A-9', items: {} }, replyKey, signer: 'Sara' };
+    const sealed = E2.sealTo(sara.pub, wire);
+    // Sara's phone opens it and recovers the same replyKey
+    const got = R.openSealed(sara.sec, sealed);
+    ok(got && got.replyKey === replyKey, 'router: the target opens the sealed request and recovers the replyKey');
+    // Sara seals her reply with that key; the sender opens it with the key it kept
+    const reply = E2.seal(E2.fromB64url(got.replyKey), { signature: 'SIG-abc' });
+    const back = E2.open(E2.fromB64url(replyKey), reply);
+    ok(back && back.signature === 'SIG-abc', 'router: the sender opens the reply with its replyKey (round-trip)');
+    // an eavesdropper with a different key learns nothing from the reply
+    ok(E2.open(E2.newKey(), reply) === null, 'router: a wrong replyKey cannot read the reply');
+  }
+
   console.log(`\nAll ${n} checks passed.`);
 })().catch((e) => { console.error('smoke failed:', e); process.exit(1); });

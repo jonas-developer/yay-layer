@@ -647,9 +647,100 @@ async function routeThroughRelay(p, mode, payload, flags) {
   }
 }
 
-async function cmdSign(flags) {
+// The per-Cell summary the phone shows (state colour, intent, spec, spec-diff).
+function signSummary(p, config, lock, manifest, items) {
+  const verified = verifyManifest(manifest, lock, config, { mutate: false });
+  const SEALCOLORS = { GREEN: '#1f9d57', YELLOW: '#c9860f', RED: '#cf4436', UNSIGNED: '#7f8796', PINK: '#e0559b' };
+  return Object.keys(items).map((id) => {
+    const c = manifest.cells[id]; const r = (verified.results[id] || {});
+    return {
+      id, unit: c.unitName || (c.spec && c.spec.unit) || '', intent: (c.spec && c.spec.intent) || '',
+      state: r.state || 'UNSIGNED', color: SEALCOLORS[r.state] || '#7f8796',
+      file: c.file || '', line: c.line || 0, spec: c.spec || {},
+      notes: (r.notes || []).map((nt) => ({ level: nt.level, text: nt.text })),
+      diff: specDiffForCell(p.root, c),
+    };
+  });
+}
+const pendingDir = (p) => path.join(path.dirname(p.config), 'pending');
+
+// Cross-signer delegation: seal the request to the target's INBOX (over the relay) and
+// return a request id. Fire-and-return — the Cells stay Unsigned until they approve;
+// collect their signature later with `yay sign --check`.
+async function sendToInbox(p, config, lock, manifest, items, approval, name, flags) {
+  const targetPub = U.pubKeysOf(config.signers[name])[0];
+  if (!targetPub) return fail(`no key on record for "${name}" — is that signer enrolled?`);
+  const summary = signSummary(p, config, lock, manifest, items);
+  const reqId = E2E.newChannel();                 // url-safe id (also unguessable)
+  const replyKey = E2E.b64url(E2E.newKey());       // symmetric key for the sealed reply
+  const wire = { mode: 'approve', approval, summary, project: config.project, signer: name, signerPubs: U.pubKeysOf(config.signers[name]), replyKey };
+  const sealed = E2E.sealTo(targetPub, wire);      // only `name` can open it
+  const inbox = E2E.inboxChannel(targetPub);
+  const base = relayBase(flags);
+  try {
+    const r = await fetch(base + '/api/inbox', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ch: inbox, id: reqId, blob: sealed }) });
+    if (r.status === 429) return fail(`${name}'s inbox is full — they have too many pending requests. Try again later.`);
+    if (!r.ok) return fail('the relay rejected the request (HTTP ' + r.status + ').');
+  } catch (e) { return fail('could not reach the relay (' + base + '): ' + ((e && e.message) || e)); }
+  const dir = pendingDir(p); fs.mkdirSync(dir, { recursive: true });
+  U.writeJSON(path.join(dir, reqId + '.json'), { id: reqId, name, inbox, replyKey, approval, cells: Object.keys(items), at: new Date().toISOString() });
+  ensureGitignored(p.root, '.yaylayer/pending/');
+  console.log('\n' + U.c.green(`→ sent to ${name}'s inbox`) + U.c.dim(` — request ${reqId}. Pending their approval (fire-and-return).`));
+  console.log(U.c.dim(`   the ${Object.keys(items).length} Cell(s) stay Unsigned — the gate blocks them — until ${name} signs.`));
+  console.log(U.c.dim('   collect it later with ') + U.c.bold(`yay sign --check ${reqId}`) + U.c.dim(' (or ') + U.c.bold('yay sign --check') + U.c.dim(' for all pending).'));
+}
+
+// Collect the reply to one (or all) pending cross-signer requests and write the seal.
+async function cmdSignCheck(flags, positional) {
+  const { p, config } = loadState();
+  if (!config) return fail('run `yay init` first');
+  const dir = pendingDir(p);
+  const target = (positional && positional[0]) || (flags.check && flags.check !== true ? flags.check : null);
+  let ids;
+  if (target) ids = [target];
+  else { try { ids = fs.readdirSync(dir).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5)); } catch (_) { ids = []; } }
+  if (!ids.length) { console.log(U.c.dim('no pending cross-signer requests.')); return; }
+  const base = relayBase(flags);
+  for (const id of ids) {
+    const pend = U.readJSON(path.join(dir, id + '.json'), null);
+    if (!pend) { console.log(U.c.yellow(`  ${id}: no local record — skipping.`)); continue; }
+    let resp; try { resp = await fetch(base + '/api/inbox?ch=' + encodeURIComponent(pend.inbox) + '&id=' + encodeURIComponent(id)).then((r) => r.json()); }
+    catch (e) { console.log(U.c.red(`  ${id}: relay unreachable (${(e && e.message) || e}).`)); continue; }
+    if (!resp || resp.pending || !resp.reply) { console.log(U.c.dim(`  ${id} (${pend.name}): still pending their approval.`)); continue; }
+    const ans = E2E.open(E2E.fromB64url(pend.replyKey), resp.reply);
+    if (!ans) { console.log(U.c.red(`  ${id}: could not decrypt the reply (key mismatch).`)); continue; }
+    if (ans.rejected) { fs.unlinkSync(path.join(dir, id + '.json')); console.log(U.c.yellow(`  ${id} (${pend.name}): they declined${ans.reason ? ' — ' + ans.reason : ''}. Cleared.`)); continue; }
+    const approval = pend.approval;
+    if (ans.brief !== undefined && approval.brief) approval.brief.text = String(ans.brief);
+    const pubs = U.pubKeysOf(config.signers[pend.name]);
+    if (!ans.signature || !pubs.some((pub) => C.verify(U.canonical(approval), ans.signature, pub))) { console.log(U.c.red(`  ${id}: signature did not verify against ${pend.name}'s key — NOT written.`)); continue; }
+    approval.signature = ans.signature;
+    const st = loadState(); st.lock.approvals = st.lock.approvals || []; st.lock.approvals.push(approval); U.writeJSON(st.p.lock, st.lock);
+    try { fs.unlinkSync(path.join(dir, id + '.json')); } catch (_) {}
+    try { await fetch(base + '/api/inbox', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ch: pend.inbox, id, remove: true }) }); } catch (_) {}
+    console.log(U.c.green(`  ✓ ${pend.name} signed`) + U.c.dim(` — seal ${approval.id} written (${(pend.cells || []).length} Cell(s)). Commit .yaylayer/lock.json.`));
+  }
+}
+
+// `yay inbox` — print YOUR on-duty relay link. Leave it open on your phone to receive
+// requests others address to you with `yay sign --name "<you>"`.
+function cmdInbox(flags) {
+  const { p, config } = loadState();
+  if (!config) return fail('run `yay init` first');
+  const me = loadLocalSigner(p) || config.owners[0];
+  const pub = U.pubKeysOf(config.signers[me])[0];
+  if (!pub) return fail(`no key for "${me}" on this machine — run \`yay pair\` first.`);
+  const url = relayBase(flags) + '/#inbox=' + encodeURIComponent(pub);
+  console.log('\n' + U.c.green(`✓ your inbox — ${me}`) + U.c.dim(' — open on your phone and leave it on-duty:'));
+  console.log('   ' + U.c.accent(url));
+  printQR(url);
+  console.log(U.c.dim('   requests others address to you (') + U.c.bold('yay sign --name "' + me + '"') + U.c.dim(') appear here; approve them like any sign.'));
+}
+
+async function cmdSign(flags, positional) {
   const { p, config, lock } = loadState();
   if (!config) return fail('run `yay init` first');
+  if (flags.check !== undefined) return cmdSignCheck(flags, positional);
   // Default to THIS machine's own signer identity (set at pair/keygen), not the project
   // owner — so a teammate's `yay sign` signs as themselves, matching the key on their phone.
   let name = (flags.name && flags.name !== true) ? flags.name : null;
@@ -691,6 +782,14 @@ async function cmdSign(flags) {
   }
   if (briefText) approval.brief = { text: briefText, orderedBy: 'human (AI-drafted, human-approved)' };
 
+  // ── Cross-signer routing ── when --name targets someone OTHER than this machine's own
+  // signer (over the relay), seal the request to THEIR inbox and return. Nothing pops on
+  // this machine's phone; only the addressed person's on-duty phone sees it.
+  const localSigner = loadLocalSigner(p);
+  const isCross = localSigner && (flags.name && flags.name !== true) && name !== localSigner
+    && !flags.local && phoneTransport(config, flags) === 'relay';
+  if (isCross) return sendToInbox(p, config, lock, manifest, items, approval, name, flags);
+
   // ── Freedom mode ── if an active grant covers ALL target Cells (none sensitive), the
   // machine auto-approves with the grant key — no phone, no passphrase. Queued for ratify.
   if (!flags['no-auto']) {
@@ -723,19 +822,7 @@ async function cmdSign(flags) {
   const method = resolveSignMethod(config, p, name, flags);
   if (method === 'phone') {
     // Sign on the paired phone over the LAN — the private key never touches this machine.
-    const verified = verifyManifest(manifest, lock, config, { mutate: false });
-    const SEALCOLORS = { GREEN: '#1f9d57', YELLOW: '#c9860f', RED: '#cf4436', UNSIGNED: '#7f8796', PINK: '#e0559b' };
-    const summary = Object.keys(items).map((id) => {
-      const c = manifest.cells[id]; const r = (verified.results[id] || {});
-      return {
-        id, unit: c.unitName || (c.spec && c.spec.unit) || '', intent: (c.spec && c.spec.intent) || '',
-        state: r.state || 'UNSIGNED', color: SEALCOLORS[r.state] || '#7f8796',
-        file: c.file || '', line: c.line || 0,
-        spec: c.spec || {}, // full parsed spec so the phone can show details on tap
-        notes: (r.notes || []).map((nt) => ({ level: nt.level, text: nt.text })),
-        diff: specDiffForCell(p.root, c), // what changed vs the last committed spec (null = new/unchanged)
-      };
-    });
+    const summary = signSummary(p, config, lock, manifest, items);
     const pubs = U.pubKeysOf(config.signers[name]);
     if (phoneTransport(config, flags) === 'relay') {
       // Hosted relay (relay.yaylayer.com), end-to-end encrypted. Works off-LAN.
@@ -1739,6 +1826,9 @@ const HELP = `yay — a protocol for provable, signed AI code
                              override with --phone / --local · SSL on by default (--no-https) · --cell to sign a subset
                              a Brief is required by default (Standard §5): --brief "<what you ordered>" supplies it
                              (editable on the phone) · you're prompted if omitted at a terminal · --no-brief skips a trivial re-sign
+                             --name "<teammate>" (relay projects) routes the request to THEIR inbox and returns a request id
+                             (fire-and-return); collect it later with --check <id> (or --check for all pending)
+  yay inbox                   print YOUR on-duty relay link — open it on your phone to receive requests addressed to you
   yay verify [--strict] [-d]  the gate — paint every Cell; -d/--details prints each spec, code & checks
                              --problems shows only non-green Cells · --no-mutate skips prover mutation grading
   yay plan [--provider anthropic|openai|custom] [--model m] [--base-url url]
@@ -1763,7 +1853,8 @@ async function main() {
   switch (cmd) {
     case 'init': return cmdInit(flags, positional);
     case 'keygen': return cmdKeygen(flags);
-    case 'sign': return cmdSign(flags);
+    case 'sign': return cmdSign(flags, positional);
+    case 'inbox': return cmdInbox(flags);
     case 'pair': return cmdPair(flags);
     case 'enroll': return cmdEnroll(flags);
     case 'invite': return cmdInvite(flags, positional);
