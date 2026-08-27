@@ -26,6 +26,8 @@ You describe what you want; the AI writes a tiny, human-readable **spec** above 
 - **Attributable authorship** — every approval is cryptographically signed by a *named* human.
 - **CI-enforced** — unsigned or mismatched code can't reach `main`.
 
+> **In one line:** a **human authorization protocol for agents**. As AI produces changes faster than anyone can review them, YayLayer moves the review point *one level up* — you attest to the **intended behaviour**, not the implementation, and a machine continuously verifies the code against that intent. The agent can propose and implement anything; only a human can grant authority, and that authority is **machine-verifiable**. Every approval leaves a cryptographically attributable record — *"Anna approved this exact behavioural requirement as part of Brief X"* — so six months later "why did the AI change this?" has an answer.
+
 Read the spec in [`standard/STANDARD.md`](standard/STANDARD.md) · the AI rules in [`CONSTITUTION.md`](CONSTITUTION.md).
 
 ---
