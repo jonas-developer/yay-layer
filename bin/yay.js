@@ -2312,6 +2312,7 @@ async function main() {
     case 'status': return cmdStatus(flags);
     case 'batch': return cmdBatch(flags, positional);
     case 'policy': return cmdPolicy(flags);
+    case 'version': case '--version': case '-v': return console.log(require('../package.json').version);
     case undefined: case 'help': case '--help': case '-h': return console.log(HELP);
     default: console.error(U.c.red(`unknown command: ${cmd}`)); console.log(HELP); process.exitCode = 1;
   }
