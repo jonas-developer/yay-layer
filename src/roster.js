@@ -40,6 +40,7 @@ function deriveRoster(log, opts) {
   const roles = {};
   const problems = [];
   let rootFp = null;
+  let policy = { rules: [] }; // signing policy — set by owner-signed `policy` events (latest wins)
 
   const ownerKeys = () => {
     const out = [];
@@ -77,6 +78,11 @@ function deriveRoster(log, opts) {
       // Remove an identity entirely (all its keys). History remains attributed.
       if (!e.name) { problems.push(`event ${e.id || i}: remove-signer missing name`); return; }
       delete roster[e.name]; delete roles[e.name];
+    } else if (e.type === 'policy') {
+      // Owner-signed signing policy. The rules are inside eventBytes, so they're
+      // tamper-evident and chained like every other governance event. Latest wins;
+      // an empty ruleset returns to neutral.
+      policy = { rules: Array.isArray(e.rules) ? e.rules : [] };
     } else {
       problems.push(`event ${e.id || i}: unknown type "${e.type}"`);
     }
@@ -88,7 +94,7 @@ function deriveRoster(log, opts) {
   const pinned = opts && opts.root ? String(opts.root).toUpperCase() : null;
   if (pinned && rootFp && pinned !== rootFp) problems.push(`TRUST-ROOT MISMATCH: expected ${pinned}, found ${rootFp} — the roster may have been swapped`);
 
-  return { roster, roles, rootFp, problems, ok: problems.length === 0 };
+  return { roster, roles, rootFp, problems, ok: problems.length === 0, policy };
 }
 
 // Next event id given a log.

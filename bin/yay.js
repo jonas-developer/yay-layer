@@ -1008,7 +1008,7 @@ async function cmdRatify(flags) {
   const { p, config, lock } = loadState();
   if (!config) return fail('run `yay init` first');
   const manifest = buildManifest(flags.dir || p.root);
-  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: loadRoster(p), grants: loadGrants(p), policy: policyMod.loadPolicy(p), root: trustRootPin(flags) });
+  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: loadRoster(p), grants: loadGrants(p), root: trustRootPin(flags) });
   const auto = Object.keys(verified.results).filter((id) => verified.results[id].trust && verified.results[id].trust.auto);
   if (!auto.length) { console.log(U.c.green('✓ nothing to ratify') + U.c.dim(' — no auto-approved Cells awaiting your signature.')); return; }
   console.log(U.c.bold(`${auto.length} auto-approved Cell(s) awaiting ratification:`));
@@ -1297,7 +1297,7 @@ function cmdVerify(flags) {
   if (!Object.keys(manifest.cells).length && !manifest.problems.length && !(manifest.untracked || []).length) {
     console.log(U.c.dim('no code found. Write a spec block (see README/STANDARD), or run `yay adopt`.')); return;
   }
-  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), grants: loadGrants(p), policy: policyMod.loadPolicy(p), root: trustRootPin(flags) });
+  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), grants: loadGrants(p), root: trustRootPin(flags) });
   printReport(manifest, verified, !!(flags.details || flags.d), !!(flags.problems || flags.issues || flags.p));
   if (verified.signedRoster) console.log('  ' + U.c.dim('trust root ' + verified.rootFp));
   else console.log('  ' + U.c.yellow('⚠ roster is unsigned') + U.c.dim(' — no signed trust root; run `yay init`/`yay keygen` to establish one.'));
@@ -1365,7 +1365,7 @@ async function regeneratePlan(p, config, lock, flags) {
   if (auth.error) return { ok: false, error: auth.error };
   const manifest = buildManifest(flags.dir || p.root);
   if (!Object.keys(manifest.cells).length) return { ok: false, error: 'no Cells to plan yet — write/adopt some specs first.' };
-  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: loadRoster(p), grants: loadGrants(p), policy: policyMod.loadPolicy(p), root: trustRootPin(flags) });
+  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: loadRoster(p), grants: loadGrants(p), root: trustRootPin(flags) });
   const digest = plan.buildDigest(manifest, config.project);
   let result;
   try { result = await plan.synthesize(digest, auth); }
@@ -1413,7 +1413,7 @@ function buildMapHTML(p, config, lock, flags) {
   const manifest = buildManifest(flags.dir || p.root);
   // Per-Cell spec diff vs last commit, so each Cell's detail can show what changed there.
   for (const id of Object.keys(manifest.cells)) { manifest.cells[id].diff = specDiffForCell(p.root, manifest.cells[id]); }
-  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), grants: loadGrants(p), policy: policyMod.loadPolicy(p), root: trustRootPin(flags) });
+  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), grants: loadGrants(p), root: trustRootPin(flags) });
   const { changes, times } = cellChanges(manifest.root, lock, manifest.cells);
   const planDoc = flags['no-plan'] ? null : U.readJSON(path.join(path.dirname(p.config), 'plan.json'), null);
   // governance for the Signers tab: authoritative roster + device kind + approvals.
@@ -1608,7 +1608,7 @@ async function cmdDashboard(flags) {
 async function cmdMap(flags) {
   const { p, config, lock } = loadState();
   const manifest = buildManifest(flags.dir || p.root);
-  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), grants: loadGrants(p), policy: policyMod.loadPolicy(p), root: trustRootPin(flags) });
+  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), grants: loadGrants(p), root: trustRootPin(flags) });
   await maybePlanForMap(p, config, manifest, verified, flags);
   const { html, count } = buildMapHTML(p, config, lock, flags);
   const out = (flags.o && flags.o !== true) ? flags.o : (flags.out && flags.out !== true ? flags.out : 'yay-layer-map.html');
@@ -1630,44 +1630,81 @@ function cmdStatus(flags) {
   const { p, config, lock } = loadState();
   if (!config) return console.log(U.c.dim('not initialized — run `yay init`'));
   const manifest = buildManifest(p.root);
-  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: loadRoster(p), grants: loadGrants(p), policy: policyMod.loadPolicy(p), root: trustRootPin(flags) });
+  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: loadRoster(p), grants: loadGrants(p), root: trustRootPin(flags) });
   const c = verified.counts;
   console.log(U.c.bold(config.project) + U.c.dim(`  · ${Object.keys(manifest.cells).length} Cells · ${Object.keys(config.signers).length} signer(s)`));
   console.log('  ' + U.c.green(`${c.GREEN}●`) + ' ' + U.c.yellow(`${c.YELLOW}●`) + ' ' + U.c.red(`${c.RED}●`) + ' ' + U.c.gray(`${c.UNSIGNED}○`) + '  ' + (verified.passed ? U.c.green('PASS') : U.c.red('BLOCKED')));
 }
 
-// `yay policy` — show the signing policy (and any current violations), or --init a
-// neutral, fill-in template. The policy is OPTIONAL: with no rules, every signer is equal.
-function cmdPolicy(flags) {
+function matcherStr(m) {
+  m = m || {};
+  return [m.path && `path ${m.path}`, m.tag && `tag ${m.tag}`, m.module && `module ${m.module}`].filter(Boolean).join(' · ') || '(no matcher — matches nothing)';
+}
+function printRules(rules) {
+  for (const r of rules) {
+    const who = r.signer || (r.signers || []).join(' or ') || '?';
+    console.log('  ' + U.c.accent(who) + U.c.dim(' must sign ') + matcherStr(r.match));
+  }
+}
+// `yay policy` — the ENFORCED policy lives owner-signed in the roster (tamper-evident);
+// `.yaylayer/policy.json` is the editable DRAFT. `--init` writes a neutral template;
+// `--set` owner-signs the draft into effect. Neutral (no rules) blocks nothing.
+async function cmdPolicy(flags) {
   const { p, config, lock } = loadState();
   if (!config) return fail('run `yay init` first');
   const ppath = policyMod.policyPath(p);
   if (flags.init) {
     if (fs.existsSync(ppath) && !flags.force) return fail('.yaylayer/policy.json already exists — pass --force to overwrite');
     fs.writeFileSync(ppath, policyMod.TEMPLATE);
-    console.log(U.c.green('✓ wrote .yaylayer/policy.json') + U.c.dim(' — neutral (no rules). Fill in the commented examples to require specific signers, then commit it.'));
-    console.log(U.c.dim('  Match a Cell by path glob, spec tag (or `sensitive: yes`), and/or module → a required signer. The gate blocks any matching Cell not signed by them.'));
+    console.log(U.c.green('✓ wrote .yaylayer/policy.json') + U.c.dim(' — neutral (no rules). Fill in the commented examples, then ') + U.c.bold('yay policy --set') + U.c.dim(' to owner-sign it into effect.'));
     return;
   }
-  const policy = policyMod.loadPolicy(p);
-  if (policy.problem) console.log(U.c.yellow('  ⚠ ' + policy.problem));
-  if (!policy.rules.length) { console.log(U.c.dim('no signing policy — every enrolled signer is treated the same (neutral). Run `yay policy --init` to add rules.')); return; }
-  console.log(U.c.bold('Signing policy') + U.c.dim(` — ${policy.rules.length} rule(s):`));
-  for (const r of policy.rules) {
-    const m = r.match || {};
-    const who = r.signer || (r.signers || []).join(' or ') || '?';
-    const by = [m.path && `path ${m.path}`, m.tag && `tag ${m.tag}`, m.module && `module ${m.module}`].filter(Boolean).join(' · ');
-    console.log('  ' + U.c.accent(who) + U.c.dim(' must sign ') + (by || U.c.red('(no matcher — matches nothing)')));
+  if (flags.set) return cmdPolicySet(p, config, flags);
+
+  const rlog = loadRoster(p);
+  const drv = rlog ? rosterMod.deriveRoster(rlog) : null;
+  const enforced = (drv && drv.policy) || { rules: [] };
+  const draft = policyMod.loadPolicy(p);
+  if (draft.problem) console.log(U.c.yellow('  ⚠ ' + draft.problem));
+  if (!enforced.rules.length) console.log(U.c.dim('Enforced policy: none — every enrolled signer is treated the same (neutral).'));
+  else { console.log(U.c.bold('Enforced policy') + U.c.dim(' (owner-signed, in the roster):')); printRules(enforced.rules); }
+
+  if (JSON.stringify(draft.rules) !== JSON.stringify(enforced.rules)) {
+    console.log('\n' + U.c.yellow('Draft in .yaylayer/policy.json differs from what is enforced:'));
+    if (draft.rules.length) printRules(draft.rules); else console.log(U.c.dim('  (neutral — no rules)'));
+    console.log(U.c.dim('  run ') + U.c.bold('yay policy --set') + U.c.dim(' to owner-sign the draft into effect.'));
   }
+
   const manifest = buildManifest(p.root);
-  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: loadRoster(p), grants: loadGrants(p), policy, root: trustRootPin(flags) });
+  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: rlog, grants: loadGrants(p), root: trustRootPin(flags) });
   const viol = Object.values(verified.results).filter((x) => x.policyOk === false);
   if (viol.length) {
-    console.log('\n' + U.c.red(`  ${viol.length} Cell(s) violate the policy:`));
+    console.log('\n' + U.c.red(`  ${viol.length} Cell(s) violate the enforced policy:`));
     for (const v of viol) { const note = (v.notes.find((n) => /^policy:/.test(n.text)) || {}).text || ''; console.log('  ' + U.c.red('● ') + v.id + U.c.dim(' — ' + note)); }
-  } else {
+  } else if (enforced.rules.length) {
     console.log('\n' + U.c.green('  ✓ all Cells satisfy the policy.'));
   }
+}
+// Owner-sign the draft policy.json into the roster (a `policy` governance event).
+async function cmdPolicySet(p, config, flags) {
+  const rlog = loadRoster(p);
+  if (!rlog || !rlog.events || !rlog.events.length) return fail('no signed roster yet — run `yay init` first to establish the trust root.');
+  const draft = policyMod.loadPolicy(p);
+  if (draft.problem) return fail(draft.problem + ' — fix .yaylayer/policy.json first');
+  const rules = draft.rules || [];
+  const ev = { id: rosterMod.nextEventId(rlog), type: 'policy', rules, by: null, prev: rlog.events[rlog.events.length - 1].id, nonce: C.randomNonce(), at: new Date().toISOString() };
+  const summary = {
+    title: `Set the signing policy (${rules.length} rule${rules.length === 1 ? '' : 's'}) in ${config.project}?`,
+    rows: rules.length ? rules.map((r) => ({ k: r.signer || (r.signers || []).join(' or ') || '?', v: matcherStr(r.match) })) : [{ k: '(neutral)', v: 'no rules — every signer treated the same' }],
+    warn: 'Changes who must sign what. Owner-signed and tamper-evident; enforced at the gate.',
+  };
+  const signed = await authorizeRosterEvent(p, config, rlog, ev, flags, summary);
+  if (!signed) return;
+  const test = rosterMod.deriveRoster({ ...rlog, events: rlog.events.concat([signed]) });
+  if (test.problems.length) return fail('refusing to write — ' + test.problems.join('; '));
+  rlog.events.push(signed);
+  U.writeJSON(rosterPath(p), rlog);
+  console.log(U.c.green(`✓ signing policy set (${rules.length} rule${rules.length === 1 ? '' : 's'})`) + U.c.dim(` — authorized by ${signed.by}. Commit .yaylayer/roster.json; it's now enforced at the gate.`));
 }
 
 function fail(msg) { console.error(U.c.red('error: ') + msg); process.exitCode = 1; }
@@ -1686,8 +1723,9 @@ const HELP = `yay — a protocol for provable, signed AI code
                              --relay routes via relay.yaylayer.com (off-LAN, end-to-end encrypted) · --lan forces the local path
                              the FIRST pairing makes the phone the trust root — no local key needed
   yay enroll --name X --pubkey <b64>  enroll another signer via an OWNER-signed event (--role owner|signer)
-  yay policy [--init]         show the signing policy (who must sign what) or write a neutral template;
-                             rules match Cells by path/tag/module → a required signer, enforced at the gate
+  yay policy [--init|--set]   signing policy (who must sign what). --init writes a neutral template to
+                             .yaylayer/policy.json; edit it, then --set owner-signs it into the roster
+                             (tamper-evident, enforced at the gate). Neutral by default — no rules, no blocking.
   yay invite "Bob" [--role signer|owner]  mint a 30-min link a teammate opens to request to join;
                              you approve on your phone (needs a running dashboard). No pubkey to copy.
                              authorize with a local owner key, or --phone to approve on an owner's phone

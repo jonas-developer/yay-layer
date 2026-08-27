@@ -842,6 +842,22 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     // required signer signed → satisfied (GREEN)
     const vOk = verifyManifest(pmani, { approvals: [papp] }, pconfig, { policy: { rules: [{ match: { path: '**/calcPortfolioValue.js' }, signer: 'tester' }] } });
     ok(vOk.results['C-040'].state === 'GREEN' && vOk.results['C-040'].policyOk === true, 'policy: the required signer signed → satisfied (GREEN)');
+
+    // tamper-evident: the ENFORCED policy is owner-signed in the roster log.
+    const R = require('../src/roster');
+    const gen = { id: 'R-0001', type: 'genesis', name: 'tester', pub: pkp.pubB64, role: 'owner', by: 'tester', prev: 'genesis', nonce: 'g', at: 't' };
+    gen.signature = C.sign(R.eventBytes(gen), pkp.privDer);
+    const pev = { id: 'R-0002', type: 'policy', rules: [{ match: { path: '**/calcPortfolioValue.js' }, signer: 'Sara Olsen' }], by: 'tester', prev: 'R-0001', nonce: 'pn', at: 't' };
+    pev.signature = C.sign(R.eventBytes(pev), pkp.privDer);
+    const rlog = { events: [gen, pev] };
+    const drv = R.deriveRoster(rlog);
+    ok(drv.ok && drv.policy.rules.length === 1 && drv.policy.rules[0].signer === 'Sara Olsen', 'policy(roster): an owner-signed policy event derives the rules');
+    // enforced straight from the signed roster (no opts.policy override)
+    const vRoster = verifyManifest(pmani, { approvals: [papp] }, pconfig, { roster: rlog });
+    ok(vRoster.results['C-040'].state === 'RED' && vRoster.results['C-040'].policyOk === false, 'policy(roster): the signed policy is enforced from the roster (wrong signer → RED)');
+    // tamper: strip the rule but keep the old signature → the event is rejected, roster invalid
+    const drvTampered = R.deriveRoster({ events: [gen, { ...pev, rules: [] }] });
+    ok(!drvTampered.ok, 'policy(roster): editing the rules without re-signing invalidates the roster (tamper-evident)');
   }
 
   console.log(`\nAll ${n} checks passed.`);

@@ -140,9 +140,11 @@ function verifyManifest(manifest, lock, config, opts) {
   // effect. Legacy projects with no signed log fall back to config.signers.
   let roster, rosterProblems = [], rootFp = null, rosterOk = true, signedRoster = false;
   let ownerPubs = [];
+  let rosterPolicy = { rules: [] }; // the ENFORCED policy comes from the owner-signed roster (tamper-evident)
   if (opts.roster && opts.roster.events) {
     const d = deriveRoster(opts.roster, { root: opts.root });
     roster = d.roster; rosterProblems = d.problems; rootFp = d.rootFp; rosterOk = d.ok; signedRoster = true;
+    rosterPolicy = d.policy || { rules: [] };
     ownerPubs = Object.keys(d.roles || {}).filter((n) => d.roles[n] === 'owner').reduce((a, n) => a.concat(roster[n] || []), []);
   } else {
     roster = (config && config.signers) || {};
@@ -226,7 +228,7 @@ function verifyManifest(manifest, lock, config, opts) {
   // A Cell matching a rule MUST be signed by a required signer with a real (non-AUTO)
   // seal, else it can't ship: downgrade it to RED so it blocks the gate and shows on the
   // map, with a note naming who must sign. No policy / no match → unconstrained, as before.
-  const policy = opts.policy || { rules: [] };
+  const policy = opts.policy || rosterPolicy || { rules: [] };
   let policyBlocked = 0;
   for (const id of Object.keys(manifest.cells)) {
     const cell = manifest.cells[id];
