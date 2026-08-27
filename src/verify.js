@@ -12,6 +12,7 @@
 const { canonical, pubKeysOf, isJsLang } = require('./util');
 const { verify: sigVerify } = require('./crypto');
 const { proveManifest } = require('./prove');
+const { requiredSigners } = require('./policy');
 const { deriveRoster } = require('./roster');
 const G = require('./grants');
 
@@ -221,6 +222,27 @@ function verifyManifest(manifest, lock, config, opts) {
       }
     }
   }
+  // ── Signing policy (optional; neutral when there are no rules) ──
+  // A Cell matching a rule MUST be signed by a required signer with a real (non-AUTO)
+  // seal, else it can't ship: downgrade it to RED so it blocks the gate and shows on the
+  // map, with a note naming who must sign. No policy / no match → unconstrained, as before.
+  const policy = opts.policy || { rules: [] };
+  let policyBlocked = 0;
+  for (const id of Object.keys(manifest.cells)) {
+    const cell = manifest.cells[id];
+    const r = results[id];
+    if (!r || (cell.contains && cell.contains.length)) continue; // leaves only
+    const req = requiredSigners(policy, cell);
+    if (!req.length) continue;
+    const okBy = r.trust && r.trust.signed && !r.trust.auto && req.includes(r.trust.signer);
+    if (!okBy) {
+      r.state = worst(r.state, 'RED');
+      r.policyOk = false;
+      r.notes.push({ level: 'red', text: `policy: requires ${req.join(' or ')} to sign — ${r.trust && r.trust.signed ? 'currently signed by ' + (r.trust.signer || '?') : 'not yet signed by them'}` });
+      policyBlocked++;
+    } else { r.policyOk = true; }
+  }
+
   for (const id of Object.keys(manifest.cells)) {
     const cell = manifest.cells[id];
     if (cell.contains && cell.contains.length) {
@@ -252,6 +274,7 @@ function verifyManifest(manifest, lock, config, opts) {
 
   const counts = { GREEN: 0, YELLOW: 0, RED: 0, UNSIGNED: 0, PINK: 0 };
   for (const r of Object.values(results)) counts[r.state]++;
+  counts.policyBlocked = policyBlocked; // Cells blocked by the signing policy (already RED)
   // Legibility: of the GREEN Cells, how many are machine-PROVEN vs signed-but-unproven
   // (a promise stated but never machine-checked — the specs to strengthen next).
   let proven = 0, unproven = 0;

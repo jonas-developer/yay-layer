@@ -817,5 +817,32 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     s.close();
   }
 
+  // 16) signing policy — neutral by default; a rule requires a specific signer, gate-enforced.
+  {
+    const { requiredSigners } = require('../src/policy');
+    const pmani = buildManifest(path.join(__dirname, '..', 'examples'));
+    const pkp = C.generateKeypair();
+    const papp = { id: 'A-P', project: 'test', prev: 'genesis', nonce: 'n', at: 't', signer: 'tester', items: { 'C-040': pmani.cells['C-040'].specHash } };
+    papp.signature = C.sign(canonical(papp), pkp.privDer);
+    const pconfig = { signers: { tester: pkp.pubB64 } };
+    const c040 = pmani.cells['C-040'];
+
+    ok(requiredSigners({ rules: [] }, c040).length === 0, 'policy: no rules → unconstrained (neutral)');
+    const pol = { rules: [{ match: { path: '**/calcPortfolioValue.js' }, signer: 'Sara Olsen' }, { match: { tag: 'security' }, signer: 'Sara Olsen' }] };
+    ok(requiredSigners(pol, c040).length === 1 && requiredSigners(pol, c040)[0] === 'Sara Olsen', 'policy: path glob matches the Cell → requires Sara');
+
+    // neutral default: C-040 (signed by "tester") is GREEN
+    const vNeutral = verifyManifest(pmani, { approvals: [papp] }, pconfig, {});
+    ok(vNeutral.results['C-040'].state === 'GREEN', 'policy: neutral default → C-040 GREEN (unchanged)');
+    // wrong signer → blocked (RED)
+    const vBad = verifyManifest(pmani, { approvals: [papp] }, pconfig, { policy: pol });
+    ok(vBad.results['C-040'].state === 'RED' && vBad.results['C-040'].policyOk === false, 'policy: a Cell signed by the wrong person is blocked (RED)');
+    ok(vBad.counts.policyBlocked >= 1 && !vBad.passed, 'policy: violation is counted and fails the gate');
+    ok(/requires Sara Olsen to sign/.test((vBad.results['C-040'].notes.find((x) => /^policy:/.test(x.text)) || {}).text || ''), 'policy: the note names the required signer');
+    // required signer signed → satisfied (GREEN)
+    const vOk = verifyManifest(pmani, { approvals: [papp] }, pconfig, { policy: { rules: [{ match: { path: '**/calcPortfolioValue.js' }, signer: 'tester' }] } });
+    ok(vOk.results['C-040'].state === 'GREEN' && vOk.results['C-040'].policyOk === true, 'policy: the required signer signed → satisfied (GREEN)');
+  }
+
   console.log(`\nAll ${n} checks passed.`);
 })().catch((e) => { console.error('smoke failed:', e); process.exit(1); });
