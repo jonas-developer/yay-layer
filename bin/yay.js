@@ -1609,6 +1609,49 @@ async function maybePlanForMap(p, config, manifest, verified, flags) {
 // Build the full tabbed map HTML from the CURRENT repo state. Reused by `yay map`
 // (static export) and by `yay dashboard` (live). Reads the cached plan.json — it
 // never regenerates the plan (that costs an LLM call; only `yay map`/`yay plan` do).
+// The signed-Brief ledger (newest first), each seal re-verified so a tampered/forged one
+// can be flagged. Shared by the map's Briefs/Tags tabs and the `yay briefs` command.
+function collectBriefs(config, lock, drv) {
+  const cfgSigners = (config && config.signers) || {};
+  return (lock.approvals || []).filter((a) => a.brief && a.brief.text).map((a) => {
+    const b = a.brief;
+    const { signature, ...rest } = a;
+    const trustedPubs = (drv.roster && drv.roster[a.signer]) || U.pubKeysOf(cfgSigners[a.signer]) || [];
+    let valid = false;
+    try { valid = !!signature && trustedPubs.some((pub) => pub && C.verify(U.canonical(rest), signature, pub)); } catch (_) { valid = false; }
+    return { id: a.id, at: a.at, signer: a.signer, text: b.text, orderedBy: (b.orderedBy || ''), tags: b.tags || [], cells: Object.keys(a.items || {}), valid };
+  }).reverse();
+}
+
+// `yay briefs` — the Brief ledger in the terminal. Newest-first by default; --by-tag groups
+// by tag (tag first, date second); --tag <name> filters to one tag.
+function cmdBriefs(flags) {
+  const { p, config, lock } = loadState();
+  if (!config) return fail('run `yay init` first');
+  const drv = rosterMod.deriveRoster(loadRoster(p) || { events: [] });
+  let briefs = collectBriefs(config, lock, drv);
+  if (!briefs.length) { console.log(U.c.dim('no Briefs yet — sign a change-set with a Brief (`yay sign --brief "…"`).')); return; }
+  const filterTag = (flags.tag && flags.tag !== true) ? String(flags.tag) : null;
+  if (filterTag) briefs = briefs.filter((b) => (b.tags || []).some((t) => tagsMod.norm(t) === tagsMod.norm(filterTag)));
+  const suffix = filterTag ? `, tag "${filterTag}"` : '';
+  const line = (b) => {
+    const when = String(b.at || '').slice(0, 10);
+    console.log('  ' + (b.valid ? U.c.green('✓') : U.c.red('⚠')) + ' ' + U.c.accent(b.id) + U.c.dim(' · ' + when + (b.signer ? ' · ' + b.signer : '')));
+    console.log('    ' + b.text);
+    if ((b.tags || []).length) console.log('    ' + b.tags.map((t) => U.c.dim('#') + U.c.bold(t)).join('  '));
+  };
+  if (flags['by-tag']) {
+    const byTag = {};
+    briefs.forEach((b) => ((b.tags && b.tags.length) ? b.tags : ['(untagged)']).forEach((t) => { (byTag[t] = byTag[t] || []).push(b); }));
+    const names = Object.keys(byTag).sort((a, z) => (a === '(untagged)' ? 1 : z === '(untagged)' ? -1 : a.localeCompare(z)));
+    console.log(U.c.bold('Briefs by tag') + U.c.dim(` (${briefs.length} total${suffix}):`));
+    names.forEach((t) => { console.log('\n' + U.c.bold(t === '(untagged)' ? t : '#' + t) + U.c.dim(' · ' + byTag[t].length)); byTag[t].forEach(line); });
+  } else {
+    console.log(U.c.bold('Briefs') + U.c.dim(` — newest first (${briefs.length}${suffix}):`));
+    briefs.forEach(line);
+  }
+}
+
 function buildMapHTML(p, config, lock, flags) {
   const manifest = buildManifest(flags.dir || p.root);
   // Per-Cell spec diff vs last commit, so each Cell's detail can show what changed there.
@@ -1631,15 +1674,7 @@ function buildMapHTML(p, config, lock, flags) {
   });
   const gov = { signedRoster: !!(rlog && rlog.events && rlog.events.length), rootFp: drv.rootFp, problems: drv.problems, signers };
   // Briefs ledger (Standard §5): every approval that carries a brief, newest first.
-  // Each brief's seal is re-verified here so the ledger can flag a tampered/forged one.
-  const briefs = (lock.approvals || []).filter((a) => a.brief && a.brief.text).map((a) => {
-    const b = a.brief;
-    const { signature, ...rest } = a;
-    const trustedPubs = (drv.roster && drv.roster[a.signer]) || U.pubKeysOf(cfgSigners[a.signer]) || [];
-    let valid = false;
-    try { valid = !!signature && trustedPubs.some((pub) => pub && C.verify(U.canonical(rest), signature, pub)); } catch (_) { valid = false; }
-    return { id: a.id, at: a.at, signer: a.signer, text: b.text, orderedBy: (b.orderedBy || ''), tags: b.tags || [], cells: Object.keys(a.items || {}), valid };
-  }).reverse();
+  const briefs = collectBriefs(config, lock, drv);
   // Signing policy for the Policy tab: enforced (owner-signed, in the roster) vs the draft
   // file, plus the Cells currently violating it.
   const polViol = Object.keys(verified.results)
@@ -2126,6 +2161,8 @@ const HELP = `yay — a protocol for provable, signed AI code
   yay inbox                   print YOUR on-duty relay link — open it on your phone to receive requests addressed to you
   yay requests [done <id>]    list plain requests queued from the dashboard's "Request a change" button (the AI
                              turns each into a Brief + Cells); "done <id>" or "clear" removes handled ones
+  yay briefs [--by-tag] [--tag X]  the Brief ledger in the terminal — newest first; --by-tag groups by
+                             tag (tag first, date second); --tag <name> filters to one tag
   yay tags [--set id|add|remove|rename|desc|sets]  the project's Brief-tag vocabulary — every Brief is tagged
                              from it. --set <id> (or --set custom for blank placeholders) · add/remove "Tag" ·
                              rename "A" "B" (blocked once a tag is used in a signed Brief) · desc "Tag" "…" · sets
@@ -2157,6 +2194,7 @@ async function main() {
     case 'inbox': return cmdInbox(flags);
     case 'requests': case 'request': return cmdRequests(flags, positional);
     case 'tags': case 'tag': return cmdTags(flags, positional);
+    case 'briefs': return cmdBriefs(flags);
     case 'pair': return cmdPair(flags);
     case 'enroll': return cmdEnroll(flags);
     case 'invite': return cmdInvite(flags, positional);
