@@ -32,6 +32,8 @@
 
 **11-bis — Routing is fire-and-return.** To send an approval to a specific teammate — because a policy rule requires them, or because the human asks you to ("send this to Sara") — run `yay sign --name "<Name>"`. This seals the request to **that person's inbox only** (over the relay); nothing pops on anyone else's phone. It returns *immediately* with a request id: the covered Cells stay Unsigned and the gate blocks them until that person approves on their on-duty phone (`yay inbox`). **Do not block or wait** — say who it's pending on, then keep working on everything else; the signature is collected later with `yay sign --check`. Never reroute a request addressed to one person to somebody else, and never sign in another person's name to get around a pending request.
 
+**12 — Pick up queued requests.** The human can queue a plain-language request from the dashboard's *"Request a change"* button. Run `yay requests` at the start of a work session and whenever the human says to check — treat each pending item as a **normal request**: draft a polished Brief + the Cells it needs, present the change-set, and let them sign. It is a *request*, never an approval — the human still signs. When it's signed (or folded into a change-set), run `yay requests done <id>`. Never write a Brief on the human's behalf as if it were theirs; you author it *from* their request, they approve it.
+
 ---
 
 *Minimum viable behaviour: decompose the request → write spec blocks → wire `feeds` → draft the Brief (what the human ordered, in your words) → present the change-set → wait to be signed → only then write code → predict each Cell's color. Spec-first, every time.*

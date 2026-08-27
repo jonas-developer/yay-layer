@@ -562,16 +562,16 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     ok(C.verify(canonical({ ...mapproval, brief: { ...mapproval.brief, text: 'sneaky change' } }), msig, mkp.pubB64) === false, 'v2 brief: editing the sealed brief text breaks the signature (tamper-evident)');
   }
 
-  // Dashboard Sign button: human-initiated sign that pushes to the phone (key stays there).
+  // Dashboard "Request a change": queue a plain human request the AI turns into a Brief+Cells.
   {
-    let gotBrief = null;
-    const sd = await startDashboard({ buildMapHTML: () => ({ html: '<html></html>', count: 0 }), version: () => 'A', signPending: (m) => { gotBrief = m; return Promise.resolve({ ok: true, output: 'signed' }); } }, { port: 0 });
+    let gotText = null;
+    const sd = await startDashboard({ buildMapHTML: () => ({ html: '<html><body></body></html>', count: 0 }), version: () => 'A', addRequest: (t) => { gotText = t; return { ok: true, id: 'REQ-001' }; } }, { port: 0 });
     const sb = 'http://127.0.0.1:' + sd.port;
     const sp = (path, b) => fetch(sb + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b || {}) });
-    ok((await sp('/api/sign/start', {})).status === 400, 'v2 sign-button: /api/sign/start requires a brief (400 without one)');
-    const sres = await sp('/api/sign/start', { brief: 'Do the thing' }).then((r) => r.json());
-    ok(sres.ok === true && gotBrief === 'Do the thing', 'v2 sign-button: /api/sign/start invokes signPending with the brief');
-    ok((await fetch(sb + '/').then((r) => r.text())).includes('yd-sign'), 'v2 sign-button: the live dashboard bar has a Sign button');
+    ok((await sp('/api/request/create', {})).status === 400, 'v2 request: /api/request/create requires text (400 without it)');
+    const rres = await sp('/api/request/create', { text: 'add rate limiting to login' }).then((r) => r.json());
+    ok(rres.ok === true && rres.id === 'REQ-001' && gotText === 'add rate limiting to login', 'v2 request: /api/request/create invokes addRequest with the text');
+    ok((await fetch(sb + '/').then((r) => r.text())).includes('yd-req'), 'v2 request: the live dashboard bar has a Request-a-change button');
     sd.close();
   }
 

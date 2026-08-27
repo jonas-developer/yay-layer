@@ -665,6 +665,35 @@ function signSummary(p, config, lock, manifest, items) {
   });
 }
 const pendingDir = (p) => path.join(path.dirname(p.config), 'pending');
+const requestsPath = (p) => path.join(path.dirname(p.config), 'requests.json');
+
+// `yay requests` — the AI's inbox of plain human requests queued from the dashboard's
+// "Request a change" button. Each is a normal request to turn into a polished Brief + Cells.
+function cmdRequests(flags, positional) {
+  const { p, config } = loadState();
+  if (!config) return fail('run `yay init` first');
+  const rp = requestsPath(p);
+  const log = U.readJSON(rp, null) || { project: config.project, requests: [] };
+  const reqs = log.requests || [];
+  const sub = positional[0];
+  if (sub === 'done' || sub === 'clear') {
+    const id = positional[1];
+    const before = reqs.length;
+    log.requests = (id && id !== 'all') ? reqs.filter((r) => r.id !== id) : [];
+    U.writeJSON(rp, log);
+    console.log(U.c.green(`✓ cleared ${before - log.requests.length} request(s).`));
+    return;
+  }
+  const pending = reqs.filter((r) => r.status !== 'done');
+  if (!pending.length) { console.log(U.c.dim('no pending requests. (The dashboard "Request a change" button queues them here.)')); return; }
+  console.log(U.c.bold(`Pending requests (${pending.length})`) + U.c.dim(' — queued from the dashboard:'));
+  for (const r of pending) {
+    console.log('  ' + U.c.accent(r.id) + U.c.dim(' · ' + String(r.at).slice(0, 16).replace('T', ' ')));
+    console.log('    ' + r.text);
+  }
+  console.log('\n' + U.c.dim('AI: treat each as a normal request — draft a polished Brief + Cells and present it for signing,'));
+  console.log(U.c.dim('    then run ') + U.c.bold('yay requests done <id>') + U.c.dim(' once it is signed (or folded into a change-set).'));
+}
 
 // The signer can Accept, or Send back (with an optional note) — never silently reword the
 // Brief on the phone (a Brief change must pull its Cells with it, and the phone can't do
@@ -1665,6 +1694,17 @@ async function cmdDashboard(flags) {
       // Teammate enrollment from the dashboard: run the normal `yay enroll --phone`
       // as a child, which routes the OWNER-signed approval to the phone (or panel) and
       // writes the roster. All trust-critical logic is the existing enroll path.
+      // Queue a plain human request the AI will turn into a Brief + Cells (see `yay requests`).
+      addRequest: (text) => {
+        const rp = requestsPath(p);
+        const log = U.readJSON(rp, null) || { project: config.project, requests: [] };
+        log.requests = log.requests || [];
+        const id = 'REQ-' + String(log.requests.length + 1).padStart(3, '0');
+        log.requests.push({ id, text: String(text), status: 'pending', at: new Date().toISOString() });
+        U.writeJSON(rp, log);
+        ensureGitignored(p.root, '.yaylayer/requests.json');
+        return { ok: true, id };
+      },
       enroll: ({ name, pubkey, role }) => new Promise((resolve) => {
         const args = ['enroll', '--name', String(name), '--pubkey', String(pubkey), '--phone'];
         if (role === 'owner') args.push('--role', 'owner');
@@ -1856,6 +1896,8 @@ const HELP = `yay — a protocol for provable, signed AI code
                              --name "<teammate>" (relay projects) routes the request to THEIR inbox and returns a request id
                              (fire-and-return); collect it later with --check <id> (or --check for all pending)
   yay inbox                   print YOUR on-duty relay link — open it on your phone to receive requests addressed to you
+  yay requests [done <id>]    list plain requests queued from the dashboard's "Request a change" button (the AI
+                             turns each into a Brief + Cells); "done <id>" or "clear" removes handled ones
   yay verify [--strict] [-d]  the gate — paint every Cell; -d/--details prints each spec, code & checks
                              --problems shows only non-green Cells · --no-mutate skips prover mutation grading
   yay plan [--provider anthropic|openai|custom] [--model m] [--base-url url]
@@ -1882,6 +1924,7 @@ async function main() {
     case 'keygen': return cmdKeygen(flags);
     case 'sign': return cmdSign(flags, positional);
     case 'inbox': return cmdInbox(flags);
+    case 'requests': case 'request': return cmdRequests(flags, positional);
     case 'pair': return cmdPair(flags);
     case 'enroll': return cmdEnroll(flags);
     case 'invite': return cmdInvite(flags, positional);
