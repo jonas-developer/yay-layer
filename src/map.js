@@ -725,6 +725,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
   // when live under the dashboard, an editor that owner-signs the draft via the phone.
   function renderPolicy(){
     var el=document.getElementById('policy'); if(!el) return;
+    var LIVE=isLive(); // re-checked here (DOM ready by the time a tab is opened)
     var pol=(DATA.meta&&DATA.meta.policy)||{enforced:[],draft:[],violations:[],signers:[]};
     var enforced=pol.enforced||[], draft=pol.draft||[], viol=pol.violations||[], signers=pol.signers||[];
     function ruleLine(r){
@@ -819,11 +820,15 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
     if(name==='policy') renderPolicy();
     if(name==='files') renderFiles();
   }
-  var LIVE=!!document.getElementById('yd-bar'); // running under the dashboard (editable)
+  // Live = the dashboard's control bar is on the page. Checked LAZILY (not at parse time),
+  // because the bar is injected AFTER this script, so it isn't in the DOM yet when we load.
+  function isLive(){ return !!document.getElementById('yd-bar'); }
   (function(){
     if(DATA.meta && DATA.meta.plan) Array.prototype.forEach.call(document.querySelectorAll('[data-tab="plan"]'),function(t){ t.style.display=''; });
     if(DATA.meta && DATA.meta.tags && DATA.meta.tags.length) Array.prototype.forEach.call(document.querySelectorAll('[data-tab="tags"]'),function(t){ t.style.display=''; });
-    var pol=(DATA.meta&&DATA.meta.policy)||{}; if(LIVE || (pol.enforced&&pol.enforced.length) || (pol.draft&&pol.draft.length)) Array.prototype.forEach.call(document.querySelectorAll('[data-tab="policy"]'),function(t){ t.style.display=''; });
+    var pol=(DATA.meta&&DATA.meta.policy)||{};
+    function revealPolicy(){ if(isLive() || (pol.enforced&&pol.enforced.length) || (pol.draft&&pol.draft.length)) Array.prototype.forEach.call(document.querySelectorAll('[data-tab="policy"]'),function(t){ t.style.display=''; }); }
+    revealPolicy(); window.addEventListener('load', revealPolicy); // re-check once yd-bar is in the DOM
     Array.prototype.forEach.call(document.querySelectorAll('.tab'),function(b){ b.addEventListener('click',function(){ setTab(b.getAttribute('data-tab')); }); });
     var nb=document.getElementById('navburger'), nm=document.getElementById('navmenu');
     if(nb && nm) nb.addEventListener('click',function(){ var open=nm.classList.toggle('open'); nb.textContent=open?'✕':'☰'; nb.setAttribute('aria-expanded',open?'true':'false'); });
