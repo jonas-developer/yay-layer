@@ -683,6 +683,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
       html+='<div style="border:1px solid var(--rule);border-left:3px solid '+bar+';border-radius:12px;padding:14px 16px;margin:0 0 12px;background:var(--card2)">'
         +'<div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline;margin-bottom:6px"><span style="font-weight:800;letter-spacing:.06em;font-size:.72rem;color:var(--accent)">BRIEF '+esc2(m.id||'')+'</span><span style="font-size:.78rem;color:var(--mut)">'+badge+' · '+esc2(when)+(m.signer?(' · '+esc2(m.signer)):'')+'</span></div>'
         +'<div style="font-size:1.02rem;line-height:1.45;color:var(--ink);margin-bottom:8px">'+esc2(m.text||'')+'</div>'
+        +((m.tags&&m.tags.length)?('<div style="margin:0 0 8px">'+m.tags.map(function(t){return '<span style="display:inline-block;font-size:.68rem;font-weight:700;padding:2px 9px;border-radius:100px;border:1px solid var(--rule);color:var(--accent);margin:0 5px 4px 0">'+esc2(t)+'</span>';}).join('')+'</div>'):'')
         +'<div style="font-size:.8rem;color:var(--mut)">covers '+cells.length+' part'+(cells.length===1?'':'s')+(cells.length?' — click to open:':'')+'</div>'
         +(cells.length?('<div style="margin-top:2px">'+chips+'</div>'):'')
         +'</div>';
