@@ -160,7 +160,7 @@ function detailInner(cell, res, t) {
     ${checks}`;
 }
 
-function renderMap(manifest, verified, project, changes, times, planDoc, gov, briefs, tagCfg, policyInfo) {
+function renderMap(manifest, verified, project, changes, times, planDoc, gov, briefs, tagCfg, policyInfo, tagSets) {
   // Build the hierarchy: system → module → sub-group → unit.
   const nodes = {}; const details = {};
   const ensure = (id, label, kind, parent) => {
@@ -235,7 +235,7 @@ function renderMap(manifest, verified, project, changes, times, planDoc, gov, br
     if (mc && mc.contains && mc.contains.length) continue; // container Cells aren't file units
     FILES.push({ file: res.file || (mc && mc.file) || 'other', name: (mc && (mc.unitName || (mc.spec && mc.spec.unit))) || res.name || id, id: 'u:' + id, state: res.state, line: res.line || (mc && mc.line) || 0 });
   }
-  const meta = { project: project || 'project', counts: verified.counts, passed: verified.passed, totalUnits, plan: planDoc || null, gov: gov || null, files: FILES, briefs: briefs || [], tags: (tagCfg && tagCfg.tags) || [], tagSet: (tagCfg && tagCfg.set) || null, tagDescriptions: (tagCfg && tagCfg.descriptions) || {}, policy: policyInfo || { enforced: [], draft: [], violations: [], signers: [] } };
+  const meta = { project: project || 'project', counts: verified.counts, passed: verified.passed, totalUnits, plan: planDoc || null, gov: gov || null, files: FILES, briefs: briefs || [], tags: (tagCfg && tagCfg.tags) || [], tagSet: (tagCfg && tagCfg.set) || null, tagDescriptions: (tagCfg && tagCfg.descriptions) || {}, tagSets: tagSets || [], policy: policyInfo || { enforced: [], draft: [], violations: [], signers: [] } };
   const payload = JSON.stringify({ root: 'system', nodes: YLnodes, edges: { system: modEdges }, details, changes: changes || [], needs, meta })
     .replace(/</g, '\\u003c');
 
@@ -745,7 +745,19 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
     var counts={}; briefs.forEach(function(b){ (b.tags||[]).forEach(function(t){ counts[lc(t)]=(counts[lc(t)]||0)+1; }); });
     function descOf(t){ for(var k in descs){ if(lc(k)===lc(t)) return descs[k]; } return ''; }
     function post(u,b){return fetch(u,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b||{})}).then(function(r){return r.json();});}
-    if(!pool.length && !LIVE){ el.innerHTML='<h1>Tags</h1><div class="snote">No tag pool set. Choose one with <b>yay tags --set &lt;id&gt;</b> (six starter sets, or <b>--set custom</b> for blank placeholders) — then every Brief is tagged from it, so you can sort what you build by concern over time.</div>'; return; }
+    if(!pool.length){
+      // No pool yet → offer the starter sets to pick from (these become what signers pick from).
+      var sets=(DATA.meta&&DATA.meta.tagSets)||[];
+      var ph='<h1>Tags</h1><div class="snote" style="margin:0 0 14px">No tag pool yet. Pick a starter set — every Brief is then tagged from it, and it becomes the list a signer can choose from (including when correcting the AI’s tags on the phone). You can switch, relabel, add or remove later.</div>';
+      ph+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,240px),1fr));gap:10px;margin:0 0 6px">';
+      sets.forEach(function(s){ ph+='<div class="setpick" data-set="'+esc2(s.id)+'" style="border:1px solid var(--rule);border-radius:12px;padding:12px 14px;background:var(--card2)'+(LIVE?';cursor:pointer':'')+'"><div style="font-weight:800;color:var(--accent)">'+esc2(s.name)+'</div><div style="font-size:.78rem;color:var(--mut);margin-top:3px">'+esc2(s.desc)+'</div></div>'; });
+      ph+='<div class="setpick" data-set="custom" style="border:1px dashed var(--rule);border-radius:12px;padding:12px 14px;background:var(--card2)'+(LIVE?';cursor:pointer':'')+'"><div style="font-weight:800;color:var(--mut)">Custom</div><div style="font-size:.78rem;color:var(--mut);margin-top:3px">blank placeholders (Custom 1–4) you relabel yourself</div></div>';
+      ph+='</div>';
+      ph+='<div class="snote" style="margin:12px 0 0">'+(LIVE?'Tap a set to use it.':'Set one with <b>yay tags --set &lt;id&gt;</b> (e.g. <b>responsibility</b>, or <b>custom</b>).')+'</div>';
+      el.innerHTML=ph;
+      if(LIVE) Array.prototype.forEach.call(el.querySelectorAll('.setpick'),function(c){ c.onclick=function(){ post('/api/tags/edit',{action:'set',set:c.getAttribute('data-set')}).then(function(j){ if(j&&j.ok) location.reload(); }); }; });
+      return;
+    }
     var html='<h1>Tags</h1><div class="snote" style="margin:0 0 14px">The project vocabulary'+(setName?(' ('+esc2(setName)+' set)'):'')+' — every Brief is tagged from this pool.'+(LIVE?' Relabel, describe, add or remove below. A tag already used in a signed Brief can’t be renamed (it would split the history), but can be removed.':' Edit with <b>yay tags</b>, or live in <b>yay dashboard</b>.')+'</div>';
     if(LIVE){
       html+='<div id="tag-editor" style="margin:0 0 22px">';

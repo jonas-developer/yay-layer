@@ -1693,7 +1693,8 @@ function buildMapHTML(p, config, lock, flags) {
     violations: polViol,
     signers: signers.map((s) => s.name),
   };
-  return { html: renderMap(manifest, verified, config && config.project, changes, times, planDoc, gov, briefs, tagsMod.loadTags(p), policyInfo), count: Object.keys(verified.results).length };
+  const tagSets = tagsMod.TAG_SETS.map((s) => ({ id: s.id, name: s.name, desc: s.desc }));
+  return { html: renderMap(manifest, verified, config && config.project, changes, times, planDoc, gov, briefs, tagsMod.loadTags(p), policyInfo, tagSets), count: Object.keys(verified.results).length };
 }
 
 // A cheap fingerprint of the state the map depends on, so the dashboard can tell
@@ -1845,6 +1846,13 @@ async function cmdDashboard(flags) {
         const norm = tagsMod.norm;
         const uses = {}; for (const a of (st.lock.approvals || [])) for (const t of ((a.brief && a.brief.tags) || [])) uses[norm(t)] = (uses[norm(t)] || 0) + 1;
         const action = op && op.action;
+        if (action === 'set') { // pick a starter set (or 'custom') as the whole pool
+          if (op.set === 'custom') { tagsMod.saveTags(st.p, { project: st.config.project, set: 'custom', tags: tagsMod.CUSTOM_SEED.slice(), descriptions: {} }); return { ok: true }; }
+          const set = tagsMod.setById(op.set);
+          if (!set) return { ok: false, error: 'unknown set' };
+          tagsMod.saveTags(st.p, { project: st.config.project, set: set.id, tags: set.tags.slice(), descriptions: {} });
+          return { ok: true };
+        }
         if (action === 'add') {
           const label = String((op.label != null ? op.label : '')).trim();
           if (!label) return { ok: false, error: 'empty tag' };

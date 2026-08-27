@@ -599,6 +599,7 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     const sb = 'http://127.0.0.1:' + sd.port;
     const sp = (path, b) => fetch(sb + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b || {}) }).then((r) => r.json());
     ok((await sp('/api/tags/edit', { action: 'add', label: 'Payments' })).ok === true && last.label === 'Payments', 'v2 tags: /api/tags/edit routes an add to tagsEdit');
+    ok((await sp('/api/tags/edit', { action: 'set', set: 'responsibility' })).ok === true && last.action === 'set', 'v2 tags: /api/tags/edit routes a starter-set pick to tagsEdit');
     ok((await sp('/api/tags/edit', { action: 'rename', from: 'UI', to: 'X' })).ok === false, 'v2 tags: renaming a used tag is refused (would split history)');
     sd.close();
   }
