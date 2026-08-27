@@ -1761,11 +1761,49 @@ async function cmdDashboard(flags) {
   if (tls && tls.trusted && tls.caRoot) {
     try { caPem = fs.readFileSync(path.join(tls.caRoot, 'rootCA.pem'), 'utf8'); caFilename = 'yaylayer-rootCA.crt'; } catch (_) {}
   } else if (tls) { caPem = tls.cert; caFilename = 'yaylayer-cert.crt'; }
+
+  // Preview: run package.json scripts (dev server, build…) as background children, keyed by
+  // name, so the dashboard can show a live link + output and stop them. Killed on Ctrl-C.
+  const runningScripts = {};
+  const readScripts = () => { try { const pk = JSON.parse(fs.readFileSync(path.join(p.root, 'package.json'), 'utf8')); return (pk && pk.scripts) || {}; } catch (_) { return {}; } };
+  const scriptSnapshot = () => ({
+    scripts: Object.entries(readScripts()).map(([name, cmd]) => ({ name, cmd })),
+    running: Object.keys(runningScripts).map((name) => { const r = runningScripts[name]; return { name, url: r.url, alive: !!r.alive, startedAt: r.startedAt, output: r.output.join('').slice(-4000) }; }),
+  });
+  const runScript = (name) => {
+    const sc = readScripts();
+    if (!sc[name]) return { ok: false, error: 'no such script' };
+    const ex = runningScripts[name];
+    if (ex && ex.alive) return { ok: true, already: true };
+    const child = require('child_process').spawn('npm', ['run', name], { cwd: p.root, detached: true, env: process.env });
+    const rec = { child, output: [], url: null, alive: true, startedAt: Date.now() };
+    runningScripts[name] = rec;
+    const onData = (d) => {
+      rec.output.push(d.toString());
+      if (rec.output.length > 500) rec.output.splice(0, rec.output.length - 500);
+      if (!rec.url) { const m = String(d).replace(/\x1b\[[0-9;]*m/g, '').match(/https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?[^\s'"]*/i); if (m) rec.url = m[0].replace(/0\.0\.0\.0/, 'localhost'); }
+    };
+    child.stdout.on('data', onData); child.stderr.on('data', onData);
+    child.on('exit', () => { rec.alive = false; });
+    child.on('error', (e) => { rec.alive = false; rec.output.push('\n[spawn error] ' + ((e && e.message) || e)); });
+    return { ok: true };
+  };
+  const stopScript = (name) => {
+    const r = runningScripts[name];
+    if (!r || !r.alive) return { ok: true, already: true };
+    try { process.kill(-r.child.pid, 'SIGTERM'); } catch (_) { try { r.child.kill('SIGTERM'); } catch (__) {} }
+    r.alive = false; return { ok: true };
+  };
+  process.on('SIGINT', () => { Object.keys(runningScripts).forEach((n) => { if (runningScripts[n].alive) { try { process.kill(-runningScripts[n].child.pid, 'SIGTERM'); } catch (_) {} } }); process.exit(0); });
+
   let s;
   try {
     s = await dashboardMod.startDashboard({
       project: config.project,
       buildMapHTML: () => { const st = loadState(); return buildMapHTML(st.p, st.config, st.lock, flags); },
+      scripts: () => scriptSnapshot(),
+      runScript: (name) => runScript(String(name)),
+      stopScript: (name) => stopScript(String(name)),
       version: () => stateVersion(p),
       testInfo: () => { const st = loadState(); return { configured: !!resolveTestCmd(st.p.root, st.config, flags), cmd: resolveTestCmd(st.p.root, st.config, flags) }; },
       runTests: () => { const st = loadState(); return runTests(st.p.root, resolveTestCmd(st.p.root, st.config, flags)); },
@@ -1846,7 +1884,10 @@ async function cmdDashboard(flags) {
         const norm = tagsMod.norm;
         const uses = {}; for (const a of (st.lock.approvals || [])) for (const t of ((a.brief && a.brief.tags) || [])) uses[norm(t)] = (uses[norm(t)] || 0) + 1;
         const action = op && op.action;
-        if (action === 'set') { // pick a starter set (or 'custom') as the whole pool
+        if (action === 'set') { // pick a starter set (or 'custom') as the WHOLE pool
+          // Only allowed until the first tagged Brief is signed — a wholesale swap would
+          // orphan used tags into "Retired" and split the history (same rule as rename).
+          if (Object.keys(uses).length) return { ok: false, error: 'tags are already in use in signed Briefs — switching the whole set would split the history. Add or remove individual tags instead.' };
           if (op.set === 'custom') { tagsMod.saveTags(st.p, { project: st.config.project, set: 'custom', tags: tagsMod.CUSTOM_SEED.slice(), descriptions: {} }); return { ok: true }; }
           const set = tagsMod.setById(op.set);
           if (!set) return { ok: false, error: 'unknown set' };
@@ -1937,7 +1978,7 @@ async function cmdDashboard(flags) {
     console.log('   ' + U.c.dim('`yay sign` now routes here — the request pops up on your phone. Ctrl-C to stop.'));
   }
   const tc = resolveTestCmd(p.root, config, flags);
-  console.log('   ' + U.c.dim('buttons (this computer): ') + U.c.bold('▶ Run tests') + U.c.dim(tc ? ` (${tc})` : ' (none)') + U.c.dim(' · ') + U.c.bold('⚔ Adversary') + U.c.dim(' · ') + U.c.bold('⟲ System Plan') + U.c.dim(' · ') + U.c.bold('≷ Changes'));
+  console.log('   ' + U.c.dim('buttons (this computer): ') + U.c.bold('▷ Preview') + U.c.dim(' (run a package.json script) · ') + U.c.bold('▶ Run tests') + U.c.dim(tc ? ` (${tc})` : ' (none)') + U.c.dim(' · ') + U.c.bold('⚔ Adversary') + U.c.dim(' · ') + U.c.bold('⟲ System Plan') + U.c.dim(' · ') + U.c.bold('≷ Changes'));
   if (flags.open) { try { require('child_process').exec((process.platform === 'darwin' ? 'open ' : 'xdg-open ') + JSON.stringify(s.local)); } catch (_) {} }
   await new Promise(() => {}); // run until Ctrl-C
 }

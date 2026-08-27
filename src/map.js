@@ -69,7 +69,7 @@ const COMMANDS = [
   { cmd: 'yay adversary [--cell IDs]', desc: 'Spec-only adversary: an LLM sees ONLY each Cell’s spec (never the code) and writes probes to BREAK it, run against the real code. A break is a genuine spec↔code violation. Needs an LLM key.', flags: [['--cell <ids>', 'only these Cells'], ['--provider …', 'same provider config as the System Plan']] },
   { cmd: 'yay plan', desc: 'AI-synthesize the high-level System Plan → .yaylayer/plan.json.', flags: [['--provider anthropic|openai|custom', 'LLM provider (key from .env)'], ['--base-url <url>', 'custom / OpenAI-compatible endpoint (Ollama, LM Studio, vLLM — key optional)'], ['--model <m>', 'model id']] },
   { cmd: 'yay map [-o file.html]', desc: 'Write this HTML site (Map / Files / System Plan / Briefs / Tags / Policy / Signers / Commands).', flags: [['-o <file>', 'output path'], ['--no-plan', 'omit the System Plan entirely'], ['--replan', 'force plan regeneration']] },
-  { cmd: 'yay dashboard [--port N]', desc: 'Live control panel + phone relay: serves the map (auto-refreshes) with on-demand buttons — ➕ Request a change (queue a request your AI turns into a Brief to sign), Changes, Run tests, Adversary, Regenerate System Plan — AND routes pair/sign/authorize to the phone you scanned ONCE. Has Briefs, Tags and Policy tabs. Leave it running. HTTPS by default; the phone installs the cert from the /trust page for warning-free https.', flags: [['--port <n>', 'port (default 48757)'], ['--open', 'open it in your browser'], ['--no-https', 'disable TLS (default: mkcert-trusted cert if available, else self-signed)']] },
+  { cmd: 'yay dashboard [--port N]', desc: 'Live control panel + phone relay: serves the map (auto-refreshes) with on-demand buttons — ➕ Request a change (queue a request your AI turns into a Brief to sign), ▷ Preview (run a package.json script — dev server, build — with a live link + Stop), Changes, Run tests, Adversary, Regenerate System Plan — AND routes pair/sign/authorize to the phone you scanned ONCE. Has Briefs, Tags and Policy tabs. Leave it running. HTTPS by default; the phone installs the cert from the /trust page for warning-free https.', flags: [['--port <n>', 'port (default 48757)'], ['--open', 'open it in your browser'], ['--no-https', 'disable TLS (default: mkcert-trusted cert if available, else self-signed)']] },
   { cmd: 'yay gate [dir]', desc: 'Write the CI gate workflow and print the branch-protection steps.', flags: [['--hook', 'also install a local pre-push gate'], ['--scope <dir>', 'gate only a subfolder'], ['--force', 'overwrite existing files']] },
   { cmd: 'yay constitution --for <keys>', desc: 'Write the Constitution where an AI harness auto-reads it.', flags: [['--for <keys|all>', 'claude, agents, copilot, cursor, windsurf, cline, gemini, generic'], ['--list', 'list the harnesses']] },
   { cmd: 'yay status', desc: 'One-line health summary of the project.', flags: [] },
@@ -766,6 +766,14 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
       return;
     }
     var html='<h1>Tags</h1><div class="snote" style="margin:0 0 14px">The project vocabulary'+(setName?(' ('+esc2(setName)+' set)'):'')+' — every Brief is tagged from this pool.'+(LIVE?' Relabel, describe, add or remove below. A tag already used in a signed Brief can’t be renamed (it would split the history), but can be removed.':' Edit with <b>yay tags</b>, or live in <b>yay dashboard</b>.')+'</div>';
+    var anyUsed=Object.keys(counts).length>0;
+    if(LIVE && !anyUsed){
+      // No tagged Briefs yet → a wholesale switch to a different set is still safe.
+      var sw=(DATA.meta&&DATA.meta.tagSets)||[];
+      html+='<div style="border:1px solid var(--rule);border-radius:12px;padding:12px 14px;margin:0 0 16px;background:var(--card2)"><div style="font-weight:700;margin-bottom:8px">Switch to a different set <span style="font-weight:400;color:var(--mut);font-size:.8rem">— allowed until the first tagged Brief is signed</span></div><div style="display:flex;flex-wrap:wrap;gap:6px">'
+        +sw.map(function(s){return '<button class="setpick" data-set="'+esc2(s.id)+'" title="'+esc2(s.desc)+'" style="border:1px solid var(--rule);background:var(--paper);color:var(--ink);border-radius:100px;padding:5px 12px;cursor:pointer;font-size:.8rem;font-weight:600'+(cur.set===s.id?';border-color:var(--accent);color:var(--accent)':'')+'">'+esc2(s.name)+'</button>';}).join('')
+        +'<button class="setpick" data-set="custom" style="border:1px dashed var(--rule);background:var(--paper);color:var(--mut);border-radius:100px;padding:5px 12px;cursor:pointer;font-size:.8rem;font-weight:600">Custom</button></div></div>';
+    }
     if(LIVE){
       html+='<div id="tag-editor" style="margin:0 0 22px">';
       pool.forEach(function(t){
@@ -808,6 +816,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
       var addBtn=document.getElementById('tag-add'), addInp=document.getElementById('tag-new');
       if(addBtn) addBtn.onclick=function(){ var v=(addInp.value||'').trim(); if(!v){fail('enter a tag label');return;} post('/api/tags/edit',{action:'add',label:v}).then(function(j){ if(j&&j.ok) location.reload(); else fail((j&&j.error)||'add failed'); }); };
       if(addInp) addInp.addEventListener('keydown',function(e){ if(e.key==='Enter'&&addBtn) addBtn.onclick(); });
+      Array.prototype.forEach.call(el.querySelectorAll('.setpick'),function(c){ c.onclick=function(){ post('/api/tags/edit',{action:'set',set:c.getAttribute('data-set')}).then(function(j){ if(j&&j.ok) location.reload(); else fail((j&&j.error)||'switch failed'); }); }; });
     }
   }
 

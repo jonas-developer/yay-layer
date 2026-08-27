@@ -604,6 +604,22 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     sd.close();
   }
 
+  // Dashboard Preview: list / run / stop package.json scripts through the dashboard.
+  {
+    let ran = null, stopped = null;
+    const sd = await startDashboard({ buildMapHTML: () => ({ html: '<html><body></body></html>', count: 0 }), version: () => 'A',
+      scripts: () => ({ scripts: [{ name: 'dev', cmd: 'vite' }], running: [] }),
+      runScript: (n) => { ran = n; return { ok: true }; },
+      stopScript: (n) => { stopped = n; return { ok: true }; } }, { port: 0 });
+    const sb = 'http://127.0.0.1:' + sd.port;
+    const g = await fetch(sb + '/api/scripts').then((r) => r.json());
+    ok(g.scripts && g.scripts[0] && g.scripts[0].name === 'dev', 'v2 preview: /api/scripts lists package.json scripts');
+    const sp = (path, b) => fetch(sb + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b || {}) }).then((r) => r.json());
+    ok((await sp('/api/scripts/run', { name: 'dev' })).ok === true && ran === 'dev', 'v2 preview: /api/scripts/run runs a script');
+    ok((await sp('/api/scripts/stop', { name: 'dev' })).ok === true && stopped === 'dev', 'v2 preview: /api/scripts/stop stops it');
+    sd.close();
+  }
+
   // Briefs ledger renders as a tab in the map (the readable history of what was ordered).
   {
     const { renderMap } = require('../src/map');
