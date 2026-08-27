@@ -180,6 +180,21 @@ That single choice *is* the architecture — call it **A**: the human attests on
 
 So a **Green** Cell asserts two independent facts at once: *a human signed this exact promise* (the seal — cryptographic, offline-verifiable) **and** *the code provably keeps that promise right now* (verify — continuously re-derived). It is emphatically **not** option B (an implementation hash baked into the seal); the seal deliberately says nothing about the code, which is what lets refactors stay Green while genuine drift goes Red. Tampering with either half is caught: the lock is an append-only `prev`-chain, and verify never trusts a stored say-so — it recomputes from source every time.
 
+## Signing that fits your pace — batching
+
+The failure mode for any approval tool is fatigue: *"pull out the phone → approve → repeat"* until people rubber-stamp. YayLayer avoids it two ways.
+
+**You sign intent, not edits.** A refactor or tweak that keeps the same spec needs **no new signature** (see above) — so a lot of small work never touches the phone at all.
+
+**Batch mode (on by default) groups the small stuff.** The typical flow:
+
+- Ask for a **big change** → the AI writes its specs + a Brief and you **sign it right away** (one Brief, one signature).
+- Ask for a **small change** → the AI still writes its spec + code immediately (so nothing is untracked and you can **try it in action** right away, Unsigned), and quietly adds it to a **pending batch** — grouped **per concern** (by tag). When a batch reaches the **barrier** (default **5**) — or you're about to commit/push — it shows you the batch with a proposed title and asks: **close & sign, add one more, or keep going?** So a run of ten small tweaks becomes **one** signature, at a boundary you choose.
+- Anything **sensitive, behaviour-changing, or policy-required** is never batched — it gets its own Brief immediately.
+- In **freedom mode**, batches form the same way but each is auto-approved under your grant (one Brief per batch, never per tiny change).
+
+Tune it with **`yay batch <n>`** (raise/lower the barrier), `yay batch off` (a Brief per change), or the batch control in the dashboard's Briefs tab. Committing/pushing always flushes pending batches, so nothing rots unsigned.
+
 ## Commands
 
 | Command | What it does |
