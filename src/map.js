@@ -784,7 +784,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
       }
       return;
     }
-    var html='<h1>Tags</h1><div class="snote" style="margin:0 0 14px">The project vocabulary'+(setName?(' ('+esc2(setName)+' set)'):'')+' — every Brief is tagged from this pool.'+(LIVE?' Relabel, describe, add or remove below. A tag already used in a signed Brief can’t be renamed (it would split the history), but can be removed.':' Edit with <b>yay tags</b>, or live in <b>yay dashboard</b>.')+'</div>';
+    var html='<h1>Tags</h1><div class="snote" style="margin:0 0 14px">The project vocabulary'+(setName?(' ('+esc2(setName)+' set)'):'')+' — every Brief is tagged from this pool.'+(LIVE?' Relabel, describe, add or remove below. A tag already used in a signed Brief can’t be renamed (it would split the history), but can be removed.':' You choose this pool — switch starter sets, rename, add or remove tags with <b>yay tags</b> or live in the dashboard’s Tags tab.')+'</div>';
     var anyUsed=Object.keys(counts).length>0;
     if(LIVE && !anyUsed){
       // No tagged Briefs yet → a wholesale switch to a different set is still safe.
@@ -806,10 +806,18 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
       html+='<div style="display:flex;gap:8px;align-items:center;margin-top:10px"><input id="tag-new" placeholder="new tag label" style="flex:1;min-width:140px;padding:8px;border-radius:8px;border:1px solid var(--rule);background:var(--paper);color:var(--ink)"><button id="tag-add" style="padding:8px 14px;border-radius:8px;border:none;background:var(--brand);color:#04231a;font-weight:700;cursor:pointer">Add tag</button></div>';
       html+='<div id="tag-msg" style="margin-top:8px;font-size:.82rem;color:var(--mut)"></div></div>';
     } else {
-      html+='<div style="font-weight:800;font-size:.8rem;color:var(--mut);margin:0 0 8px">'+pool.length+' tag'+(pool.length===1?'':'s')+' to pick from</div>';
+      html+='<div style="border:1px solid var(--rule);border-left:3px solid var(--accent);border-radius:10px;padding:10px 13px;margin:0 0 14px;background:var(--card2);font-size:.85rem;color:var(--mut);line-height:1.5">You’re <b style="color:var(--ink)">not</b> handed a fixed list — you <b style="color:var(--ink)">choose the pool</b>. Switch to another starter set, <b style="color:var(--ink)">rename</b> any tag, <b style="color:var(--ink)">add</b> your own, or <b style="color:var(--ink)">remove</b> one — from the CLI (<b style="color:var(--ink)">yay tags</b>) or live in a running dashboard’s Tags tab. This static preview shows the current pool read-only.</div>';
+      html+='<div style="font-weight:800;font-size:.8rem;color:var(--mut);margin:0 0 8px">'+pool.length+' tag'+(pool.length===1?'':'s')+' in the pool</div>';
       html+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,230px),1fr));gap:9px;margin:0 0 6px">'+pool.map(function(t){var n=counts[lc(t)]||0,d=descOf(t);
         return '<div style="border:1px solid var(--rule);border-radius:11px;padding:10px 13px;background:var(--card2)"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span style="font-weight:800;color:var(--accent);font-size:.92rem">'+esc2(t)+'</span><span style="font-size:.68rem;font-weight:700;color:var(--mut);background:var(--paper);border:1px solid var(--rule);border-radius:100px;padding:1px 8px" title="used in '+n+' Brief(s)">'+n+'</span></div>'+(d?('<div style="font-size:.78rem;color:var(--mut);margin-top:4px;line-height:1.35">'+esc2(d)+'</div>'):'')+'</div>';
       }).join('')+'</div>';
+      var sw2=(DATA.meta&&DATA.meta.tagSets)||[];
+      if(sw2.length){
+        html+='<div style="margin:16px 0 0"><div style="font-weight:800;font-size:.8rem;color:var(--mut);margin-bottom:6px">Starter sets you can switch to</div><div style="display:flex;flex-wrap:wrap;gap:6px">'
+          +sw2.map(function(s){var act=(s.id===setName||s.name===setName);return '<span title="'+esc2(s.desc)+'" style="border:1px solid var(--rule);background:var(--paper);color:var(--ink);border-radius:100px;padding:5px 12px;font-size:.8rem;font-weight:600'+(act?';border-color:var(--accent);color:var(--accent)':'')+'">'+esc2(s.name)+(act?' ✓':'')+'</span>';}).join('')
+          +'<span style="border:1px dashed var(--rule);background:var(--paper);color:var(--mut);border-radius:100px;padding:5px 12px;font-size:.8rem;font-weight:600">Custom (relabel your own)</span></div>'
+          +'<div class="snote" style="margin:8px 0 0">Switch with <b>yay tags --set &lt;id&gt;</b>, then rename / add / remove freely.</div></div>';
+      }
     }
     // Retired = tags that appear in past Briefs but are no longer in the pool. Vocabulary
     // context only (names + counts) — browsing Briefs by tag lives in the Briefs tab.
