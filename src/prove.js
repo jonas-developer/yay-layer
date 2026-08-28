@@ -307,14 +307,57 @@ function buildRenderChecker(ctx, params, ensuresExpr) {
 }
 function show(v) { try { return typeof v === 'string' ? JSON.stringify(v) : JSON.stringify(v) ?? String(v); } catch (_) { return String(v); } }
 
-function proveCell(cell, ctx, fn) {
-  const params = parseIn(cell.spec);
-  if (params.some((p) => !valuesFor(p.type))) return { status: 'skip', level: 'yellow', reason: 'inputs include a type the prover can\'t generate (' + params.map((p) => p.type).join(', ') + ')' };
+// ── proving adapters ────────────────────────────────────────────────────────
+// Each prover mode is an adapter: it says which Cells it handles (canHandle),
+// how to parse the spec's `in:` (inputs), how to build a checker that exposes a
+// checkable surface + evaluates `ensures` (checker), and how to phrase a
+// counterexample (describe). The core driver owns dispatch, the case-loop, and
+// mutation — so a new framework/language is a new adapter, not a core edit.
+// (`load` is uniform here because all current adapters run in the same JS VM; an
+// out-of-VM adapter, e.g. Python, will carry its own load — see docs/design.)
+function jsLoad(source, names, opts) { return runSource(source, names, { jsx: !!(opts && opts.jsx), file: opts && opts.file }); }
+
+const pureCallAdapter = {
+  name: 'pure-call', inVM: true, wantsJSX: false,
+  canHandle: (cell) => /^yes\b/i.test((cell.spec && cell.spec.pure) || ''),
+  load: jsLoad,
+  inputs: (cell) => parseIn(cell.spec),
+  inputNoun: 'inputs',
+  threwVerb: 'on generated inputs',
+  checker: (ctx, params, ensures) => buildChecker(ctx, params, ensures),
+  describe: (cell, argstr, r, ensures) => `${cell.unitName}(${argstr || ''}) → ${show(r.out)} — violates ensures: ${ensures}`,
+};
+
+const renderAdapter = {
+  name: 'render', inVM: true, wantsJSX: true,
+  canHandle: (cell) => /^yes\b/i.test((cell.spec && cell.spec.renders) || ''),
+  load: jsLoad,
+  inputs: (cell) => parseInCased(cell.spec), // case-preserved props (onClick/className)
+  inputNoun: 'props',
+  threwVerb: 'while rendering',
+  checker: (ctx, params, ensures) => buildRenderChecker(ctx, params, ensures),
+  describe: (cell, argstr, r, ensures) => {
+    const rootT = r.out && r.out.type ? '<' + r.out.type + '>' : show(r.out);
+    return `${cell.unitName}(${argstr || ''}) → renders ${rootT} — violates ensures: ${ensures}`;
+  },
+};
+
+// Registry (order = precedence: a component that is also `pure` is render-proved).
+// The effect/`records:` surface (buildEffectChecker) is an ADVERSARY concern today,
+// not a prover mode — adding it here would newly prove effect Cells (a behaviour
+// change), so it stays out of this registry until that's a deliberate step.
+const ADAPTERS = [renderAdapter, pureCallAdapter];
+
+// Stage 5 — run one Cell's generated inputs through the adapter's checker. A single
+// counterexample ⇒ Red; can't-check ⇒ honest skip; all cases hold ⇒ proven. Shared
+// across adapters (this is the loop the old proveCell/proveRenderCell each duplicated).
+function runCases(adapter, ctx, cell, fn) {
+  const params = adapter.inputs(cell);
+  if (params.some((p) => !valuesFor(p.type))) return { status: 'skip', level: 'yellow', reason: adapter.inputNoun + ' include a type the prover can\'t generate (' + params.map((p) => p.type).join(', ') + ')' };
   const ensures = String(cell.spec.ensures || '').trim();
   let checker;
-  try { checker = buildChecker(ctx, params.map((p) => p.name), ensures); }
+  try { checker = adapter.checker(ctx, params.map((p) => p.name), ensures); }
   catch (_) { return { status: 'skip', level: 'yellow', reason: 'ensures not machine-checkable — ' + ensuresHint(ensures) }; }
-
   const tuples = cartesian(params.map((p) => valuesFor(p.type)), 40);
   const cases = tuples.length || 1;
   let threw = 0, lastErr = '';
@@ -324,46 +367,19 @@ function proveCell(cell, ctx, fn) {
     catch (e) { threw++; lastErr = e && e.message ? e.message.split('\n')[0] : 'threw'; continue; }
     if (!r.ok) {
       const argstr = params.map((p, i) => `${p.name}=${show(A[i])}`).join(', ');
-      return { status: 'fail', level: 'red', cases, counterexample: `${cell.unitName}(${argstr || ''}) → ${show(r.out)} — violates ensures: ${ensures}` };
+      return { status: 'fail', level: 'red', cases, counterexample: adapter.describe(cell, argstr, r, ensures) };
     }
   }
-  if (threw >= cases) return { status: 'skip', level: 'yellow', reason: `threw on generated inputs (${lastErr}) — can't prove` };
-  return { status: 'pass', level: 'info', cases: cases - threw };
-}
-
-// Render-prove a component Cell: generate props from `in:` (case preserved), render,
-// and check `ensures` against the vnode tree. Same verdict shape as proveCell.
-function proveRenderCell(cell, ctx, fn) {
-  const params = parseInCased(cell.spec);
-  if (params.some((p) => !valuesFor(p.type))) return { status: 'skip', level: 'yellow', reason: 'props include a type the prover can\'t generate (' + params.map((p) => p.type).join(', ') + ')' };
-  const ensures = String(cell.spec.ensures || '').trim();
-  let checker;
-  try { checker = buildRenderChecker(ctx, params.map((p) => p.name), ensures); }
-  catch (_) { return { status: 'skip', level: 'yellow', reason: 'ensures not machine-checkable — ' + ensuresHint(ensures) }; }
-  const tuples = cartesian(params.map((p) => valuesFor(p.type)), 40);
-  const cases = tuples.length || 1;
-  let threw = 0, lastErr = '';
-  for (const A of (tuples.length ? tuples : [[]])) {
-    let r;
-    try { r = checker(fn, A); }
-    catch (e) { threw++; lastErr = e && e.message ? e.message.split('\n')[0] : 'threw'; continue; }
-    if (!r.ok) {
-      const argstr = params.map((p, i) => `${p.name}=${show(A[i])}`).join(', ');
-      const rootT = r.out && r.out.type ? '<' + r.out.type + '>' : show(r.out);
-      return { status: 'fail', level: 'red', cases, counterexample: `${cell.unitName}(${argstr || ''}) → renders ${rootT} — violates ensures: ${ensures}` };
-    }
-  }
-  if (threw >= cases) return { status: 'skip', level: 'yellow', reason: `threw while rendering (${lastErr}) — can't prove` };
+  if (threw >= cases) return { status: 'skip', level: 'yellow', reason: `threw ${adapter.threwVerb} (${lastErr}) — can't prove` };
   return { status: 'pass', level: 'info', cases: cases - threw };
 }
 
 // Mutation testing: corrupt the code one edit at a time, re-run the SAME ensures
-// tests, and see how many mutants the ensures kills. A low score means the ensures
-// is too weak to be trusted — it passes even when the code is broken.
-function runMutation(source, cell, opts) {
+// tests (via the Cell's own adapter), and see how many mutants the ensures kills. A
+// low score means the ensures is too weak to be trusted — it passes even when broken.
+function runMutation(adapter, source, cell, opts) {
   opts = opts || {};
-  const render = !!opts.render;
-  const params = (render ? parseInCased : parseIn)(cell.spec);
+  const params = adapter.inputs(cell);
   const ensures = String(cell.spec.ensures || '');
   const muts = mutants(cell.unitBody || '', 30);
   if (!muts.length) return { total: 0, killed: 0, survived: 0, score: null };
@@ -376,10 +392,10 @@ function runMutation(source, cell, opts) {
   for (const m of muts) {
     const lines = srcLines.slice();
     lines.splice(start, len, ...m.code.split('\n'));
-    const r = runSource(lines.join('\n'), [cell.unitName], { jsx: opts.jsx, file: opts.file });
+    const r = adapter.load(lines.join('\n'), [cell.unitName], { jsx: opts.jsx, file: opts.file });
     if (r.error || typeof r.fns[cell.unitName] !== 'function') { killed++; continue; } // mutant broke → detected
     let checker;
-    try { checker = (render ? buildRenderChecker : buildChecker)(r.ctx, params.map((p) => p.name), ensures); }
+    try { checker = adapter.checker(r.ctx, params.map((p) => p.name), ensures); }
     catch (_) { killed++; continue; }
     let dead = false;
     for (const A of inputs) {
@@ -392,47 +408,48 @@ function runMutation(source, cell, opts) {
   return { total, killed, survived, score: total ? killed / total : null, survivor };
 }
 
-// Prove every eligible Cell. opts.mutate (default true) also grades each passing
-// Cell's ensures by mutation. Returns { [cellId]: result }.
+// The driver — dispatch each Cell to an adapter, load once per file, run cases, grade.
+// opts.mutate (default true) also grades each passing Cell's ensures by mutation.
+// opts.adapters overrides the registry (used by tests). Returns { [cellId]: result }.
 function proveManifest(manifest, opts) {
   const mutate = !opts || opts.mutate !== false;
+  const adapters = (opts && opts.adapters) || ADAPTERS;
   const out = {};
   const byFile = {};
   for (const id of Object.keys(manifest.cells)) {
     const c = manifest.cells[id];
     const isLeaf = !(c.contains && c.contains.length);
-    const pure = /^yes\b/i.test((c.spec && c.spec.pure) || '');
-    const render = /^yes\b/i.test((c.spec && c.spec.renders) || ''); // component Cell → render-proved
-    if (!isLeaf || !(pure || render) || !c.unitFound || !(c.spec && c.spec.ensures)) continue;
-    if (c.lang && !isJsLang(c.lang)) continue; // prover is a JS/TS VM; an explicitly non-JS lang stays unproven (Yellow). Missing lang ⇒ JS (legacy default).
+    if (!isLeaf || !c.unitFound || !(c.spec && c.spec.ensures)) continue;
+    const adapter = adapters.find((a) => a.canHandle(c));
+    if (!adapter) continue; // no adapter handles it → stays Yellow (signed, unproven)
+    if (adapter.inVM && c.lang && !isJsLang(c.lang)) continue; // JS-VM adapters skip explicit non-JS langs (missing lang ⇒ JS default)
     if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(c.unitName || '')) { out[id] = { status: 'skip', level: 'info', reason: 'method/qualified units not yet supported' }; continue; }
-    (byFile[c.file] = byFile[c.file] || []).push(c);
+    (byFile[c.file] = byFile[c.file] || []).push({ cell: c, adapter });
   }
   for (const file of Object.keys(byFile)) {
-    const cells = byFile[file];
-    // Transform JSX when the file is .jsx/.tsx or any of its Cells declare `renders:`.
-    const wantsJSX = /\.(jsx|tsx)$/i.test(file) || cells.some((c) => /^yes\b/i.test((c.spec && c.spec.renders) || ''));
+    const items = byFile[file];
+    // Transform JSX when the file is .jsx/.tsx or any of its adapters wants it.
+    const wantsJSX = /\.(jsx|tsx)$/i.test(file) || items.some((it) => it.adapter.wantsJSX);
     let source; try { source = fs.readFileSync(path.join(manifest.root, file), 'utf8'); }
-    catch (_) { for (const c of cells) out[c.id] = { status: 'skip', level: 'info', reason: 'file unreadable' }; continue; }
-    const base = runSource(source, cells.map((c) => c.unitName), { jsx: wantsJSX, file });
+    catch (_) { for (const it of items) out[it.cell.id] = { status: 'skip', level: 'info', reason: 'file unreadable' }; continue; }
+    const base = items[0].adapter.load(source, items.map((it) => it.cell.unitName), { jsx: wantsJSX, file });
     if (base.error) {
       const reason = base.error === 'jsx-needs-babel'
         ? 'add the optional deps @babel/core + @babel/plugin-transform-react-jsx to machine-prove JSX Cells'
         : 'could not run file (' + base.error + ')';
-      for (const c of cells) out[c.id] = { status: 'skip', level: 'info', reason }; continue;
+      for (const it of items) out[it.cell.id] = { status: 'skip', level: 'info', reason }; continue;
     }
-    for (const c of cells) {
-      const fn = base.fns[c.unitName];
-      if (typeof fn !== 'function') { out[c.id] = { status: 'skip', level: 'info', reason: 'unit not callable in isolation' }; continue; }
-      const render = /^yes\b/i.test((c.spec && c.spec.renders) || '');
+    for (const it of items) {
+      const fn = base.fns[it.cell.unitName];
+      if (typeof fn !== 'function') { out[it.cell.id] = { status: 'skip', level: 'info', reason: 'unit not callable in isolation' }; continue; }
       try {
-        const res = render ? proveRenderCell(c, base.ctx, fn) : proveCell(c, base.ctx, fn);
-        if (res.status === 'pass' && mutate) res.mutation = runMutation(source, c, { jsx: wantsJSX, file, render });
-        out[c.id] = res;
-      } catch (e) { out[c.id] = { status: 'skip', level: 'info', reason: 'prover error: ' + (e && e.message) }; }
+        const res = runCases(it.adapter, base.ctx, it.cell, fn);
+        if (res.status === 'pass' && mutate) res.mutation = runMutation(it.adapter, source, it.cell, { jsx: wantsJSX, file });
+        out[it.cell.id] = res;
+      } catch (e) { out[it.cell.id] = { status: 'skip', level: 'info', reason: 'prover error: ' + (e && e.message) }; }
     }
   }
   return out;
 }
 
-module.exports = { proveManifest, runSource, parseIn, parseInCased, valuesFor, buildChecker, buildEffectChecker, buildRenderChecker, transformJSX, show, ensuresHint, normalizeEnsures };
+module.exports = { proveManifest, runSource, parseIn, parseInCased, valuesFor, buildChecker, buildEffectChecker, buildRenderChecker, transformJSX, show, ensuresHint, normalizeEnsures, ADAPTERS, pureCallAdapter, renderAdapter };

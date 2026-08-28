@@ -243,6 +243,26 @@ ok(rm['C-R3'].status === 'pass', 'render prover: fragment + text()/find() contra
 ok((require('../src/prove').valuesFor('{onClick:boolean, myId:string}') || []).some((o) => 'onClick' in o && 'myId' in o), 'render prover: object props generate with case-preserved field names');
 fs.rmSync(rtmp, { recursive: true, force: true });
 
+// 12c) proving-adapter registry: a custom adapter can be registered and dispatched to
+const { runSource: RS, parseIn: PIx, buildChecker: BC } = require('../src/prove');
+const atmp = fs.mkdtempSync(P.join(os.tmpdir(), 'yay-adapter-'));
+fs.writeFileSync(P.join(atmp, 'a.js'), 'function twice(n){return n*2;}\n');
+const customAdapter = {
+  name: 'x2', inVM: true, wantsJSX: false,
+  canHandle: (cell) => (cell.spec && cell.spec.kind) === 'x2',
+  load: (s, names, o) => RS(s, names, { file: o.file }),
+  inputs: (cell) => PIx(cell.spec),
+  inputNoun: 'inputs', threwVerb: 'on generated inputs',
+  checker: (ctx, params, ens) => BC(ctx, params, ens),
+  describe: (cell, a, r, e) => `${cell.unitName}(${a}) → ${r.out}`,
+};
+const acell = { id: 'C-A', file: 'a.js', unitName: 'twice', unitFound: true, contains: [], spec: { kind: 'x2', in: 'n:number', out: 'number', ensures: 'out === n*2' } };
+const ar = proveManifest({ root: atmp, cells: { 'C-A': acell } }, { adapters: [customAdapter], mutate: false });
+ok(ar['C-A'] && ar['C-A'].status === 'pass', 'adapter registry: a custom adapter is dispatched and proves its Cell');
+const ar2 = proveManifest({ root: atmp, cells: { 'C-A': acell } }, { mutate: false });
+ok(!ar2['C-A'], 'adapter registry: the default registry ignores a Cell none of its adapters handle');
+fs.rmSync(atmp, { recursive: true, force: true });
+
 // 13) `yay gate` generators: workflow + hook content, idempotent write
 const G = require('../src/gate');
 ok(/yay verify --strict/.test(G.ciWorkflow()) && /gate:/.test(G.ciWorkflow()), 'gate: workflow runs `yay verify --strict` under a `gate` job');
