@@ -330,8 +330,11 @@ function verifyManifest(manifest, lock, config, opts) {
   for (const u of manifest.untracked || []) {
     let id = `«${u.name}»`;
     if (results[id]) id += ` @${u.file}:${u.line}`;
+    const wrapHint = isJsLang(u.lang)
+      ? 'wrap it in an IIFE around a spec\'d function — `(function(){ function init(){…} init(); })()` — or run `yay adopt`'
+      : 'move it under an entry guard (e.g. `if __name__ == "__main__":`) or into a function an explicit caller runs';
     const text = u.kind === 'loose'
-      ? `top-level code runs at load with no spec (${u.count || 1} statement${(u.count || 1) > 1 ? 's' : ''}) — wrap it in a Cell`
+      ? `top-level code runs at load with no spec (${u.count || 1} statement${(u.count || 1) > 1 ? 's' : ''}): ${wrapHint}`
       : `no formal specification (${u.kind || 'unit'}) — never described or signed (run \`yay adopt\`)`;
     results[id] = {
       id, state: 'PINK', trust: { signed: false }, untracked: true,
