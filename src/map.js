@@ -744,8 +744,8 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
         var key=near.x;
         if(tip._key!==key){
           tip._key=key; var head=near.t||near.bt, body=near.t?near.bt:'';
-          tip.innerHTML='<div style="font-size:13px;font-weight:700;color:#1a1a1a;line-height:1.3">'+esc2(head)+'</div>'
-            +(body?('<div style="font-size:10.5px;color:#666;line-height:1.4;margin-top:3px">'+esc2(body)+'</div>'):'')
+          tip.innerHTML='<div style="font-size:12px;font-weight:700;color:#1a1a1a;line-height:1.3;white-space:normal;overflow-wrap:anywhere;word-break:break-word">'+esc2(head)+'</div>'
+            +(body?('<div style="font-size:10px;color:#666;line-height:1.4;margin-top:3px;white-space:normal;overflow-wrap:anywhere">'+esc2(body)+'</div>'):'')
             +'<div style="font-size:9px;color:#9a9a9a;margin-top:5px;letter-spacing:.02em">'+esc2(near.d)+(near.s?(' · '+esc2(near.s)):'')+'</div>';
         }
         var tw=tip.offsetWidth||200, th=tip.offsetHeight||60;
