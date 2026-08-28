@@ -842,6 +842,22 @@ async function cmdSign(flags, positional) {
     if (!manifest.cells[id]) { console.log(U.c.yellow(`  skip ${id}: not found`)); continue; }
     items[id] = manifest.cells[id].specHash;
   }
+  // ── Tag-plan gate (Standard §5) ── the AI picks a Brief's tags FROM the human's tag
+  // plan, so signing is refused while the plan is unfinished: unrelabeled "Custom N"
+  // placeholders, or fewer than MIN_PLAN_TAGS unique tags. And adopted (DERIVED) Cells
+  // may not be signed before a tag plan exists at all — the adoption wave is exactly
+  // when per-concern tagging matters most.
+  {
+    const tagCfg = tagsMod.loadTags(p);
+    const plan = tagsMod.planStatus(tagCfg);
+    if (plan.exists && !plan.ok) {
+      if (plan.placeholders.length) return fail(`the tag plan isn't finished — relabel the placeholder tag(s) ${plan.placeholders.map((t) => `"${t}"`).join(', ')} first (\`yay tags rename "Custom 1" "<Real name>"\` or the dashboard Tags tab). Briefs are never tagged with placeholders.`);
+      return fail(`the tag plan needs at least ${tagsMod.MIN_PLAN_TAGS} unique tags (it has ${plan.unique}) — add more with \`yay tags add "<Tag>"\`, or switch sets with \`yay tags --set <id>\`.`);
+    }
+    if (!plan.exists && Object.keys(items).some((id) => /DERIVED — unconfirmed/.test(manifest.cells[id].specBlock || ''))) {
+      return fail(`adopted Cells can't be signed before a tag plan exists — pick one first (\`yay tags --set <id>\`, ≥${tagsMod.MIN_PLAN_TAGS} unique tags), then sign the adoption as per-concern Briefs.`);
+    }
+  }
   const n = (lock.approvals || []).length + 1;
   const approval = {
     id: 'A-' + String(n).padStart(4, '0'),
@@ -2158,6 +2174,11 @@ function cmdTags(flags, positional) {
   const descs = cur.descriptions || {};
   console.log(U.c.bold('Brief tags') + U.c.dim(` — set: ${set ? set.name : cur.set} · ${cur.tags.length} tags · every Brief is tagged from this pool:`));
   cur.tags.forEach((t) => console.log('  ' + U.c.accent(t) + (descs[t] ? U.c.dim(' — ' + descs[t]) : '')));
+  const plan = tagsMod.planStatus(cur);
+  if (!plan.ok) {
+    if (plan.placeholders.length) console.log('\n' + U.c.yellow(`⚠ tag plan UNFINISHED — relabel ${plan.placeholders.map((t) => `"${t}"`).join(', ')} (\`yay tags rename\`)`) + U.c.dim(' — signing is blocked until the plan is finished (no placeholders, ≥' + tagsMod.MIN_PLAN_TAGS + ' unique tags).'));
+    else console.log('\n' + U.c.yellow(`⚠ tag plan UNFINISHED — ${plan.unique}/${tagsMod.MIN_PLAN_TAGS} unique tags`) + U.c.dim(' — add more (`yay tags add "<Tag>"`); signing is blocked until the plan has at least ' + tagsMod.MIN_PLAN_TAGS + '.'));
+  }
   console.log('\n' + U.c.dim('switch: ') + U.c.bold('yay tags --set <id>') + U.c.dim(' · add/remove: ') + U.c.bold('yay tags add|remove "Tag"') + U.c.dim(' · relabel: ') + U.c.bold('yay tags rename "A" "B"') + U.c.dim(' · describe: ') + U.c.bold('yay tags desc "Tag" "…"'));
 }
 

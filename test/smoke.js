@@ -279,6 +279,36 @@ if (pyProbe.error) {
 }
 fs.rmSync(pdir, { recursive: true, force: true });
 
+// 12e) tag-plan gate: signing is refused while the plan is unfinished; adopted (DERIVED)
+// Cells can't be signed before any plan exists at all.
+{
+  const T = require('../src/tags');
+  ok(!T.planStatus({ tags: ['Custom 1', 'Custom 2', 'Custom 3', 'Custom 4'] }).ok, 'tag plan: custom placeholders → unfinished');
+  ok(!T.planStatus({ tags: ['UI', 'API', 'Auth'] }).ok, 'tag plan: fewer than 5 unique tags → unfinished');
+  ok(!T.planStatus({ tags: ['UI', 'API', 'Auth', 'Data', 'Custom 3'] }).ok, 'tag plan: one leftover placeholder → still unfinished');
+  ok(T.planStatus({ tags: ['UI', 'API', 'Auth', 'Data', 'Perf'] }).ok, 'tag plan: 5 unique real tags → finished');
+  ok(!T.planStatus(null).exists, 'tag plan: no pool → exists=false (non-adopted signing may proceed untagged)');
+
+  // CLI: sign refuses with a placeholder pool / an undersized pool / DERIVED cells + no pool.
+  const cpx = require('child_process');
+  const sgd = fs.mkdtempSync(P.join(os.tmpdir(), 'yay-taggate-'));
+  const yay = P.join(__dirname, '..', 'bin', 'yay.js');
+  const run = (args) => cpx.spawnSync(process.execPath, [yay, ...args], { cwd: sgd, encoding: 'utf8', timeout: 30000, env: { ...process.env, YAY_PASSPHRASE: 'pw-123456' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  run(['init', '--key', 'local', '--name', 'T', '--no-adopt', '--no-plan', '--tags', 'none']); // non-interactive setup, no pool
+  fs.writeFileSync(P.join(sgd, 'a.js'), '//∷YAY⟨C-1⟩\n// unit: one\n// in: n:number\n// out: number\n// pure: yes\n// ensures: out === 1\n//∷YAY-END⟨C-1⟩\nfunction one(n){return 1;}\n');
+  fs.writeFileSync(P.join(sgd, '.yaylayer', 'tags.json'), JSON.stringify({ project: 'x', set: 'custom', tags: ['Custom 1', 'Custom 2', 'Custom 3', 'Custom 4'] }));
+  let sr = run(['sign', '--brief', 'b', '--no-title', '--local', '--no-tags']);
+  ok(sr.status !== 0 && /placeholder/i.test(sr.stderr + sr.stdout), 'sign gate: placeholder pool → refused (relabel first)');
+  fs.writeFileSync(P.join(sgd, '.yaylayer', 'tags.json'), JSON.stringify({ project: 'x', set: 'custom', tags: ['UI', 'API', 'Auth'] }));
+  sr = run(['sign', '--brief', 'b', '--no-title', '--local', '--no-tags']);
+  ok(sr.status !== 0 && /at least 5 unique/i.test(sr.stderr + sr.stdout), 'sign gate: pool under 5 unique tags → refused');
+  fs.rmSync(P.join(sgd, '.yaylayer', 'tags.json'));
+  fs.writeFileSync(P.join(sgd, 'b.js'), '//∷YAY⟨C-2⟩ v0  DERIVED — unconfirmed, not human-reviewed\n// unit: two\n// in: n:number\n// out: number\n// pure: yes\n//∷YAY-END⟨C-2⟩\nfunction two(n){return 2;}\n');
+  sr = run(['sign', '--brief', 'b', '--no-title', '--local', '--no-tags']);
+  ok(sr.status !== 0 && /tag plan exists/i.test(sr.stderr + sr.stdout), 'sign gate: DERIVED cells + no plan → refused');
+  fs.rmSync(sgd, { recursive: true, force: true });
+}
+
 // 13) `yay gate` generators: workflow + hook content, idempotent write
 const G = require('../src/gate');
 ok(/yay verify --strict/.test(G.ciWorkflow()) && /gate:/.test(G.ciWorkflow()), 'gate: workflow runs `yay verify --strict` under a `gate` job');

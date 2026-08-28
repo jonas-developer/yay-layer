@@ -51,4 +51,17 @@ function parseTags(pool, raw) {
 }
 function unknownTags(pool, tags) { return (tags || []).filter((t) => !isKnown(pool, t)); }
 
-module.exports = { TAG_SETS, setById, CUSTOM_SEED, tagsPath, loadTags, saveTags, canonicalTag, isKnown, parseTags, unknownTags, norm };
+// Is the tag plan FINISHED — ready to tag signed Briefs with? A finished plan has no
+// unrelabeled "Custom N" placeholders and at least MIN_PLAN_TAGS unique tags. The AI
+// picks a Brief's tags FROM the human's plan, so an unfinished plan poisons every
+// downstream choice — signing is refused until the plan is finished.
+const MIN_PLAN_TAGS = 5;
+const isPlaceholder = (t) => /^custom\s*\d+$/i.test(String(t || '').trim());
+function planStatus(tagCfg) {
+  if (!tagCfg || !Array.isArray(tagCfg.tags)) return { exists: false, ok: false, placeholders: [], unique: 0 };
+  const placeholders = tagCfg.tags.filter(isPlaceholder);
+  const unique = new Set(tagCfg.tags.filter((t) => !isPlaceholder(t)).map(norm)).size;
+  return { exists: true, ok: placeholders.length === 0 && unique >= MIN_PLAN_TAGS, placeholders, unique };
+}
+
+module.exports = { TAG_SETS, setById, CUSTOM_SEED, MIN_PLAN_TAGS, tagsPath, loadTags, saveTags, canonicalTag, isKnown, parseTags, unknownTags, norm, isPlaceholder, planStatus };
