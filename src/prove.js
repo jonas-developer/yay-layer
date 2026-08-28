@@ -17,7 +17,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('node:vm');
 const cp = require('child_process');
-const { mutants, deletions } = require('./mutate');
+const { mutants, deletions, harvestLiterals } = require('./mutate');
 const { makeRecorder } = require('./record');
 const { isJsLang, looseTopLevelNonJs } = require('./util');
 
@@ -548,6 +548,93 @@ function runInertness(adapter, source, cell, opts) {
   return { checked, flagged };
 }
 
+// LITERAL-SEEDED TRIGGER HUNTING — the complement to inertness. Harvest the magic
+// constants a dormant gate compares inputs against, synthesise IN-DOMAIN inputs that
+// fire the gate, and check `ensures`. A hit is a PROVEN spec↔code contradiction → RED
+// (same as any counterexample). Honesty: code-derived inputs live in a RED-ONLY lane —
+// they can convict but never acquit, and never touch the proven-case count. Only builds
+// inputs valid per `in:` (a string literal vs a `number` param is out-of-domain → skip),
+// so every Red it produces is real.
+function cloneVal(v) { try { return v == null ? v : JSON.parse(JSON.stringify(v)); } catch (_) { return v; } }
+// Candidate IN-DOMAIN inputs for a param that satisfy the harvested trigger constraints.
+// Returns a FEW variants (varying the free fields) so a triggered payload whose fake
+// output coincidentally matches one fill is still caught by another — like a fuzzer
+// varying the non-dictionary bytes after hitting a comparison. [] ⇒ can't build (skip).
+function synthSeeds(type, cons) {
+  const lt = String(type).toLowerCase();
+  const eq = cons.find((c) => c.kind === 'eq');
+  if (eq) {
+    if (lt === 'string' && typeof eq.value === 'string') return [eq.value];
+    if (lt === 'number' && typeof eq.value === 'number') return [eq.value];
+    if (lt === 'boolean' && typeof eq.value === 'boolean') return [eq.value];
+    return []; // out-of-domain scalar
+  }
+  const lenC = cons.find((c) => c.kind === 'length');
+  const idxC = cons.filter((c) => c.kind === 'index-prop');
+  const props = cons.filter((c) => c.kind === 'prop');
+  if (lt === 'string' && lenC && typeof lenC.value === 'number' && !idxC.length && !props.length) {
+    return (lenC.value >= 0 && lenC.value <= 256) ? ['x'.repeat(lenC.value)] : [];
+  }
+  if (/\[\]$/.test(String(type)) && (lenC || idxC.length)) {
+    const elemType = String(type).replace(/\[\]$/, '');
+    let len = lenC ? lenC.value : 1;
+    for (const c of idxC) len = Math.max(len, (c.key.index || 0) + 1);
+    if (!(len >= 0 && len <= 64)) return [];
+    const ev = valuesFor(elemType) || [];
+    const fills = (ev.length ? ev.slice(-3) : [null]); // a few distinct element fills (non-degenerate)
+    const out = [];
+    for (const e of fills) {
+      const arr = []; for (let i = 0; i < len; i++) arr.push(cloneVal(e));
+      let ok = true;
+      for (const c of idxC) { const el = arr[c.key.index]; if (el && typeof el === 'object') el[c.key.prop] = c.value; else { ok = false; break; } }
+      if (ok) out.push(arr);
+    }
+    return out;
+  }
+  const shape = objectShape(type);
+  if (shape && props.length) {
+    const sv = valuesFor(type) || [];
+    const bases = sv.length ? sv.slice(0, 3) : [{}];
+    const out = [];
+    for (const b of bases) {
+      const o = (b && typeof b === 'object') ? cloneVal(b) : {};
+      let ok = true;
+      for (const c of props) { if (!shape.some((f) => f.name === c.key)) { ok = false; break; } o[c.key] = c.value; }
+      if (ok) out.push(o);
+    }
+    return out;
+  }
+  return [];
+}
+function runSeeded(adapter, ctx, cell, fn) {
+  const params = adapter.inputs(cell);
+  if (!params.length) return null;
+  const lits = harvestLiterals(cell.unitBody || '', 30);
+  if (!lits.length) return null;
+  const byRoot = {};
+  for (const c of lits) { if (params.some((p) => p.name === c.root)) (byRoot[c.root] = byRoot[c.root] || []).push(c); }
+  const roots = Object.keys(byRoot);
+  if (!roots.length) return null;
+  const ensures = String(cell.spec.ensures || '').trim();
+  let checker;
+  try { checker = adapter.checker(ctx, params.map((p) => p.name), ensures); } catch (_) { return null; }
+  const baseTuple = (cartesian(params.map((p) => valuesFor(p.type) || [undefined]), 1)[0] || params.map(() => undefined));
+  let budget = 24; // cap total seeded runs per Cell (cost)
+  for (const root of roots) {
+    const pi = params.findIndex((p) => p.name === root);
+    for (const seed of synthSeeds(params[pi].type, byRoot[root])) {
+      if (budget-- <= 0) return null;
+      const A = baseTuple.slice(); A[pi] = seed;
+      let r; try { r = checker(fn, A); } catch (_) { continue; } // threw on this input → not a promise violation
+      if (r && r.ok === false) {
+        const argstr = params.map((p, i) => `${p.name}=${show(A[i])}`).join(', ');
+        return { status: 'fail', level: 'red', viaSeed: true, cases: 0, counterexample: `${cell.unitName}(${argstr}) → ${show(r.out)} — violates ensures: ${ensures} (triggered by a constant found in the code)` };
+      }
+    }
+  }
+  return null;
+}
+
 // The driver — dispatch each Cell to an adapter, load once per file, run cases, grade.
 // opts.mutate (default true) also grades each passing Cell's ensures by mutation.
 // opts.adapters overrides the registry (used by tests). Returns { [cellId]: result }.
@@ -592,9 +679,15 @@ function proveManifest(manifest, opts) {
           res = it.adapter.prove(it.cell, base, fn); // adapter owns its execution (e.g. out-of-VM) + verdict
         } else {
           res = runCases(it.adapter, base.ctx, it.cell, fn);
-          if (res.status === 'pass' && mutate) {
-            res.mutation = runMutation(it.adapter, source, it.cell, { jsx: wantsJSX, file });
-            res.inertness = runInertness(it.adapter, source, it.cell, { jsx: wantsJSX, file });
+          if (res.status === 'pass') {
+            // Code-derived trigger hunt: a hit is a proven contradiction → Red (downgrades
+            // the pass). Runs even without mutate — it's a security check, not a grade.
+            const seeded = runSeeded(it.adapter, base.ctx, it.cell, fn);
+            if (seeded) res = seeded;
+            else if (mutate) {
+              res.mutation = runMutation(it.adapter, source, it.cell, { jsx: wantsJSX, file });
+              res.inertness = runInertness(it.adapter, source, it.cell, { jsx: wantsJSX, file });
+            }
           }
         }
         out[it.cell.id] = res;

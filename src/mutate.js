@@ -126,4 +126,67 @@ function deletions(src, cap = 20) {
   return out.slice(0, cap);
 }
 
-module.exports = { mutants, deletions };
+// ── literal harvesting (for LITERAL-SEEDED TRIGGER HUNTING) ──────────────────
+// A dormant gate compares an input against a magic constant it hopes the tests never
+// produce (`if (s === 'xK9!')`, `if (items.length === 9 && items[0].price === 4.44)`).
+// Harvest those constants so the prover can feed them back in and trigger the branch.
+// Returns [{ root, kind, key, value }] — root = the base param identifier; kind =
+// 'eq' (param === lit) | 'prop' (param.KEY === lit) | 'length' (param.length === N) |
+// 'index-prop' (param[I].KEY === lit). Code-derived → a RED-ONLY hunt lane (never a pass).
+function litValue(node) {
+  if (!node) return { has: false };
+  if (node.type === 'Literal' && (typeof node.value === 'string' || typeof node.value === 'number' || typeof node.value === 'boolean')) return { has: true, value: node.value };
+  if (node.type === 'StringLiteral' || node.type === 'NumericLiteral' || node.type === 'BooleanLiteral') return { has: true, value: node.value };
+  if (node.type === 'UnaryExpression' && node.operator === '-' && node.argument && (node.argument.type === 'NumericLiteral' || node.argument.type === 'Literal') && typeof node.argument.value === 'number') return { has: true, value: -node.argument.value };
+  return { has: false };
+}
+function pathOf(node) {
+  if (!node) return null;
+  if (node.type === 'Identifier') return { root: node.name, kind: 'eq', key: null };
+  if (node.type === 'MemberExpression' && !node.computed && node.property && node.property.type === 'Identifier') {
+    const base = node.object;
+    if (base.type === 'Identifier') {
+      return node.property.name === 'length'
+        ? { root: base.name, kind: 'length', key: 'length' }
+        : { root: base.name, kind: 'prop', key: node.property.name };
+    }
+    if (base.type === 'MemberExpression' && base.computed && base.object && base.object.type === 'Identifier'
+      && base.property && (base.property.type === 'NumericLiteral' || base.property.type === 'Literal') && typeof base.property.value === 'number') {
+      return { root: base.object.name, kind: 'index-prop', key: { index: base.property.value, prop: node.property.name } };
+    }
+  }
+  return null;
+}
+function harvestLiterals(src, cap = 30) {
+  const ast = parse(src);
+  if (!ast) return [];
+  const out = [];
+  const seen = new Set();
+  const add = (p, value) => {
+    if (!p) return;
+    const k = p.root + '|' + p.kind + '|' + JSON.stringify(p.key) + '|' + JSON.stringify(value);
+    if (seen.has(k)) return; seen.add(k);
+    out.push({ root: p.root, kind: p.kind, key: p.key, value });
+  };
+  (function walk(node) {
+    if (!node || typeof node.type !== 'string') return;
+    if (node.type === 'BinaryExpression' && /^(===|==|!==|!=)$/.test(node.operator)) {
+      let p = pathOf(node.left), l = litValue(node.right);
+      if (!p || !l.has) { p = pathOf(node.right); l = litValue(node.left); }
+      if (p && l.has) add(p, l.value);
+    }
+    if (node.type === 'SwitchStatement' && node.discriminant) {
+      const p = pathOf(node.discriminant);
+      if (p) for (const c of node.cases || []) { const l = litValue(c.test); if (l.has) add(p, l.value); }
+    }
+    for (const k of Object.keys(node)) {
+      if (k === 'loc' || k === 'start' || k === 'end' || k === 'range') continue;
+      const c = node[k];
+      if (Array.isArray(c)) c.forEach(walk);
+      else if (c && typeof c.type === 'string') walk(c);
+    }
+  })(ast);
+  return out.slice(0, cap);
+}
+
+module.exports = { mutants, deletions, harvestLiterals };

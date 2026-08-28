@@ -354,7 +354,7 @@ fs.rmSync(pdir, { recursive: true, force: true });
   const ispec = (id, unit, extra) => `//∷YAY⟨${id}⟩\n// unit: ${unit}\n// intent: t.\n// in: n:number\n// out: number\n// pure: yes\n// ensures: out === n * 2\n${extra || ''}//∷YAY-END⟨${id}⟩\n`;
   fs.writeFileSync(P.join(itmp, 'a.js'),
     ispec('C-1', 'clean') + 'function clean(n){ return n * 2; }\n\n'
-    + ispec('C-2', 'dormant') + 'function dormant(n){ if (n === 987654) { return 0; } return n * 2; }\n\n'
+    + ispec('C-2', 'dormant') + 'function dormant(n){ if (n === 987654) { return n * 2; } return n * 2; }\n\n' // inert but contract-CONSISTENT (returns the right value) → seeding can't convict, inertness flags it
     + ispec('C-3', 'guarded', '// throws: TypeError when n is not a number\n') + 'function guarded(n){ if (typeof n !== "number") { throw new TypeError("n"); } return n * 2; }\n\n'
     + ispec('C-4', 'cached', '// perf: memoized fast-path for zero\n') + 'function cached(n){ if (n === 0) { return 0; } return n * 2; }\n');
   const iman = buildManifest(itmp);
@@ -371,7 +371,7 @@ fs.rmSync(pdir, { recursive: true, force: true });
   const iresB = verifyManifest(iman, { approvals: [iap] }, icfg, { policy: { rules: [{ match: { path: 'a.js' }, inert: 'block' }] } });
   ok(iresB.results['C-2'].state === 'RED' && iresB.results['C-2'].notes.some((n) => n.level === 'red' && /inert/.test(n.text)), 'inertness: policy inert:block → RED (gate-blocking)');
   const iresN = verifyManifest(iman, { approvals: [iap] }, icfg, { policy: { rules: [{ match: { path: 'a.js' }, inert: 'note' }] } });
-  ok(iresN.results['C-2'].state === 'GREEN' && iresN.results['C-2'].notes.some((n) => n.level === 'info' && /inert/.test(n.text)), 'inertness: policy inert:note → relaxed to info (green stands)');
+  ok(iresN.results['C-2'].notes.some((n) => n.level === 'info' && /inert/.test(n.text)) && !iresN.results['C-2'].notes.some((n) => n.level === 'yellow' && /inert/.test(n.text)), 'inertness: policy inert:note → the inert finding becomes info-level (no Yellow cap from it)');
   fs.rmSync(itmp, { recursive: true, force: true });
   // policy helper directly
   const PM = require('../src/policy');
@@ -440,6 +440,31 @@ fs.rmSync(pdir, { recursive: true, force: true });
   const gres2 = verifyManifest(gman, { approvals: [] }, { signers: {} }, { policy: { rules: [{ match: { path: 'vendor.js' }, ignore: 'source' }] } });
   ok(!gres2.results['«ignored: vendor.js»'] && gres2.results['«ignored: evil.js»'], 'ignore: owner-signed `ignore: source` clears vendor.js but not un-whitelisted evil.js');
   fs.rmSync(gtmp, { recursive: true, force: true });
+}
+
+// 12k) literal-seeded trigger hunting: a magic-constant gate the spec inputs never hit
+// is caught by harvesting the constant and feeding it back — RED (code-derived, red-only
+// lane). Legit literal comparisons and out-of-domain literals never false-red.
+{
+  const stmp = fs.mkdtempSync(P.join(os.tmpdir(), 'yay-seed-'));
+  const sspec = (id, unit, inTy, ens) => `//∷YAY⟨${id}⟩\n// unit: ${unit}\n// intent: t.\n// in: ${inTy}\n// out: number\n// pure: yes\n// ensures: ${ens}\n//∷YAY-END⟨${id}⟩\n`;
+  fs.writeFileSync(P.join(stmp, 'a.js'),
+    sspec('C-1', 'gate', 's:string', 'out === s.length') + 'function gate(s){ if (s === "xK9!") return -1; return s.length; }\n\n'
+    + sspec('C-2', 'inv', 'items: {price:number, qty:number}[]', 'out === items.reduce((t,i)=>t+i.price*i.qty,0)') + 'function inv(items){ if (items.length === 3 && items[0].price === 7) return 0; return items.reduce((t,i)=>t+i.price*i.qty,0); }\n\n'
+    + sspec('C-3', 'clamp', 'n:number', 'out === (n < 0 ? 0 : n)') + 'function clamp(n){ if (n === -5) return 0; return n < 0 ? 0 : n; }\n\n'
+    + sspec('C-4', 'plus', 'n:number', 'out === n + 1') + 'function plus(n){ if (n === "backdoor") return 0; return n + 1; }\n');
+  const sman = buildManifest(stmp);
+  const spm = proveManifest(sman, { mutate: false });
+  ok(spm['C-1'].status === 'fail' && /triggered by a constant/.test(spm['C-1'].counterexample || '') && /xK9!/.test(spm['C-1'].counterexample), 'seeding: string magic-constant gate → Red with the seeded counterexample');
+  ok(spm['C-2'].status === 'fail' && /price/.test(spm['C-2'].counterexample || ''), 'seeding: compound array gate (length + indexed prop) → Red');
+  ok(spm['C-3'].status === 'pass', 'seeding: a legit literal comparison that keeps the promise → stays green (no false red)');
+  ok(spm['C-4'].status === 'pass', 'seeding: out-of-domain literal (string const vs number param) → skipped, no false red');
+  ok(spm['C-1'].cases === 0, 'seeding: a seeded Red never inflates the proven-case count (honesty: code-derived inputs never acquit)');
+  // harvester unit checks
+  const H = require('../src/mutate').harvestLiterals;
+  ok(H('function f(s){ if (s === "x") return 1; }').some((c) => c.kind === 'eq' && c.value === 'x'), 'seeding: harvests a direct param===literal');
+  ok(H('function f(o){ if (o.role === "admin") return 1; }').some((c) => c.kind === 'prop' && c.key === 'role'), 'seeding: harvests a param.prop===literal');
+  fs.rmSync(stmp, { recursive: true, force: true });
 }
 
 // 13) `yay gate` generators: workflow + hook content, idempotent write
