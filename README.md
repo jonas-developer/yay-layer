@@ -220,6 +220,16 @@ Tune it with **`yay batch <n>`** (raise/lower the barrier), `yay batch off` (a B
 
 **Total coverage is the whole point.** PINK is the most dangerous state — unknown territory where silent bugs hide — so it **blocks the gate just like Red and Unsigned.** YayLayer never silently ignores code it doesn't understand: **any named unit** with no spec block — a function, object method, class method, or arrow-prop, *even nested inside an IIFE, object, or class* — shows up **Pink** (`«unitName»`) until you `yay adopt` it and sign it. Top-level imperative code that runs at load is flagged too. That way "green gate" honestly means *the whole project is covered*, not just the parts someone happened to tag. (The signature covers the **spec**, so you can still refactor freely; only a changed promise re-prompts you. Coverage uses a real parser — [`@babel/parser`](https://babeljs.io/docs/babel-parser) — so **JS, TypeScript, JSX and TSX** are all handled; genuinely unparseable files degrade gracefully to file-level grouping.)
 
+### What happens if an AI injects code that wasn't there before?
+
+In the common cases it lands in a **gate-blocking state**, and the AI has no key to turn any of them Green. Three ways it surfaces:
+
+1. **A new function or unit with no spec → 🩷 Pink.** `verify` enumerates *every* named unit; anything untracked is Pink, and Pink blocks the gate like Red. This is where an exfiltration payload usually lives — a new helper or a top-level call.
+2. **Behaviour that needs a new or changed promise → ⚪ Unsigned.** Editing a spec makes its Cell Unsigned — and the AI can't sign it back.
+3. **Lines added to an existing signed function whose behaviour now contradicts its spec → 🔴 Red.** `verify` re-derives code⇔spec on every run: an undeclared side effect (network, filesystem, `localStorage`) in a `pure` Cell, or an output that breaks the `ensures`, turns it Red — and the mutation grader and spec-only adversary hunt for behaviour the `ensures` doesn't pin down.
+
+**The honest boundary:** a payload that is *pure*, fully consistent with the signed `ensures`, and dormant until a trigger the generated inputs never hit could stay Green — `verify` proves the spec's *claims*, not the absence of all hidden behaviour. Effect-recording, mutation testing, the adversary, and reviewing the diff raise that bar without eliminating it. The guarantee is strongest on **JS/TS/JSX** (full parser + the Pink net + adversary). Note the signal is the **state** (Pink/Unsigned/Red), not a line-level diff — there's no code snapshot in the seal, by design (the signature attests to the *spec*).
+
 ## Higher-order: modules, flow & policies
 
 YayLayer isn't only per-Cell — it models how Cells combine.
