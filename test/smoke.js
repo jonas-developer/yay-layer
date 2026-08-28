@@ -263,6 +263,22 @@ const ar2 = proveManifest({ root: atmp, cells: { 'C-A': acell } }, { mutate: fal
 ok(!ar2['C-A'], 'adapter registry: the default registry ignores a Cell none of its adapters handle');
 fs.rmSync(atmp, { recursive: true, force: true });
 
+// 12d) Python out-of-VM adapter — proves Python Cells via a subprocess. Robust whether
+// or not Python is installed: present → prove/fail verdicts; absent → honest skip.
+const pyProbe = require('../src/prove').pythonAdapter.load('x=1', ['x']);
+const pdir = fs.mkdtempSync(P.join(os.tmpdir(), 'yay-py-'));
+fs.writeFileSync(P.join(pdir, 'm.py'), 'def twice(n):\n    return n * 2\n\ndef bad(n):\n    return n + 2\n');
+const pcell = (id, unit, ens) => ({ id, file: 'm.py', lang: 'python', unitName: unit, unitFound: true, contains: [], spec: { lang: 'python', pure: 'yes', in: 'n:number', out: 'number', ensures: ens } });
+const pr = proveManifest({ root: pdir, cells: { 'C-1': pcell('C-1', 'twice', 'out == n * 2'), 'C-2': pcell('C-2', 'bad', 'out == n * 2') } }, { mutate: false });
+if (pyProbe.error) {
+  ok(pr['C-1'].status === 'skip' && /python/i.test(pr['C-1'].reason || ''), 'python adapter: absent Python → honest skip (no fake pass)');
+  ok(pr['C-2'].status === 'skip', 'python adapter: absent Python → the buggy Cell also skips, never green');
+} else {
+  ok(pr['C-1'].status === 'pass', 'python adapter: correct Python function → proven (out-of-VM subprocess)');
+  ok(pr['C-2'].status === 'fail' && /bad\(/.test(pr['C-2'].counterexample || ''), 'python adapter: wrong Python code → red with a counterexample');
+}
+fs.rmSync(pdir, { recursive: true, force: true });
+
 // 13) `yay gate` generators: workflow + hook content, idempotent write
 const G = require('../src/gate');
 ok(/yay verify --strict/.test(G.ciWorkflow()) && /gate:/.test(G.ciWorkflow()), 'gate: workflow runs `yay verify --strict` under a `gate` job');

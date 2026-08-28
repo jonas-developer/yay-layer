@@ -16,6 +16,7 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('node:vm');
+const cp = require('child_process');
 const { mutants } = require('./mutate');
 const { makeRecorder } = require('./record');
 const { isJsLang } = require('./util');
@@ -342,11 +343,93 @@ const renderAdapter = {
   },
 };
 
-// Registry (order = precedence: a component that is also `pure` is render-proved).
-// The effect/`records:` surface (buildEffectChecker) is an ADVERSARY concern today,
-// not a prover mode — adding it here would newly prove effect Cells (a behaviour
-// change), so it stays out of this registry until that's a deliberate step.
-const ADAPTERS = [renderAdapter, pureCallAdapter];
+// ── Python adapter (out-of-VM) — the first non-JS prover, proving the interface
+// generalises. It runs a Cell's Python function in a subprocess over spec-generated
+// inputs and evaluates the (Python) `ensures` against each. Purely additive: it only
+// claims `lang: python` Cells, which the JS-VM adapters already skip — so no JS/TS/JSX
+// behaviour can change. Python is a lazy/optional runtime dep: absent → honest skip.
+function isPythonLang(l) { return /^(py|python)$/i.test(String(l || '')); }
+let PY_BIN;
+function detectPython() {
+  if (PY_BIN !== undefined) return PY_BIN;
+  for (const bin of ['python3', 'python']) {
+    try { cp.execFileSync(bin, ['-c', 'import sys,json'], { stdio: 'ignore', timeout: 4000 }); PY_BIN = bin; return bin; } catch (_) {}
+  }
+  PY_BIN = null; return PY_BIN;
+}
+// Harness: read {source, unit, params, inputs, ensures} as JSON on stdin; exec the
+// file, call the unit for each input tuple, and eval the ensures with a SAFE builtin
+// subset (never a fake pass — a raised exception skips that tuple; all-throw ⇒ skip).
+const PY_HARNESS = [
+  'import sys, json',
+  'd = json.loads(sys.stdin.read())',
+  'ns = {}',
+  'try:',
+  "    exec(d['source'], ns)",
+  'except Exception as e:',
+  "    print(json.dumps({'error': 'load: ' + str(e)})); sys.exit(0)",
+  "fn = ns.get(d['unit'])",
+  'if not callable(fn):',
+  "    print(json.dumps({'error': 'unit not callable in isolation'})); sys.exit(0)",
+  "SAFE = {'len':len,'abs':abs,'all':all,'any':any,'min':min,'max':max,'sum':sum,'sorted':sorted,'range':range,'str':str,'int':int,'float':float,'bool':bool,'round':round,'list':list,'dict':dict,'set':set,'tuple':tuple,'enumerate':enumerate,'zip':zip}",
+  'def ser(v):',
+  '    try:',
+  '        json.dumps(v); return v',
+  '    except Exception:',
+  '        return str(v)',
+  'threw = 0; total = 0',
+  "for args in d['inputs']:",
+  '    total += 1',
+  '    try:',
+  '        out = fn(*args)',
+  "        scope = dict(zip(d['params'], args)); scope['out'] = out",
+  "        ok = bool(eval(d['ensures'], {'__builtins__': {}}, dict(SAFE, **scope)))",
+  '    except Exception as e:',
+  '        threw += 1; continue',
+  '    if not ok:',
+  "        argstr = ', '.join('%s=%r' % (p, a) for p, a in zip(d['params'], args))",
+  "        print(json.dumps({'fail': {'argstr': argstr, 'out': ser(out)}})); sys.exit(0)",
+  'if total and threw >= total:',
+  "    print(json.dumps({'error': 'threw on all generated inputs'})); sys.exit(0)",
+  "print(json.dumps({'pass': True, 'cases': total - threw}))",
+].join('\n');
+
+function runPythonBatch(pyBin, source, unit, paramNames, inputs, ensures) {
+  const payload = JSON.stringify({ source, unit, params: paramNames, inputs, ensures });
+  let out;
+  try { out = cp.execFileSync(pyBin, ['-c', PY_HARNESS], { input: payload, timeout: 8000, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 }); }
+  catch (e) { return { error: (e && e.message ? String(e.message).split('\n')[0] : 'python failed') }; }
+  const line = String(out).trim().split('\n').filter(Boolean).pop() || '';
+  try { return JSON.parse(line); } catch (_) { return { error: 'unreadable harness output' }; }
+}
+
+const pythonAdapter = {
+  name: 'python', inVM: false, wantsJSX: false,
+  canHandle: (cell) => isPythonLang(cell.lang || (cell.spec && cell.spec.lang)) && /^yes\b/i.test((cell.spec && cell.spec.pure) || ''),
+  load: (source, names) => {
+    const pyBin = detectPython();
+    if (!pyBin) return { error: 'python-missing' };
+    const fns = {}; for (const n of names) fns[n] = function () {}; // placeholder — real run is out-of-process in prove()
+    return { fns, ctx: { pyBin, source } };
+  },
+  // Out-of-VM proving in ONE subprocess per Cell; same verdict shape as runCases.
+  prove: (cell, base) => {
+    const params = parseIn(cell.spec);
+    if (params.some((p) => !valuesFor(p.type))) return { status: 'skip', level: 'yellow', reason: 'inputs include a type the prover can\'t generate (' + params.map((p) => p.type).join(', ') + ')' };
+    const ensures = String(cell.spec.ensures || '').trim();
+    const tuples = cartesian(params.map((p) => valuesFor(p.type)), 40);
+    const inputs = tuples.length ? tuples : [[]];
+    const r = runPythonBatch(base.ctx.pyBin, base.ctx.source, cell.unitName, params.map((p) => p.name), inputs, ensures);
+    if (r.error) return { status: 'skip', level: 'yellow', reason: 'python: ' + r.error };
+    if (r.fail) return { status: 'fail', level: 'red', cases: inputs.length, counterexample: `${cell.unitName}(${r.fail.argstr}) → ${show(r.fail.out)} — violates ensures: ${ensures}` };
+    return { status: 'pass', level: 'info', cases: (typeof r.cases === 'number' ? r.cases : inputs.length) };
+  },
+};
+
+// Registry (order = precedence). Python is claimed before pure-call so a `pure: yes`
+// Python Cell routes to the out-of-VM adapter, not the JS-VM one. The effect/`records:`
+// surface stays an ADVERSARY concern (see note in the design doc), not a prover mode.
+const ADAPTERS = [renderAdapter, pythonAdapter, pureCallAdapter];
 
 // Stage 5 — run one Cell's generated inputs through the adapter's checker. A single
 // counterexample ⇒ Red; can't-check ⇒ honest skip; all cases hold ⇒ proven. Shared
@@ -436,15 +519,22 @@ function proveManifest(manifest, opts) {
     if (base.error) {
       const reason = base.error === 'jsx-needs-babel'
         ? 'add the optional deps @babel/core + @babel/plugin-transform-react-jsx to machine-prove JSX Cells'
-        : 'could not run file (' + base.error + ')';
+        : base.error === 'python-missing'
+          ? 'install Python 3 (python3/python on PATH) to machine-prove Python Cells'
+          : 'could not run file (' + base.error + ')';
       for (const it of items) out[it.cell.id] = { status: 'skip', level: 'info', reason }; continue;
     }
     for (const it of items) {
       const fn = base.fns[it.cell.unitName];
       if (typeof fn !== 'function') { out[it.cell.id] = { status: 'skip', level: 'info', reason: 'unit not callable in isolation' }; continue; }
       try {
-        const res = runCases(it.adapter, base.ctx, it.cell, fn);
-        if (res.status === 'pass' && mutate) res.mutation = runMutation(it.adapter, source, it.cell, { jsx: wantsJSX, file });
+        let res;
+        if (it.adapter.prove) {
+          res = it.adapter.prove(it.cell, base, fn); // adapter owns its execution (e.g. out-of-VM) + verdict
+        } else {
+          res = runCases(it.adapter, base.ctx, it.cell, fn);
+          if (res.status === 'pass' && mutate) res.mutation = runMutation(it.adapter, source, it.cell, { jsx: wantsJSX, file });
+        }
         out[it.cell.id] = res;
       } catch (e) { out[it.cell.id] = { status: 'skip', level: 'info', reason: 'prover error: ' + (e && e.message) }; }
     }
@@ -452,4 +542,4 @@ function proveManifest(manifest, opts) {
   return out;
 }
 
-module.exports = { proveManifest, runSource, parseIn, parseInCased, valuesFor, buildChecker, buildEffectChecker, buildRenderChecker, transformJSX, show, ensuresHint, normalizeEnsures, ADAPTERS, pureCallAdapter, renderAdapter };
+module.exports = { proveManifest, runSource, parseIn, parseInCased, valuesFor, buildChecker, buildEffectChecker, buildRenderChecker, transformJSX, show, ensuresHint, normalizeEnsures, ADAPTERS, pureCallAdapter, renderAdapter, pythonAdapter };
