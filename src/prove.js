@@ -48,7 +48,36 @@ function blackHole() {
   return bh;
 }
 
+// A recording "hyperscript": JSX compiles to __h(type, props, ...children) (pragma
+// __h), and this builds a plain { type, props, children } vnode tree — no real React,
+// no DOM — that a component Cell's `ensures` can be checked against. Child components
+// appear as { type:'<Name>' } nodes (shallow render); primitives/strings are leaves.
+function hyperscript(type, props) {
+  const kids = [];
+  for (let i = 2; i < arguments.length; i++) kids.push(arguments[i]);
+  const flat = [];
+  (function fl(a) { for (let i = 0; i < a.length; i++) { const c = a[i]; if (Array.isArray(c)) fl(c); else if (c != null && c !== false && c !== true) flat.push(c); } })(kids);
+  const t = typeof type === 'function' ? (type.displayName || type.name || 'Component') : (type == null ? '#fragment' : type);
+  return { type: t, props: props || {}, children: flat };
+}
+// Deterministic hook shims so a component renders ONCE for given props without a real
+// React runtime. This exercises the initial render (what render-proving checks); it does
+// not drive state transitions, effects, or events (an honest v1 boundary).
+function reactShim() {
+  const noop = () => {};
+  const hooks = {
+    useState: (i) => [typeof i === 'function' ? i() : i, noop],
+    useReducer: (_r, i) => [i, noop],
+    useRef: (i) => ({ current: i === undefined ? null : i }),
+    useMemo: (f) => (typeof f === 'function' ? f() : undefined),
+    useCallback: (f) => f,
+    useEffect: noop, useLayoutEffect: noop, useContext: () => undefined,
+  };
+  return { hooks, React: Object.assign({ createElement: hyperscript, Fragment: '#fragment' }, hooks) };
+}
+
 function makeSandbox(names, registry) {
+  const rs = reactShim();
   const real = {
     Math, JSON, String, Number, Boolean, Array, Object, RegExp, Date, Symbol,
     Error, TypeError, RangeError, // so probes/units can throw with a readable message
@@ -57,6 +86,8 @@ function makeSandbox(names, registry) {
     console: { log() {}, warn() {}, error() {}, info() {}, debug() {} },
     __ylreg: (obj) => { Object.assign(registry, obj); },
     __mkrec: makeRecorder, // effect recorder factory (for `records:` Cells)
+    __h: hyperscript, __Fragment: '#fragment', // JSX pragma targets (for `renders:` Cells)
+    React: rs.React, ...rs.hooks, // React.createElement/hooks AND bare hooks (imports are stripped)
   };
   const sandbox = new Proxy(real, {
     has: () => true, // tell the VM every identifier is "global" → no ReferenceError
@@ -65,10 +96,50 @@ function makeSandbox(names, registry) {
   return vm.createContext(sandbox);
 }
 
+// Compile JSX (and, for .tsx, TS types) to plain JS via Babel, with the JSX pragma
+// pointed at our __h/__Fragment. Babel is an OPTIONAL dependency, required lazily and
+// only on the JSX path — if it's absent we return a distinct error so the Cell skips
+// with an honest "install …" note rather than a fake pass. @babel/parser is already a
+// dependency, so this stays in-family and battle-tested on JSX's edge cases.
+function transformJSX(source, file) {
+  // Require the plugins as MODULES (resolved relative to this file → yay-layer's own
+  // node_modules), never as string names — Babel resolves plugin strings from the cwd,
+  // which is the USER's project when `yay verify` runs, where these deps don't live.
+  let babel, jsxPlugin, tsPlugin;
+  try {
+    babel = require('@babel/core');
+    jsxPlugin = require('@babel/plugin-transform-react-jsx'); jsxPlugin = jsxPlugin.default || jsxPlugin;
+  } catch (_) { return { error: 'jsx-needs-babel' }; }
+  const isTS = /\.tsx?$/.test(file || '');
+  const isTSX = /\.tsx$/.test(file || '');
+  const plugins = [];
+  if (isTS) {
+    try { tsPlugin = require('@babel/plugin-transform-typescript'); tsPlugin = tsPlugin.default || tsPlugin; }
+    catch (_) { return { error: 'jsx-needs-babel' }; }
+    plugins.push([tsPlugin, { isTSX, allowDeclareFields: true }]);
+  }
+  plugins.push([jsxPlugin, { runtime: 'classic', pragma: '__h', pragmaFrag: '__Fragment' }]);
+  try {
+    const out = babel.transformSync(source, { filename: file || 'component.jsx', babelrc: false, configFile: false, compact: false, plugins });
+    return { code: out && out.code != null ? out.code : source };
+  } catch (e) {
+    return { error: 'jsx-transform: ' + ((e && e.message) || 'failed').split('\n')[0] };
+  }
+}
+
 // Run a source string in a fresh sandbox; return { fns, ctx } capturing `names`.
-function runSource(source, names) {
-  const stripped = stripTS(source);
-  if (stripped == null) return { error: 'typescript-strip-failed' };
+// opts.jsx compiles JSX/TSX first (Babel); otherwise TS types are stripped as before.
+function runSource(source, names, opts) {
+  opts = opts || {};
+  let stripped;
+  if (opts.jsx) {
+    const t = transformJSX(source, opts.file);
+    if (t.error) return { error: t.error };
+    stripped = t.code;
+  } else {
+    stripped = stripTS(source);
+    if (stripped == null) return { error: 'typescript-strip-failed' };
+  }
   const code = neutralizeModules(stripped);
   const registry = {};
   const ctx = makeSandbox(names, registry);
@@ -106,15 +177,50 @@ function parseIn(spec) {
     return { name, type };
   }).filter((p) => p.name);
 }
+// Same as parseIn but PRESERVES case in the type — needed for component props, whose
+// names are case-sensitive (onClick, className). valuesFor lowercases for primitive
+// lookups internally, so keeping case here only affects object field names.
+function parseInCased(spec) {
+  let raw = (spec && spec.in ? String(spec.in) : '').trim();
+  raw = raw.replace(/^\(([\s\S]*)\)$/, '$1').trim();
+  if (!raw || /^todo$/i.test(raw)) return [];
+  return splitTopLevel(raw).map((part) => {
+    const i = part.indexOf(':');
+    const name = (i < 0 ? part : part.slice(0, i)).trim();
+    const type = (i < 0 ? 'any' : part.slice(i + 1)).trim().replace(/\s+/g, '');
+    return { name, type };
+  }).filter((p) => p.name);
+}
 const POOLS = {
   number: [0, 1, 2, -1, 3, 7, 10, -5, 0.5, 100],
   string: ['', 'a', 'ab', 'abc', 'Hello', '/x', '123', 'a b'],
   boolean: [true, false],
 };
+// Parse an object-shape type `{title:string, featured:boolean}` into fields, PRESERVING
+// field-name case (prop names are case-sensitive). Returns null if it isn't a shape.
+function objectShape(type) {
+  const m = String(type).match(/^\{([\s\S]*)\}$/);
+  if (!m) return null;
+  const fields = splitTopLevel(m[1]).map((f) => { const i = f.indexOf(':'); if (i < 0) return null; return { name: f.slice(0, i).trim(), type: f.slice(i + 1).trim() }; }).filter(Boolean);
+  return fields.length ? fields : null;
+}
 function valuesFor(type) {
-  if (POOLS[type]) return POOLS[type];
-  const arr = type.match(/^(number|string|boolean)\[\]$/);
+  const lt = String(type).toLowerCase();
+  if (POOLS[lt]) return POOLS[lt];
+  const arr = lt.match(/^(number|string|boolean)\[\]$/);
   if (arr) { const b = POOLS[arr[1]]; return [[], [b[1]], [b[1], b[2]], b.slice(0, 3)]; }
+  const shape = objectShape(type); // object props → generate objects (cased field names)
+  if (shape) {
+    const fv = shape.map((f) => valuesFor(f.type));
+    if (fv.some((v) => !v)) return null;
+    const combos = cartesian(fv, 12);
+    return combos.map((tuple) => { const o = {}; shape.forEach((f, i) => { o[f.name] = tuple[i]; }); return o; });
+  }
+  if (/\[\]$/.test(String(type))) { // any-element array (e.g. object[]) → a few sample arrays
+    const base = valuesFor(String(type).replace(/\[\]$/, ''));
+    if (!base || !base.length) return null;
+    return [[], [base[Math.min(1, base.length - 1)]], base.slice(0, 3)];
+  }
   return null; // uncheckable type
 }
 function cartesian(lists, cap) {
@@ -177,6 +283,28 @@ function buildEffectChecker(ctx, params, recordsName, ensuresExpr) {
   const src = `(function(fn,A){ var __r=__mkrec(); A[${idx}]=__r.proxy; ${decl} var trace=__r.trace; ${helpers} var out=${call}; return {out:out, trace:trace, ok:!!(${expr})}; })`;
   return vm.runInContext(src, ctx, { timeout: 2000 });
 }
+// Render checker (for `renders:` Cells): run the component with generated props, take
+// the returned vnode tree as `out`, and evaluate `ensures` with tree helpers in scope:
+//   text(n) · find(n,type) · findAll(n,type) · has(n,type) · count(n,type)
+//   attr(n,name) · hasClass(n,class) · kids(n)
+// (Mirrors buildEffectChecker: a checkable surface + helpers instead of a bare return.)
+function buildRenderChecker(ctx, params, ensuresExpr) {
+  const expr = normalizeEnsures(ensuresExpr);
+  const decl = params.map((p, i) => `var ${p}=A[${i}];`).join(' ');
+  const call = `fn(${params.map((_, i) => `A[${i}]`).join(',')})`;
+  const helpers = ''
+    + 'function __nodes(n){var acc=[];(function w(x){if(x&&typeof x==="object"&&x.type!==undefined){acc.push(x);(x.children||[]).forEach(w);}})(n);return acc;}'
+    + 'function find(n,t){var a=__nodes(n);for(var i=0;i<a.length;i++)if(a[i].type===t)return a[i];return null;}'
+    + 'function findAll(n,t){return __nodes(n).filter(function(x){return x.type===t;});}'
+    + 'function has(n,t){return findAll(n,t).length>0;}'
+    + 'function count(n,t){return findAll(n,t).length;}'
+    + 'function attr(n,name){return n&&n.props?n.props[name]:undefined;}'
+    + 'function kids(n){return n&&n.children?n.children:[];}'
+    + 'function hasClass(n,c){var cn=n&&n.props?String(n.props.className||""):"";return cn.split(/\\s+/).indexOf(c)>=0;}'
+    + 'function text(n){var s="";(function w(x){if(x==null||x===false||x===true)return;if(typeof x==="object"&&x.type!==undefined){(x.children||[]).forEach(w);}else{s+=String(x);}})(n);return s;}';
+  const src = `(function(fn,A){ ${decl} var out=${call}; ${helpers} return {out:out, ok:!!(${expr})}; })`;
+  return vm.runInContext(src, ctx, { timeout: 2000 });
+}
 function show(v) { try { return typeof v === 'string' ? JSON.stringify(v) : JSON.stringify(v) ?? String(v); } catch (_) { return String(v); } }
 
 function proveCell(cell, ctx, fn) {
@@ -203,11 +331,39 @@ function proveCell(cell, ctx, fn) {
   return { status: 'pass', level: 'info', cases: cases - threw };
 }
 
+// Render-prove a component Cell: generate props from `in:` (case preserved), render,
+// and check `ensures` against the vnode tree. Same verdict shape as proveCell.
+function proveRenderCell(cell, ctx, fn) {
+  const params = parseInCased(cell.spec);
+  if (params.some((p) => !valuesFor(p.type))) return { status: 'skip', level: 'yellow', reason: 'props include a type the prover can\'t generate (' + params.map((p) => p.type).join(', ') + ')' };
+  const ensures = String(cell.spec.ensures || '').trim();
+  let checker;
+  try { checker = buildRenderChecker(ctx, params.map((p) => p.name), ensures); }
+  catch (_) { return { status: 'skip', level: 'yellow', reason: 'ensures not machine-checkable — ' + ensuresHint(ensures) }; }
+  const tuples = cartesian(params.map((p) => valuesFor(p.type)), 40);
+  const cases = tuples.length || 1;
+  let threw = 0, lastErr = '';
+  for (const A of (tuples.length ? tuples : [[]])) {
+    let r;
+    try { r = checker(fn, A); }
+    catch (e) { threw++; lastErr = e && e.message ? e.message.split('\n')[0] : 'threw'; continue; }
+    if (!r.ok) {
+      const argstr = params.map((p, i) => `${p.name}=${show(A[i])}`).join(', ');
+      const rootT = r.out && r.out.type ? '<' + r.out.type + '>' : show(r.out);
+      return { status: 'fail', level: 'red', cases, counterexample: `${cell.unitName}(${argstr || ''}) → renders ${rootT} — violates ensures: ${ensures}` };
+    }
+  }
+  if (threw >= cases) return { status: 'skip', level: 'yellow', reason: `threw while rendering (${lastErr}) — can't prove` };
+  return { status: 'pass', level: 'info', cases: cases - threw };
+}
+
 // Mutation testing: corrupt the code one edit at a time, re-run the SAME ensures
 // tests, and see how many mutants the ensures kills. A low score means the ensures
 // is too weak to be trusted — it passes even when the code is broken.
-function runMutation(source, cell) {
-  const params = parseIn(cell.spec);
+function runMutation(source, cell, opts) {
+  opts = opts || {};
+  const render = !!opts.render;
+  const params = (render ? parseInCased : parseIn)(cell.spec);
   const ensures = String(cell.spec.ensures || '');
   const muts = mutants(cell.unitBody || '', 30);
   if (!muts.length) return { total: 0, killed: 0, survived: 0, score: null };
@@ -220,10 +376,10 @@ function runMutation(source, cell) {
   for (const m of muts) {
     const lines = srcLines.slice();
     lines.splice(start, len, ...m.code.split('\n'));
-    const r = runSource(lines.join('\n'), [cell.unitName]);
+    const r = runSource(lines.join('\n'), [cell.unitName], { jsx: opts.jsx, file: opts.file });
     if (r.error || typeof r.fns[cell.unitName] !== 'function') { killed++; continue; } // mutant broke → detected
     let checker;
-    try { checker = buildChecker(r.ctx, params.map((p) => p.name), ensures); }
+    try { checker = (render ? buildRenderChecker : buildChecker)(r.ctx, params.map((p) => p.name), ensures); }
     catch (_) { killed++; continue; }
     let dead = false;
     for (const A of inputs) {
@@ -246,23 +402,32 @@ function proveManifest(manifest, opts) {
     const c = manifest.cells[id];
     const isLeaf = !(c.contains && c.contains.length);
     const pure = /^yes\b/i.test((c.spec && c.spec.pure) || '');
-    if (!isLeaf || !pure || !c.unitFound || !(c.spec && c.spec.ensures)) continue;
+    const render = /^yes\b/i.test((c.spec && c.spec.renders) || ''); // component Cell → render-proved
+    if (!isLeaf || !(pure || render) || !c.unitFound || !(c.spec && c.spec.ensures)) continue;
     if (c.lang && !isJsLang(c.lang)) continue; // prover is a JS/TS VM; an explicitly non-JS lang stays unproven (Yellow). Missing lang ⇒ JS (legacy default).
     if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(c.unitName || '')) { out[id] = { status: 'skip', level: 'info', reason: 'method/qualified units not yet supported' }; continue; }
     (byFile[c.file] = byFile[c.file] || []).push(c);
   }
   for (const file of Object.keys(byFile)) {
     const cells = byFile[file];
+    // Transform JSX when the file is .jsx/.tsx or any of its Cells declare `renders:`.
+    const wantsJSX = /\.(jsx|tsx)$/i.test(file) || cells.some((c) => /^yes\b/i.test((c.spec && c.spec.renders) || ''));
     let source; try { source = fs.readFileSync(path.join(manifest.root, file), 'utf8'); }
     catch (_) { for (const c of cells) out[c.id] = { status: 'skip', level: 'info', reason: 'file unreadable' }; continue; }
-    const base = runSource(source, cells.map((c) => c.unitName));
-    if (base.error) { for (const c of cells) out[c.id] = { status: 'skip', level: 'info', reason: 'could not run file (' + base.error + ')' }; continue; }
+    const base = runSource(source, cells.map((c) => c.unitName), { jsx: wantsJSX, file });
+    if (base.error) {
+      const reason = base.error === 'jsx-needs-babel'
+        ? 'add the optional deps @babel/core + @babel/plugin-transform-react-jsx to machine-prove JSX Cells'
+        : 'could not run file (' + base.error + ')';
+      for (const c of cells) out[c.id] = { status: 'skip', level: 'info', reason }; continue;
+    }
     for (const c of cells) {
       const fn = base.fns[c.unitName];
       if (typeof fn !== 'function') { out[c.id] = { status: 'skip', level: 'info', reason: 'unit not callable in isolation' }; continue; }
+      const render = /^yes\b/i.test((c.spec && c.spec.renders) || '');
       try {
-        const res = proveCell(c, base.ctx, fn);
-        if (res.status === 'pass' && mutate) res.mutation = runMutation(source, c);
+        const res = render ? proveRenderCell(c, base.ctx, fn) : proveCell(c, base.ctx, fn);
+        if (res.status === 'pass' && mutate) res.mutation = runMutation(source, c, { jsx: wantsJSX, file, render });
         out[c.id] = res;
       } catch (e) { out[c.id] = { status: 'skip', level: 'info', reason: 'prover error: ' + (e && e.message) }; }
     }
@@ -270,4 +435,4 @@ function proveManifest(manifest, opts) {
   return out;
 }
 
-module.exports = { proveManifest, runSource, parseIn, buildChecker, buildEffectChecker, show, ensuresHint, normalizeEnsures };
+module.exports = { proveManifest, runSource, parseIn, parseInCased, valuesFor, buildChecker, buildEffectChecker, buildRenderChecker, transformJSX, show, ensuresHint, normalizeEnsures };

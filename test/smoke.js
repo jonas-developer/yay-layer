@@ -220,6 +220,29 @@ const weak = proveManifest({ root: mtmp, cells: { url: mkc('url', 'out.length > 
 ok(weak.mutation.survived > 0 && weak.mutation.score < 0.5, 'mutation: a loose ensures (out.length>0) lets mutants survive (low score)');
 fs.rmSync(mtmp, { recursive: true, force: true });
 
+// 12b) React/JSX component prover: render the component, check ensures against the tree
+const rtmp = fs.mkdtempSync(P.join(os.tmpdir(), 'yay-render-'));
+fs.writeFileSync(P.join(rtmp, 'ui.jsx'),
+  'export function Card({ title, slug, featured }) {\n'
+  + "  return <a href={'/game/' + slug} className={featured ? 'card featured' : 'card'}>{title}</a>;\n"
+  + '}\n'
+  + 'export function BadCard({ title, slug }) {\n'
+  + "  return <a href={'/wrong/' + slug}>{title}</a>;\n"
+  + '}\n'
+  + 'export function Label({ label }) { return <><span>{label}</span></>; }\n');
+const rcell = (id, unit, ens, inTy) => ({ id, file: 'ui.jsx', unitName: unit, unitFound: true, contains: [], spec: { renders: 'yes', in: inTy, out: 'jsx', ensures: ens } });
+const rm = proveManifest({ root: rtmp, cells: {
+  'C-R1': rcell('C-R1', 'Card', "text(out).includes(props.title) && attr(find(out,'a'),'href')==='/game/'+props.slug && (props.featured?hasClass(out,'featured'):true)", 'props: {title:string, slug:string, featured:boolean}'),
+  'C-R2': rcell('C-R2', 'BadCard', "attr(find(out,'a'),'href')==='/game/'+props.slug", 'props: {title:string, slug:string}'),
+  'C-R3': rcell('C-R3', 'Label', "find(out,'span')!==null && text(out)===props.label", 'props: {label:string}'),
+} }, { mutate: false });
+ok(rm['C-R1'].status === 'pass', 'render prover: correct component → proven (render matches ensures)');
+ok(rm['C-R2'].status === 'fail' && /BadCard\(/.test(rm['C-R2'].counterexample || ''), 'render prover: wrong href → red with a counterexample');
+ok(rm['C-R3'].status === 'pass', 'render prover: fragment + text()/find() contract holds');
+// object-shape prop generation preserves camelCase field names
+ok((require('../src/prove').valuesFor('{onClick:boolean, myId:string}') || []).some((o) => 'onClick' in o && 'myId' in o), 'render prover: object props generate with case-preserved field names');
+fs.rmSync(rtmp, { recursive: true, force: true });
+
 // 13) `yay gate` generators: workflow + hook content, idempotent write
 const G = require('../src/gate');
 ok(/yay verify --strict/.test(G.ciWorkflow()) && /gate:/.test(G.ciWorkflow()), 'gate: workflow runs `yay verify --strict` under a `gate` job');
