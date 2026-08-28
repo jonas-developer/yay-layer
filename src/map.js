@@ -709,20 +709,29 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
       var W=760,H=340,L=58,R=20,Tp=18,Bp=46, pw=W-L-R, ph=H-Tp-Bp, same=(tmax<=tmin);
       function X(i,t){ return same?(n<=1?L+pw/2:L+(i/(n-1))*pw):(L+(t-tmin)/(tmax-tmin)*pw); }
       function Y(v){ return Tp+ph-(v/ymax)*ph; }
+      // One colour per signer so several signers are visually distinct. First signer keeps the
+      // accent (ties to the line); the rest get a fixed palette; unattributed Briefs are grey.
+      var sigNamed=[]; list.forEach(function(b){ var s=b.signer||''; if(s&&sigNamed.indexOf(s)<0) sigNamed.push(s); }); sigNamed.sort();
+      var PAL=['#3b82f6','#f59e0b','#a855f7','#14b8a6','#ec4899','#6366f1','#84cc16','#f97316'];
+      function sigColor(s){ if(!s) return '#9aa0a6'; var i=sigNamed.indexOf(s); return i<=0?'var(--accent)':PAL[(i-1)%PAL.length]; }
       var line='', dots='', pdata=[], dr=Math.max(1.4, 4-Math.floor(n/25)); // dots shrink as points crowd (a year of dailies stays legible; the line always reads)
-      pts.forEach(function(p,i){ var x=X(i,p.t), y=Y(p.y); line+=(i?' L':'M')+x.toFixed(1)+','+y.toFixed(1);
-        pdata.push({x:+x.toFixed(1),y:+y.toFixed(1),d:String(p.b.at||'').slice(0,10),t:(p.b.title||''),bt:(p.b.text||''),c:briefChars(p.b),v:p.y,s:p.b.signer||'',id:(p.b.id||'')});
-        dots+='<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="'+dr+'" fill="var(--accent)"'+(dr>=3?' stroke="var(--card2)" stroke-width="1.5"':'')+'><title>'+esc2((p.b.title||p.b.text||'')+' — +'+briefChars(p.b)+' chars → '+p.y+' total · '+String(p.b.at||'').replace('T',' ').slice(0,16)+(p.b.signer?' · '+p.b.signer:''))+'</title></circle>'; });
+      pts.forEach(function(p,i){ var x=X(i,p.t), y=Y(p.y), col=sigColor(p.b.signer||''); line+=(i?' L':'M')+x.toFixed(1)+','+y.toFixed(1);
+        pdata.push({x:+x.toFixed(1),y:+y.toFixed(1),d:String(p.b.at||'').slice(0,10),t:(p.b.title||''),bt:(p.b.text||''),c:briefChars(p.b),v:p.y,s:p.b.signer||'',id:(p.b.id||''),col:col});
+        dots+='<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="'+dr+'" fill="'+col+'"'+(dr>=3?' stroke="var(--card2)" stroke-width="1.5"':'')+'><title>'+esc2((p.b.title||p.b.text||'')+' — +'+briefChars(p.b)+' chars → '+p.y+' total · '+String(p.b.at||'').replace('T',' ').slice(0,16)+(p.b.signer?' · '+p.b.signer:''))+'</title></circle>'; });
       var pattr=esc2(JSON.stringify(pdata)).replace(/"/g,'&quot;');
+      var hasUnsigned=list.some(function(b){ return !(b.signer); });
+      var legItems=sigNamed.map(function(s){ return {s:s,c:sigColor(s)}; }); if(hasUnsigned) legItems.push({s:'(unattributed)',c:'#9aa0a6'});
+      var legend=(legItems.length>1)?('<div style="display:flex;flex-wrap:wrap;gap:12px;padding:9px 4px 2px;border-top:1px solid var(--rule);margin-top:2px">'+legItems.map(function(it){ return '<span style="display:inline-flex;align-items:center;gap:6px;font-size:.72rem;color:var(--ink-2)"><span style="width:9px;height:9px;border-radius:50%;background:'+it.c+';display:inline-block;flex:0 0 auto"></span>'+esc2(it.s)+'</span>'; }).join('')+'</div>'):'';
       var x0=X(0,pts[0].t), xl=X(n-1,pts[n-1].t), y0=Y(0);
       var area='M'+x0.toFixed(1)+','+y0.toFixed(1)+' '+line.replace(/^M/,'L')+' L'+xl.toFixed(1)+','+y0.toFixed(1)+' Z';
       var yt=''; for(var k=0;k<=4;k++){ var v=ymax*k/4, yy=Y(v); yt+='<line x1="'+L+'" y1="'+yy.toFixed(1)+'" x2="'+(W-R)+'" y2="'+yy.toFixed(1)+'" stroke="var(--rule)" stroke-width="1" opacity="0.55"/><text x="'+(L-8)+'" y="'+(yy+3.5).toFixed(1)+'" text-anchor="end" font-size="10" fill="var(--mut)">'+(v>=1000?(Math.round(v/100)/10)+'k':Math.round(v))+'</text>'; }
       var xt='', idxs=(n<=1)?[0]:(n<=3?pts.map(function(_,i){return i;}):[0,Math.floor((n-1)/2),n-1]);
       idxs.forEach(function(i){ var x=X(i,pts[i].t); xt+='<text x="'+x.toFixed(1)+'" y="'+(H-24)+'" text-anchor="middle" font-size="10" fill="var(--mut)">'+esc2(String(pts[i].b.at||'').slice(0,10))+'</text>'; });
       return '<div id="bf-chartwrap" style="position:relative;border:1px solid var(--rule);border-radius:14px;background:var(--card2);padding:14px 12px 8px;overflow-x:auto">'
-        +'<svg id="bf-chartsvg" data-pts="'+pattr+'" viewBox="0 0 '+W+' '+H+'" style="width:100%;min-width:520px;height:auto;display:block;cursor:crosshair">'
+        +'<svg id="bf-chartsvg" data-pts="'+pattr+'" viewBox="0 0 '+W+' '+H+'" style="width:100%;min-width:520px;height:auto;display:block;cursor:pointer">'
         +yt+'<path d="'+area+'" fill="var(--accent)" opacity="0.10"/><path d="'+line+'" fill="none" stroke="var(--accent)" stroke-width="2"/>'+dots
         +'<text x="'+L+'" y="'+(Tp+1)+'" font-size="10" fill="var(--mut)">cumulative chars — Specs + Briefs</text>'+xt+'</svg>'
+        +legend
         +'<div style="font-size:.75rem;color:var(--mut);padding:6px 4px 2px">'+n+' Brief'+(n===1?'':'s')+' · '+ymax+' total characters signed'+(briefChartTag?(' · #'+esc2(briefChartTag)):'')+(briefChartSigner?(' · '+esc2(briefChartSigner)):'')+'. Hover to preview a Brief; click a point to open it.</div></div>';
     }
     // Hover the line: a small white bubble shows the nearest Brief — its title in a
@@ -732,40 +741,47 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
       if(!svg||!wrap) return; var pd; try{ pd=JSON.parse(svg.getAttribute('data-pts')||'[]'); }catch(e){ pd=[]; }
       if(!pd.length) return; var VW=760, VH=340;
       var oldTip=document.getElementById('bf-chart-tip'); if(oldTip) oldTip.remove(); // a body-level tip from a previous render would otherwise leak
-      var tip=document.createElement('div'); tip.id='bf-chart-tip'; tip.style.cssText='position:fixed;pointer-events:none;opacity:0;transition:opacity .1s ease;z-index:9999;max-width:230px;background:#fff;border:1px solid rgba(0,0,0,0.10);border-radius:12px;box-shadow:0 10px 28px rgba(0,0,0,0.22);padding:9px 12px;text-align:left;font-weight:400'; document.body.appendChild(tip);
+      var tip=document.createElement('div'); tip.id='bf-chart-tip'; tip.style.cssText='position:fixed;pointer-events:none;cursor:pointer;opacity:0;transition:opacity .1s ease;z-index:9999;max-width:230px;background:#fff;border:1px solid rgba(0,0,0,0.10);border-radius:12px;box-shadow:0 10px 28px rgba(0,0,0,0.22);padding:9px 12px;text-align:left;font-weight:400'; document.body.appendChild(tip);
       var mark=document.createElement('div'); mark.style.cssText='position:absolute;pointer-events:none;opacity:0;transition:opacity .1s ease;z-index:29;width:14px;height:14px;border-radius:50%;border:2px solid var(--accent);background:#fff;box-shadow:0 0 0 3px rgba(0,0,0,0.05)'; wrap.appendChild(mark);
-      function hide(){ tip.style.opacity='0'; mark.style.opacity='0'; tip._key=''; }
-      svg.addEventListener('mouseleave',hide);
+      var overSvg=false, overTip=false, hideT=null, curId='';
+      function reallyHide(){ if(overSvg||overTip) return; tip.style.opacity='0'; tip.style.pointerEvents='none'; mark.style.opacity='0'; tip._key=''; }
+      function scheduleHide(){ if(hideT) clearTimeout(hideT); hideT=setTimeout(reallyHide,140); }
+      // Open the Brief in the shared modal — full text, tags, and its exact Cells (each chip opens the Cell).
+      function openBrief(id){ var b=((DATA.meta&&DATA.meta.briefs)||[]).filter(function(x){ return String(x.id)===String(id); })[0]; if(!b) return;
+        var mo=document.getElementById('modal'); if(!mo) return; mo.querySelector('.modal-body').innerHTML=briefCard(b); mo.classList.add('open'); document.body.style.overflow='hidden'; overSvg=false; overTip=false; reallyHide();
+        Array.prototype.forEach.call(mo.querySelectorAll('.mcell.known'),function(ch){ ch.addEventListener('click',function(){ openDetail(ch.getAttribute('data-uid')); }); });
+        Array.prototype.forEach.call(mo.querySelectorAll('.btag'),function(ch){ ch.addEventListener('click',function(){ briefChartTag=ch.getAttribute('data-tag'); var cl=mo.querySelector('.modal-close'); if(cl) cl.click(); renderBriefs(); }); }); }
+      // The bubble is a live element: hovering it keeps it up, and clicking it opens the Brief — same as clicking the point.
+      tip.addEventListener('mouseenter',function(){ overTip=true; if(hideT){ clearTimeout(hideT); hideT=null; } });
+      tip.addEventListener('mouseleave',function(){ overTip=false; scheduleHide(); });
+      tip.addEventListener('click',function(){ if(curId) openBrief(curId); });
+      svg.addEventListener('mouseenter',function(){ overSvg=true; });
+      svg.addEventListener('mouseleave',function(){ overSvg=false; scheduleHide(); });
       svg.addEventListener('mousemove',function(ev){
         var r=svg.getBoundingClientRect(); if(!r.width) return; var wr=wrap.getBoundingClientRect();
         var sx=r.width/VW, sy=r.height/VH, vx=(ev.clientX-r.left)/sx;
         var near=pd[0], bd=1e9; pd.forEach(function(p){ var d=Math.abs(p.x-vx); if(d<bd){bd=d;near=p;} });
+        curId=near.id; overSvg=true; if(hideT){ clearTimeout(hideT); hideT=null; }
         var offX=r.left-wr.left, offY=r.top-wr.top, cx=offX+near.x*sx, cy=offY+near.y*sy;
-        mark.style.left=(cx-7)+'px'; mark.style.top=(cy-7)+'px'; mark.style.opacity='1';
+        mark.style.left=(cx-7)+'px'; mark.style.top=(cy-7)+'px'; mark.style.borderColor=near.col||'var(--accent)'; mark.style.opacity='1';
         var key=near.x;
         if(tip._key!==key){
           tip._key=key; var head=near.t||near.bt, body=near.t?near.bt:'';
           tip.innerHTML='<div style="font-size:12px;font-weight:700;color:#1a1a1a;line-height:1.3;white-space:normal;overflow-wrap:anywhere;word-break:break-word">'+esc2(head)+'</div>'
             +(body?('<div style="font-size:10px;font-weight:400;color:#666;line-height:1.4;margin-top:3px;white-space:normal;overflow-wrap:anywhere">'+esc2(body)+'</div>'):'')
-            +'<div style="font-size:9px;font-weight:400;color:#9a9a9a;margin-top:5px;letter-spacing:.02em">'+esc2(near.d)+(near.s?(' · '+esc2(near.s)):'')+'</div>';
+            +'<div style="font-size:9px;font-weight:400;color:#9a9a9a;margin-top:5px;letter-spacing:.02em;display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;display:inline-block;flex:0 0 auto;background:'+(near.col||'#9aa0a6')+'"></span>'+esc2(near.d)+(near.s?(' · '+esc2(near.s)):'')+'</div>';
         }
         var px=r.left+near.x*sx, py=r.top+near.y*sy; // the point in viewport (fixed) coords
         var tw=tip.offsetWidth||200, th=tip.offsetHeight||60;
         var lx=px-tw/2, ly=py-th-14; if(ly<4) ly=py+16;
         lx=Math.max(4, Math.min(lx, window.innerWidth-tw-4));
         if(ly+th>window.innerHeight-4) ly=Math.max(4, window.innerHeight-th-4);
-        tip.style.left=lx+'px'; tip.style.top=ly+'px'; tip.style.opacity='1';
+        tip.style.left=lx+'px'; tip.style.top=ly+'px'; tip.style.pointerEvents='auto'; tip.style.opacity='1';
       });
-      // Click a point → open that Brief in the modal (title, full text, tags, and its exact Cells — each chip opens the Cell).
       svg.addEventListener('click',function(ev){
         var r=svg.getBoundingClientRect(); if(!r.width) return; var vx=(ev.clientX-r.left)/(r.width/VW);
         var near=pd[0], bd=1e9; pd.forEach(function(p){ var d=Math.abs(p.x-vx); if(d<bd){bd=d;near=p;} });
-        var b=((DATA.meta&&DATA.meta.briefs)||[]).filter(function(x){ return String(x.id)===String(near.id); })[0]; if(!b) return;
-        var mo=document.getElementById('modal'); if(!mo) return;
-        mo.querySelector('.modal-body').innerHTML=briefCard(b);
-        mo.classList.add('open'); document.body.style.overflow='hidden'; hide();
-        Array.prototype.forEach.call(mo.querySelectorAll('.mcell.known'),function(ch){ ch.addEventListener('click',function(){ openDetail(ch.getAttribute('data-uid')); }); });
-        Array.prototype.forEach.call(mo.querySelectorAll('.btag'),function(ch){ ch.addEventListener('click',function(){ briefChartTag=ch.getAttribute('data-tag'); var cl=mo.querySelector('.modal-close'); if(cl) cl.click(); renderBriefs(); }); });
+        openBrief(near.id);
       });
     }
     // View toggle: List (flat / grouped) vs Clouds (a card per tag) vs Chart (growth over time)
