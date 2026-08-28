@@ -235,7 +235,11 @@ function renderMap(manifest, verified, project, changes, times, planDoc, gov, br
     if (mc && mc.contains && mc.contains.length) continue; // container Cells aren't file units
     FILES.push({ file: res.file || (mc && mc.file) || 'other', name: (mc && (mc.unitName || (mc.spec && mc.spec.unit))) || res.name || id, id: 'u:' + id, state: res.state, line: res.line || (mc && mc.line) || 0 });
   }
-  const meta = { project: project || 'project', counts: verified.counts, passed: verified.passed, totalUnits, plan: planDoc || null, gov: gov || null, files: FILES, briefs: briefs || [], tags: (tagCfg && tagCfg.tags) || [], tagSet: (tagCfg && tagCfg.set) || null, tagDescriptions: (tagCfg && tagCfg.descriptions) || {}, tagSets: tagSets || [], batch: batchCfg || { enabled: true, barrier: 5 }, policy: policyInfo || { enforced: [], draft: [], violations: [], signers: [] } };
+  // Per-Cell spec-block character count — so the Briefs "Chart" view can plot the growth
+  // of signed Specs + Briefs over time (a Brief's weight = its own chars + its Cells' specs).
+  const specChars = {};
+  for (const id of Object.keys(manifest.cells)) { const c = manifest.cells[id]; if (c) specChars[id] = (c.specBlock || '').length; }
+  const meta = { project: project || 'project', counts: verified.counts, passed: verified.passed, totalUnits, plan: planDoc || null, gov: gov || null, files: FILES, briefs: briefs || [], specChars, tags: (tagCfg && tagCfg.tags) || [], tagSet: (tagCfg && tagCfg.set) || null, tagDescriptions: (tagCfg && tagCfg.descriptions) || {}, tagSets: tagSets || [], batch: batchCfg || { enabled: true, barrier: 5 }, policy: policyInfo || { enforced: [], draft: [], violations: [], signers: [] } };
   const payload = JSON.stringify({ root: 'system', nodes: YLnodes, edges: { system: modEdges }, details, changes: changes || [], needs, meta })
     .replace(/</g, '\\u003c');
 
@@ -664,6 +668,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
 
   // ── Briefs tab — the plain-English ledger of what was ordered (Standard §5) ──
   var briefTagFilter=null, briefGroupBy=false, briefView='list'; // Briefs-tab view state
+  var briefChartTag=null, briefChartSigner=null; // Chart-view filters (tag / signer / both)
   function renderBriefs(){
     var el=document.getElementById('briefs'); if(!el) return;
     var ms=(DATA.meta&&DATA.meta.briefs)||[];
@@ -682,9 +687,45 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
         +'<div style="font-size:.8rem;color:var(--mut)">covers '+cells.length+' part'+(cells.length===1?'':'s')+(cells.length?' — click to open:':'')+'</div>'
         +(cells.length?('<div style="margin-top:2px">'+cellChips(cells)+'</div>'):'')+'</div>';
     }
-    // View toggle: List (flat / grouped) vs Clouds (a card per tag)
+    // ── Chart view: cumulative characters of signed Specs + Briefs over time, filterable
+    // by tag and/or signer. A Brief's "weight" = its own chars (title + prose) plus the
+    // spec-block chars of every Cell it covers (DATA.meta.specChars).
+    var specChars=(DATA.meta&&DATA.meta.specChars)||{};
+    function briefChars(b){ var s=(b.title||'').length+(b.text||'').length; (b.cells||[]).forEach(function(c){ s+=(specChars[c]||0); }); return s; }
+    function chartControls(){
+      var pool=(DATA.meta&&DATA.meta.tags)||[];
+      var signers=[]; ms.forEach(function(b){ if(b.signer&&signers.indexOf(b.signer)<0) signers.push(b.signer); });
+      var selCss='padding:7px 10px;border-radius:8px;border:1px solid var(--rule);background:var(--paper);color:var(--ink);font-family:inherit;font-size:.82rem';
+      var tagOpts='<option value="">All tags</option>'+pool.map(function(t){return '<option value="'+esc2(t)+'"'+(briefChartTag&&lc(t)===lc(briefChartTag)?' selected':'')+'>#'+esc2(t)+'</option>';}).join('');
+      var sigOpts='<option value="">All signers</option>'+signers.map(function(s){return '<option value="'+esc2(s)+'"'+(briefChartSigner&&lc(s)===lc(briefChartSigner)?' selected':'')+'>'+esc2(s)+'</option>';}).join('');
+      var reset=(briefChartTag||briefChartSigner)?'<span id="bf-creset" style="font-size:.78rem;color:var(--accent);cursor:pointer;text-decoration:underline">reset</span>':'';
+      return '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 12px"><span style="font-size:.8rem;color:var(--mut)">Filter:</span><select id="bf-ct" style="'+selCss+'">'+tagOpts+'</select><select id="bf-cs" style="'+selCss+'">'+sigOpts+'</select>'+reset+'</div>';
+    }
+    function chartSVG(list){
+      if(!list.length) return '<div class="snote">No Briefs match this filter.</div>';
+      var pts=[], cum=0, tmin=Infinity, tmax=-Infinity;
+      list.forEach(function(b){ cum+=briefChars(b); var t=Date.parse(b.at||'')||0; if(t<tmin)tmin=t; if(t>tmax)tmax=t; pts.push({t:t,y:cum,b:b}); });
+      var ymax=cum||1, n=list.length;
+      var W=760,H=340,L=58,R=20,Tp=18,Bp=46, pw=W-L-R, ph=H-Tp-Bp, same=(tmax<=tmin);
+      function X(i,t){ return same?(n<=1?L+pw/2:L+(i/(n-1))*pw):(L+(t-tmin)/(tmax-tmin)*pw); }
+      function Y(v){ return Tp+ph-(v/ymax)*ph; }
+      var line='', dots='';
+      pts.forEach(function(p,i){ var x=X(i,p.t), y=Y(p.y); line+=(i?' L':'M')+x.toFixed(1)+','+y.toFixed(1);
+        dots+='<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="4" fill="var(--accent)" stroke="var(--card2)" stroke-width="1.5"><title>'+esc2((p.b.title||p.b.text||'')+' — +'+briefChars(p.b)+' chars → '+p.y+' total · '+String(p.b.at||'').slice(0,10)+(p.b.signer?' · '+p.b.signer:''))+'</title></circle>'; });
+      var x0=X(0,pts[0].t), xl=X(n-1,pts[n-1].t), y0=Y(0);
+      var area='M'+x0.toFixed(1)+','+y0.toFixed(1)+' '+line.replace(/^M/,'L')+' L'+xl.toFixed(1)+','+y0.toFixed(1)+' Z';
+      var yt=''; for(var k=0;k<=4;k++){ var v=ymax*k/4, yy=Y(v); yt+='<line x1="'+L+'" y1="'+yy.toFixed(1)+'" x2="'+(W-R)+'" y2="'+yy.toFixed(1)+'" stroke="var(--rule)" stroke-width="1" opacity="0.55"/><text x="'+(L-8)+'" y="'+(yy+3.5).toFixed(1)+'" text-anchor="end" font-size="10" fill="var(--mut)">'+(v>=1000?(Math.round(v/100)/10)+'k':Math.round(v))+'</text>'; }
+      var xt='', idxs=(n<=1)?[0]:(n<=3?pts.map(function(_,i){return i;}):[0,Math.floor((n-1)/2),n-1]);
+      idxs.forEach(function(i){ var x=X(i,pts[i].t); xt+='<text x="'+x.toFixed(1)+'" y="'+(H-24)+'" text-anchor="middle" font-size="10" fill="var(--mut)">'+esc2(String(pts[i].b.at||'').slice(0,10))+'</text>'; });
+      return '<div style="border:1px solid var(--rule);border-radius:14px;background:var(--card2);padding:14px 12px 8px;overflow-x:auto">'
+        +'<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;min-width:520px;height:auto;display:block">'
+        +yt+'<path d="'+area+'" fill="var(--accent)" opacity="0.10"/><path d="'+line+'" fill="none" stroke="var(--accent)" stroke-width="2"/>'+dots
+        +'<text x="'+L+'" y="'+(Tp+1)+'" font-size="10" fill="var(--mut)">cumulative chars — Specs + Briefs</text>'+xt+'</svg>'
+        +'<div style="font-size:.75rem;color:var(--mut);padding:6px 4px 2px">'+n+' Brief'+(n===1?'':'s')+' · '+ymax+' total characters signed'+(briefChartTag?(' · #'+esc2(briefChartTag)):'')+(briefChartSigner?(' · '+esc2(briefChartSigner)):'')+'. Hover a point for its Brief.</div></div>';
+    }
+    // View toggle: List (flat / grouped) vs Clouds (a card per tag) vs Chart (growth over time)
     function vbtn(v,label){ var on=briefView===v; return '<button class="bf-view" data-v="'+v+'" style="border:none;padding:6px 15px;font-weight:600;cursor:pointer;font-family:inherit;font-size:.8rem;'+(on?'background:var(--accent);color:#fff':'background:transparent;color:var(--ink)')+'">'+label+'</button>'; }
-    var seg='<div style="display:inline-flex;border:1px solid var(--rule);border-radius:9px;overflow:hidden;margin-right:4px">'+vbtn('list','List')+vbtn('clouds','Clouds')+'</div>';
+    var seg='<div style="display:inline-flex;border:1px solid var(--rule);border-radius:9px;overflow:hidden;margin-right:4px">'+vbtn('list','List')+vbtn('clouds','Clouds')+vbtn('chart','Chart')+'</div>';
     var toolbar='<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 14px">'+seg
       +(briefView==='list'?('<button id="bf-group" class="tab'+(briefGroupBy?' active':'')+'" style="border:1px solid '+(briefGroupBy?'var(--accent)':'var(--rule)')+'">'+(briefGroupBy?'✓ ':'')+'Group by tag</button>'
         +(briefTagFilter?('<span style="display:inline-flex;align-items:center;gap:6px;font-size:.78rem;font-weight:700;color:var(--accent);border:1px solid var(--accent);border-radius:100px;padding:3px 11px">#'+esc2(briefTagFilter)+' <span id="bf-clear" style="cursor:pointer;opacity:.7" title="Clear filter">✕</span></span>'):'')):'')
@@ -703,12 +744,20 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
       +'</div>'
       +'<div style="font-size:.77rem;color:var(--mut);margin-top:7px">Controls how the <b style="color:var(--ink-2)">AI groups changes into Briefs</b> before you sign — and is shared with your team. It does <b style="color:var(--ink-2)">not</b> affect how Briefs are displayed here.</div>'
       +'</div>'):'';
-    var hint=briefView==='clouds'?'Each tag is a cloud; inside, its Briefs newest-first. A Brief with several tags appears in every matching cloud — tap one to see its parts.':'Click a tag to filter; “Group by tag” orders by tag first, date second.';
+    var hint=briefView==='clouds'?'Each tag is a cloud; inside, its Briefs newest-first. A Brief with several tags appears in every matching cloud — tap one to see its parts.':briefView==='chart'?'How your signed Specs + Briefs grow over time (each Brief adds its own text plus its Cells’ specs). Filter by tag and/or signer.':'Click a tag to filter; “Group by tag” orders by tag first, date second.';
     // Order: description → project setting (batch) → view controls + their hint → the Briefs.
     // The List/Clouds/Group controls sit right above the Briefs they display.
     var html='<h1>Briefs</h1><div class="snote" style="margin:0 0 14px">What was ordered, in plain language.</div>'+batchbar+toolbar+'<div class="snote" style="margin:2px 0 14px;font-size:.82rem">'+hint+'</div>';
 
-    if(briefView==='clouds'){
+    if(briefView==='chart'){
+      html+=chartControls();
+      var cf=ms.filter(function(b){
+        if(briefChartTag && !(b.tags||[]).some(function(t){return lc(t)===lc(briefChartTag);})) return false;
+        if(briefChartSigner && lc(b.signer||'')!==lc(briefChartSigner)) return false;
+        return true;
+      }).slice().sort(function(a,z){ return String(a.at||'').localeCompare(String(z.at||'')); });
+      html+=chartSVG(cf);
+    } else if(briefView==='clouds'){
       var tagMap={};
       ms.forEach(function(b){ ((b.tags&&b.tags.length)?b.tags:['(untagged)']).forEach(function(t){ var k=lc(t); if(!tagMap[k])tagMap[k]={label:(String(t)==='(untagged)'?'Untagged':t),briefs:[]}; tagMap[k].briefs.push(b); }); });
       var keys=Object.keys(tagMap).sort(function(a,z){ if(a==='(untagged)')return 1; if(z==='(untagged)')return -1; return String((tagMap[z].briefs[0]||{}).at||'').localeCompare(String((tagMap[a].briefs[0]||{}).at||'')); });
@@ -740,6 +789,9 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
     }
     el.innerHTML=html;
     Array.prototype.forEach.call(el.querySelectorAll('.bf-view'),function(bt){ bt.onclick=function(){ briefView=bt.getAttribute('data-v'); renderBriefs(); }; });
+    var cct=document.getElementById('bf-ct'); if(cct) cct.onchange=function(){ briefChartTag=cct.value||null; renderBriefs(); };
+    var ccs=document.getElementById('bf-cs'); if(ccs) ccs.onchange=function(){ briefChartSigner=ccs.value||null; renderBriefs(); };
+    var crs=document.getElementById('bf-creset'); if(crs) crs.onclick=function(){ briefChartTag=null; briefChartSigner=null; renderBriefs(); };
     var ben=document.getElementById('bf-batch-en'), bn=document.getElementById('bf-batch-n'), bmsg=document.getElementById('bf-batch-msg');
     function saveBatch(){ fetch('/api/batch',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({enabled:ben.checked,barrier:parseInt(bn.value,10)||5})}).then(function(r){return r.json();}).then(function(j){ if(bmsg){ bmsg.textContent=(j&&j.ok)?'✓ saved':'✗ '+((j&&j.error)||'failed'); bmsg.style.color=(j&&j.ok)?'#1f9d57':'#cf4436'; } }); }
     if(ben) ben.onchange=saveBatch; if(bn) bn.onchange=saveBatch;
