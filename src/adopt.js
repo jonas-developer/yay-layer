@@ -15,7 +15,15 @@ const { extractFile } = require('./extract');
 
 const JS_LIKE = /\.(js|jsx|mjs|cjs|ts|tsx)$/;
 const ADOPT_FAMILIES = new Set(['js', 'brace', 'python', 'ruby']); // langs `yay adopt` can scaffold
+// Purity GUESS per language family (drafts only — the human prunes; verify re-checks).
 const EFFECT = /\blocalStorage\b|\bconsole\s*\.|\bfetch\s*\(|\bprocess\s*\.|\bdocument\b|\bwindow\b|\bfs\s*\.|\bMath\.random\b|\bDate\.now\b/;
+const EFFECT_PY = /\bprint\s*\(|\binput\s*\(|\bopen\s*\(|\bos\s*\.|\bsys\s*\.|\bsubprocess\s*\.|\bsocket\s*\.|\brequests\s*\.|\burllib\b|\brandom\s*\.|\btime\s*\.\s*time\s*\(|\bdatetime\b.*\bnow\s*\(|^\s*global\s+[A-Za-z_]/m;
+const EFFECT_RB = /\bputs\b|\bgets\b|\bFile\s*\.|\bIO\s*\.|\b\$std(out|in|err)\b|\brand\b|\bTime\s*\.\s*now\b|\bNet::|\bsystem\s*\(/;
+function effectGuess(lang, body) {
+  const l = String(lang || '').toLowerCase();
+  const re = /^py(thon)?w?$/.test(l) ? EFFECT_PY : /^(rb|ruby|ex|exs)$/.test(l) ? EFFECT_RB : EFFECT;
+  return re.test(body || '');
+}
 const TOP_FN = /^(?:export\s+)?(?:async\s+)?function\s+([A-Za-z0-9_$]+)|^(?:export\s+)?(?:const|let|var)\s+([A-Za-z0-9_$]+)\s*=\s*(?:async\s*)?\(/;
 
 function existingIds(root) {
@@ -33,7 +41,7 @@ function nextId(ids) {
 }
 
 function draftBlock(id, name, lang, body, indent, lead) {
-  const pure = EFFECT.test(body || '') ? 'no' : 'yes';
+  const pure = effectGuess(lang, body) ? 'no' : 'yes';
   const p = indent || '';
   const cc = lead || '//'; // comment lead: '#' for Python, '//' elsewhere
   return [

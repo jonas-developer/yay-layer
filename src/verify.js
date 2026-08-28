@@ -16,7 +16,10 @@ const { requiredSigners } = require('./policy');
 const { deriveRoster } = require('./roster');
 const G = require('./grants');
 
-// Shallow side-effect signals used for the MVP purity / minimality checks.
+// Shallow side-effect signals used for the MVP purity / minimality checks — per
+// LANGUAGE, so a `pure: yes` claim is policed in every language we can run, not just
+// JS. (Signal-based, not a proof of purity: an evader can dodge a regex; the typical
+// AI-written effect gets caught.)
 const EFFECT_SIGNALS = [
   ['localStorage', /\blocalStorage\b/], ['sessionStorage', /\bsessionStorage\b/],
   ['console', /\bconsole\s*\./], ['network', /\bfetch\s*\(|\bXMLHttpRequest\b/],
@@ -24,6 +27,21 @@ const EFFECT_SIGNALS = [
   ['dom', /\bdocument\b|\bwindow\b/], ['filesystem', /\bfs\s*\./],
   ['nondeterminism', /\bMath\.random\b|\bDate\.now\b|\bnew Date\b/],
 ];
+const EFFECT_SIGNALS_PY = [
+  ['stdout', /\bprint\s*\(/], ['stdin', /\binput\s*\(/],
+  ['filesystem', /\bopen\s*\(|\bshutil\s*\.|\bpathlib\b.*\.(write|unlink|mkdir)/],
+  ['os', /\bos\s*\./], ['sys', /\bsys\s*\./], ['subprocess', /\bsubprocess\s*\./],
+  ['network', /\bsocket\s*\.|\brequests\s*\.|\burllib\b|\bhttpx\s*\./],
+  ['nondeterminism', /\brandom\s*\.|\btime\s*\.\s*time\s*\(|\bdatetime\s*\.\s*(datetime\s*\.\s*)?now\s*\(/],
+  ['global-state', /^\s*global\s+[A-Za-z_]/],
+  ['import', /\b__import__\s*\(/],
+];
+const isPyLang = (l) => /^py(thon)?w?$/i.test(String(l || ''));
+function effectSignalsFor(lang) {
+  if (!lang || isJsLang(lang)) return EFFECT_SIGNALS;
+  if (isPyLang(lang)) return EFFECT_SIGNALS_PY;
+  return null; // other languages: no reliable net yet — don't guess (false red is worse)
+}
 
 const SEV = { GREEN: 0, YELLOW: 1, UNSIGNED: 2, RED: 3 };
 const worst = (a, b) => (SEV[a] >= SEV[b] ? a : b);
@@ -71,15 +89,16 @@ function staticChecks(cell) {
   const declaredEffects = (spec.effects || '').toLowerCase();
   const pure = /^yes\b/i.test(spec.pure || '');
   let badLines = [];
-  // Effect / purity signals are JavaScript tokens (fetch, process., new Date, …).
-  // Only run them on JS/TS Cells: applying them to another language would be
-  // meaningless and could FALSE-flag a function that merely shares a name.
+  // Effect / purity signals per LANGUAGE (JS tokens for JS/TS, Python tokens for
+  // Python). Languages with no reliable net get none — a false red on a function
+  // that merely shares a name would be worse than an honest gap.
   // (Missing lang ⇒ JS, so legacy/synthetic cells behave exactly as before.)
-  if (cell.unitBody && (!cell.lang || isJsLang(cell.lang))) {
+  const sigSet = effectSignalsFor(cell.lang);
+  if (cell.unitBody && sigSet) {
     const base = cell.unitBodyStart || 0;
     const found = []; // { signal, line, text } — the exact offending source lines
     cell.unitBody.split('\n').forEach((ln, k) => {
-      for (const [sig, re] of EFFECT_SIGNALS) {
+      for (const [sig, re] of sigSet) {
         if (re.test(ln)) { found.push({ signal: sig, line: base + k + 1, text: ln.trim() }); break; }
       }
     });
@@ -100,14 +119,10 @@ function staticChecks(cell) {
     }
   }
 
-  // Honesty cap: YayLayer only machine-checks code⇔spec for JS/TS today. A signed
-  // Cell in another supported language (python/csharp/solidity/rust) is real and
-  // attributable, but we haven't verified its code against the spec — so it can
-  // never be GREEN. Cap it at YELLOW with a clear reason (no silent false-green).
-  if (!isModule && cell.lang && !isJsLang(cell.lang)) {
-    yellow = true;
-    notes.push({ level: 'yellow', text: `signed, but not machine-verified — YayLayer checks code⇔spec for JS/TS only today; ${cell.lang} is signed-only (capped at Yellow)` });
-  }
+  // NOTE the non-JS honesty cap ("signed-only, capped at Yellow") no longer lives here:
+  // some non-JS Cells ARE machine-provable now (pure Python via the subprocess prover),
+  // so the cap is applied in verifyManifest AFTER the prover pass — only Cells the
+  // prover did NOT prove get capped. Same honesty, without punishing a real proof.
 
   // vague / prose-only spec caps at YELLOW: a leaf Cell needs at least one machine field.
   const machineFields = ['in', 'out', 'ensures', 'pure', 'throws'].some((k) => spec[k]);
@@ -212,6 +227,20 @@ function verifyManifest(manifest, lock, config, opts) {
       // punish honest code for the prover's limits. Only a real contradiction is Red.
       results[id].notes.push({ level: 'info', text: 'ensures not machine-verified — ' + pr.reason });
     }
+  }
+
+  // Honesty cap for non-JS Cells, applied AFTER the prover so a genuinely proven Cell
+  // (e.g. a pure Python function proved by the subprocess prover) keeps its Green.
+  // Everything non-JS the prover did NOT prove stays capped at Yellow — no silent
+  // false green for signed-but-unverified code in other languages.
+  for (const id of Object.keys(manifest.cells)) {
+    const cell = manifest.cells[id];
+    if (!results[id]) continue;
+    const isModule = !!(cell.contains && cell.contains.length);
+    if (isModule || !cell.lang || isJsLang(cell.lang)) continue;
+    if (results[id].proven) continue; // machine-proven out-of-VM → the proof stands
+    results[id].state = worst(results[id].state, 'YELLOW');
+    results[id].notes.push({ level: 'yellow', text: `signed, but not machine-verified — ${cell.lang} code⇔spec isn't checked yet (pure Python functions with an ensures ARE provable); capped at Yellow` });
   }
 
   // Higher-order: broken feeds edges, and roll-up color for container Cells.

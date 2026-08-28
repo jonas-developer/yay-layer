@@ -309,6 +309,43 @@ fs.rmSync(pdir, { recursive: true, force: true });
   fs.rmSync(sgd, { recursive: true, force: true });
 }
 
+// 12f) Python in the FULL verify pipeline: a proven pure Python Cell reaches GREEN
+// (the old blanket non-JS Yellow cap must not override a real proof); an unproven
+// non-JS Cell stays capped; and Python purity claims are policed by Python signals.
+{
+  const pv = fs.mkdtempSync(P.join(os.tmpdir(), 'yay-pyverify-'));
+  fs.writeFileSync(P.join(pv, 'calc.py'),
+    '#∷YAY⟨C-P1⟩\n# unit: triple\n# intent: Triple a number.\n# in: n:number\n# out: number\n# pure: yes\n# ensures: out == n * 3\n#∷YAY-END⟨C-P1⟩\ndef triple(n):\n    return n * 3\n\n'
+    + '#∷YAY⟨C-P2⟩\n# unit: shout\n# intent: Print loudly.\n# in: s:string\n# out: string\n# pure: yes\n# ensures: out == s\n#∷YAY-END⟨C-P2⟩\ndef shout(s):\n    print(s)\n    return s\n');
+  const pvMan = buildManifest(pv);
+  // sign both so trust isn't the blocker
+  const pvKp = C.generateKeypair();
+  const pvItems = {}; for (const id of ['C-P1', 'C-P2']) pvItems[id] = pvMan.cells[id].specHash;
+  const pvAp = { id: 'A-1', project: 'pv', prev: 'genesis', nonce: 'n', at: new Date().toISOString(), signer: 'T', items: pvItems };
+  pvAp.signature = C.sign(canonical(pvAp), pvKp.privDer);
+  const pvRes = verifyManifest(pvMan, { approvals: [pvAp] }, { signers: { T: pvKp.pubB64 } });
+  const pyOK = !require('../src/prove').pythonAdapter.load('x=1', ['x']).error;
+  if (pyOK) ok(pvRes.results['C-P1'].state === 'GREEN' && pvRes.results['C-P1'].proven, 'verify: proven pure Python Cell reaches GREEN (cap lifted by real proof)');
+  else ok(pvRes.results['C-P1'].state === 'YELLOW', 'verify: Python without a Python runtime stays honestly Yellow');
+  ok(pvRes.results['C-P2'].state === 'RED' && pvRes.results['C-P2'].notes.some((n) => /purity violated/.test(n.text)), 'verify: pure:yes Python Cell using print() → RED (Python effect signals)');
+  fs.rmSync(pv, { recursive: true, force: true });
+  // non-JS, non-provable language still capped
+  const rs = fs.mkdtempSync(P.join(os.tmpdir(), 'yay-rs-'));
+  fs.writeFileSync(P.join(rs, 'lib.rs'), '//∷YAY⟨C-R1⟩\n// unit: add\n// intent: Add.\n// in: a:number\n// out: number\n// pure: yes\n// ensures: out == a + 1\n//∷YAY-END⟨C-R1⟩\nfn add(a: i32) -> i32 { a + 1 }\n');
+  const rsMan = buildManifest(rs);
+  const rsAp = { id: 'A-1', project: 'rs', prev: 'genesis', nonce: 'n', at: new Date().toISOString(), signer: 'T', items: { 'C-R1': rsMan.cells['C-R1'].specHash } };
+  rsAp.signature = C.sign(canonical(rsAp), pvKp.privDer);
+  const rsRes = verifyManifest(rsMan, { approvals: [rsAp] }, { signers: { T: pvKp.pubB64 } });
+  ok(rsRes.results['C-R1'].state === 'YELLOW' && rsRes.results['C-R1'].notes.some((n) => /signed, but not machine-verified/.test(n.text)), 'verify: unproven non-JS (Rust) Cell still capped at Yellow');
+  fs.rmSync(rs, { recursive: true, force: true });
+  // adopt purity guess is per-language: Python print() → pure: no
+  const ad = fs.mkdtempSync(P.join(os.tmpdir(), 'yay-adpy-'));
+  fs.writeFileSync(P.join(ad, 'm.py'), 'def hello(name):\n    print(name)\n    return name\n');
+  require('../src/adopt').adopt(ad, { dry: false });
+  ok(/# {2}pure: {4}no|pure:\s+no/.test(fs.readFileSync(P.join(ad, 'm.py'), 'utf8')), 'adopt: Python body with print() is guessed pure: no (per-language effect guess)');
+  fs.rmSync(ad, { recursive: true, force: true });
+}
+
 // 13) `yay gate` generators: workflow + hook content, idempotent write
 const G = require('../src/gate');
 ok(/yay verify --strict/.test(G.ciWorkflow()) && /gate:/.test(G.ciWorkflow()), 'gate: workflow runs `yay verify --strict` under a `gate` job');
