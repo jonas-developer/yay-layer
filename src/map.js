@@ -709,9 +709,9 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
       var W=760,H=340,L=58,R=20,Tp=18,Bp=46, pw=W-L-R, ph=H-Tp-Bp, same=(tmax<=tmin);
       function X(i,t){ return same?(n<=1?L+pw/2:L+(i/(n-1))*pw):(L+(t-tmin)/(tmax-tmin)*pw); }
       function Y(v){ return Tp+ph-(v/ymax)*ph; }
-      var line='', dots='';
+      var line='', dots='', dr=Math.max(1.4, 4-Math.floor(n/25)); // dots shrink as points crowd (a year of dailies stays legible; the line always reads)
       pts.forEach(function(p,i){ var x=X(i,p.t), y=Y(p.y); line+=(i?' L':'M')+x.toFixed(1)+','+y.toFixed(1);
-        dots+='<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="4" fill="var(--accent)" stroke="var(--card2)" stroke-width="1.5"><title>'+esc2((p.b.title||p.b.text||'')+' — +'+briefChars(p.b)+' chars → '+p.y+' total · '+String(p.b.at||'').slice(0,10)+(p.b.signer?' · '+p.b.signer:''))+'</title></circle>'; });
+        dots+='<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="'+dr+'" fill="var(--accent)"'+(dr>=3?' stroke="var(--card2)" stroke-width="1.5"':'')+'><title>'+esc2((p.b.title||p.b.text||'')+' — +'+briefChars(p.b)+' chars → '+p.y+' total · '+String(p.b.at||'').replace('T',' ').slice(0,16)+(p.b.signer?' · '+p.b.signer:''))+'</title></circle>'; });
       var x0=X(0,pts[0].t), xl=X(n-1,pts[n-1].t), y0=Y(0);
       var area='M'+x0.toFixed(1)+','+y0.toFixed(1)+' '+line.replace(/^M/,'L')+' L'+xl.toFixed(1)+','+y0.toFixed(1)+' Z';
       var yt=''; for(var k=0;k<=4;k++){ var v=ymax*k/4, yy=Y(v); yt+='<line x1="'+L+'" y1="'+yy.toFixed(1)+'" x2="'+(W-R)+'" y2="'+yy.toFixed(1)+'" stroke="var(--rule)" stroke-width="1" opacity="0.55"/><text x="'+(L-8)+'" y="'+(yy+3.5).toFixed(1)+'" text-anchor="end" font-size="10" fill="var(--mut)">'+(v>=1000?(Math.round(v/100)/10)+'k':Math.round(v))+'</text>'; }
