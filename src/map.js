@@ -983,6 +983,8 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
     var LIVE=isLive(); // re-checked here (DOM ready by the time a tab is opened)
     var pol=(DATA.meta&&DATA.meta.policy)||{enforced:[],draft:[],violations:[],signers:[]};
     var enforced=pol.enforced||[], draft=pol.draft||[], viol=pol.violations||[], signers=pol.signers||[];
+    var onPhone=(pol.signMethod!=='local'); // local keystore signs here; mobile routes to the phone
+    var applyWord=onPhone?'Apply — owner-sign on your phone':'Apply — owner-sign';
     function ruleLine(r){
       var m=r.match||{}, parts=[];
       if(m.path) parts.push('path <code>'+esc2(m.path)+'</code>');
@@ -1030,7 +1032,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
             +(LIVE?('<button class="pol-tpl" data-rule="'+esc2(JSON.stringify({match:t.match,inert:t.inert})).replace(/"/g,'&quot;')+'" style="border:1px solid var(--accent);background:none;color:var(--accent);border-radius:8px;padding:3px 10px;cursor:pointer;font-size:.78rem;font-weight:700">Add to draft</button>'):'')
             +'</span></div>';
         }).join('')
-        +'<div style="font-size:.78rem;color:var(--mut)">'+(hasInert?'This project has inert rules '+(LIVE?'below':'listed above/below')+'.':(LIVE?'Templates are examples — tap “Add to draft”, edit the matcher below if needed, then Apply (owner-signs on your phone).':'Enable via the live dashboard’s Policy tab, or add a rule with <b>yay policy</b> (e.g. <code>{ "match": { "tag": "'+esc2(secTag)+'" }, "inert": "block" }</code>) and <b>yay policy --set</b>.'))+'</div>'
+        +'<div style="font-size:.78rem;color:var(--mut)">'+(hasInert?'This project has inert rules '+(LIVE?'below':'listed above/below')+'.':(LIVE?'Templates are examples — tap “Add to draft”, edit the matcher below if needed, then Apply (owner-signs '+(onPhone?'on your phone':'locally')+').':'Enable via the live dashboard’s Policy tab, or add a rule with <b>yay policy</b> (e.g. <code>{ "match": { "tag": "'+esc2(secTag)+'" }, "inert": "block" }</code>) and <b>yay policy --set</b>.'))+'</div>'
         +'</div>';
     })();
     html+='<div style="margin:18px 0 6px;font-weight:800;font-size:.8rem;color:var(--mut)">DRAFT · .yaylayer/policy.json'+(same?' (matches enforced)':' (differs — not yet signed)')+'</div>';
@@ -1051,10 +1053,16 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
         +'</select>'
         +'<button id="pol-add" style="padding:8px 14px;border-radius:8px;border:none;background:var(--brand);color:#04231a;font-weight:700;cursor:pointer">Add to draft</button>'
         +'</div>'
-        +(!same?('<div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button id="pol-apply" style="padding:9px 16px;border-radius:8px;border:none;background:var(--accent);color:#fff;font-weight:700;cursor:pointer">Apply — owner-sign on your phone</button><span style="color:var(--mut);font-size:.85rem">signs the draft into the roster</span></div>'):'')
+        +'</div>';
+      // Apply governs the WHOLE draft — used after either the Built-in-security templates or the
+      // form above — so it sits at section level, not inside the "Add a rule" card.
+      html+='<div style="margin:16px 0 0;padding:13px 15px;border:1px solid var(--rule);border-left:3px solid var(--accent);border-radius:12px;background:var(--card2)">'
+        +(!same
+          ?('<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><button id="pol-apply" style="padding:9px 16px;border-radius:8px;border:none;background:var(--accent);color:#fff;font-weight:700;cursor:pointer">'+applyWord+'</button><span style="color:var(--mut);font-size:.85rem">Signs the current draft — every rule above — into the roster. This is what makes them enforced.</span></div>')
+          :'<div style="color:var(--mut);font-size:.85rem">✓ The draft matches what’s enforced — nothing to apply.</div>')
         +'<div id="pol-msg" style="margin-top:10px;font-size:.85rem;color:var(--mut)"></div></div>';
     } else if(!same){
-      html+='<div class="snote" style="margin:10px 0 0">The draft differs from what’s enforced. Apply it with <b>yay policy --set</b> (owner-signs on your phone), or edit it live in <b>yay dashboard</b>.</div>';
+      html+='<div class="snote" style="margin:10px 0 0">The draft differs from what’s enforced. Apply it with <b>yay policy --set</b> (owner-signs '+(onPhone?'on your phone':'locally')+'), or edit it live in <b>yay dashboard</b>.</div>';
     }
     el.innerHTML=html;
     if(LIVE){
@@ -1075,7 +1083,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
         post('/api/policy/rule',r).then(function(j){ if(j&&j.ok){location.reload();} else if(msg){msg.textContent='✗ '+((j&&j.error)||'failed');msg.style.color='#cf4436';} });
       };});
       var ap=document.getElementById('pol-apply'); if(ap) ap.onclick=function(){
-        if(msg){msg.textContent='Sending to your phone to owner-sign…';msg.style.color='';}
+        if(msg){msg.textContent=onPhone?'Sending to your phone to owner-sign…':'Owner-signing locally…';msg.style.color='';}
         post('/api/policy/apply',{}).then(function(j){ if(j&&j.ok){ if(msg){msg.textContent='✓ Applied — reloading…';msg.style.color='#1f9d57';} setTimeout(function(){location.reload();},1200);} else if(msg){msg.textContent='✗ '+((j&&j.error)||'failed');msg.style.color='#cf4436';} });
       };
     }
