@@ -1709,7 +1709,7 @@ function buildMapHTML(p, config, lock, flags) {
     violations: polViol,
     signers: signers.map((s) => s.name),
   };
-  const tagSets = tagsMod.TAG_SETS.map((s) => ({ id: s.id, name: s.name, desc: s.desc }));
+  const tagSets = tagsMod.TAG_SETS.map((s) => ({ id: s.id, name: s.name, desc: s.desc, tags: s.tags || [] }));
   return { html: renderMap(manifest, verified, config && config.project, changes, times, planDoc, gov, briefs, tagsMod.loadTags(p), policyInfo, tagSets, batchConfig(config)), count: Object.keys(verified.results).length };
 }
 
