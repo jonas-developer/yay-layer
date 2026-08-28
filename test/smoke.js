@@ -379,6 +379,24 @@ fs.rmSync(pdir, { recursive: true, force: true });
   ok(PM.inertLevel({ rules: [{ match: { tag: 'sensitive' }, inert: 'block' }] }, { file: 'x.js', spec: { sensitive: 'yes' } }) === 'block', 'inertness: sensitive-tag rule escalates to block');
 }
 
+// 12h) language-parity audit fixes: rename detection, bloat, and honest proven-notes
+// for non-JS Cells (the JS-only assumptions that predated the Python/JSX provers).
+{
+  const ad2 = fs.mkdtempSync(P.join(os.tmpdir(), 'yay-audit-'));
+  fs.writeFileSync(P.join(ad2, 'm.py'),
+    '#∷YAY⟨C-A1⟩\n# unit: triple\n# intent: t.\n# in: n:number\n# out: number\n# pure: yes\n# ensures: out == n * 3\n#∷YAY-END⟨C-A1⟩\ndef tripleX(n):\n    return n * 3\n\n'
+    + '#∷YAY⟨C-A2⟩\n# unit: core\n# intent: t.\n# in: n:number\n# out: number\n# pure: yes\n# ensures: out == n * 2\n#∷YAY-END⟨C-A2⟩\ndef core(n):\n    return n * 2\n');
+  const aMan = buildManifest(ad2);
+  ok(aMan.cells['C-A1'].detectedUnit === 'tripleX', 'audit: Python def name is detected (regex grabber → detectedUnit)');
+  ok(aMan.cells['C-A2'].bloat === false, 'audit: non-JS Cells are never called bloat (JS-only call graph is blindness, not evidence)');
+  const aRes = verifyManifest(aMan, { approvals: [] }, { signers: {} });
+  ok(aRes.results['C-A1'].notes.some((n) => /unit name mismatch/.test(n.text)), 'audit: Python spec⇔code rename → unit name mismatch flagged');
+  const pyOK2 = !require('../src/prove').pythonAdapter.load('x=1', ['x']).error;
+  if (pyOK2) ok(aRes.results['C-A2'].notes.some((n) => /mutation grading \+ inertness check not yet available/.test(n.text)), 'audit: proven Python note admits missing mutation/inertness grading');
+  else ok(true, 'audit: (no python runtime — grading note not applicable)');
+  fs.rmSync(ad2, { recursive: true, force: true });
+}
+
 // 13) `yay gate` generators: workflow + hook content, idempotent write
 const G = require('../src/gate');
 ok(/yay verify --strict/.test(G.ciWorkflow()) && /gate:/.test(G.ciWorkflow()), 'gate: workflow runs `yay verify --strict` under a `gate` job');

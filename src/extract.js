@@ -166,6 +166,7 @@ function extractFile(file) {
       id, file, startLine: i + 1, endLine: end + 1,
       normalized, spec,
       unitName: spec.unit || (unit && unit.name) || null,
+      detectedUnit: (unit && unit.name) || null, // the ACTUAL name found in the code (any language) — lets verify flag a spec⇔code rename in Python/Ruby/brace files too, not just via the JS AST
       unitBody: unit ? unit.body : null,
       unitBodyStart: unit ? unit.startLine : null,
       unitFound: !!unit,

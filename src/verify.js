@@ -222,6 +222,10 @@ function verifyManifest(manifest, lock, config, opts) {
       results[id].proven = true;
       const mu = pr.mutation;
       let text = `ensures proven over ${pr.cases} generated case(s)`;
+      // Honesty: a proven non-JS Cell (Python subprocess prover) isn't yet graded by
+      // mutation testing or the inertness check — say so, so its green reads correctly.
+      const prLang = manifest.cells[id] && manifest.cells[id].lang;
+      if ((!mu || !mu.total) && prLang && !isJsLang(prLang)) text += ` (mutation grading + inertness check not yet available for ${prLang})`;
       if (mu && mu.total) {
         text += `; mutation score ${Math.round(mu.score * 100)}% (${mu.killed}/${mu.total} killed)`;
         if (mu.score < 0.5) {

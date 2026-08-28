@@ -7,7 +7,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { walk, repoRoot, langOf } = require('./util');
+const { walk, repoRoot, langOf, isJsLang } = require('./util');
 const { sha256 } = require('./crypto');
 const { extractFile } = require('./extract');
 const { analyze, nearestUnitAfter } = require('./analyze');
@@ -134,7 +134,7 @@ function buildManifest(targetDir) {
       let { unitName, unitBody, unitBodyStart, unitFound } = cell;
       let cellModule = moduleNameOf(ana, rel);
       let cellGroup = cell.spec.contains ? 'Modules' : 'Internal';
-      let callsOut = [], callsDirect = [], detectedUnit = null;
+      let callsOut = [], callsDirect = [], detectedUnit = cell.detectedUnit || null; // extract's regex-detected name (non-JS langs); the JS AST refines it below
       if (ana.ok && !cell.spec.contains) {
         const u = nearestUnitAfter(ana.units, cell.endLine);
         if (u) {
@@ -271,7 +271,9 @@ function computeInfluence(cells) {
     // Entry points get external callers the static graph can't see: a module's
     // Public API, and DOM event handlers (onclick/onchange/…) invoked by the browser.
     c.isEntry = c.group === 'Public API' || /^on[a-z]+$/.test(shortName(c.unitName));
-    c.bloat = callers[id].size === 0 && !c.isEntry;
+    // The call graph is built from the JS AST only — for a non-JS Cell "no callers" is
+    // blindness, not evidence, so never call it bloat (a misleading dead-code verdict).
+    c.bloat = callers[id].size === 0 && !c.isEntry && (!c.lang || isJsLang(c.lang));
     c.callerIds = [...callers[id]];
   }
 }
