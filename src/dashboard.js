@@ -340,6 +340,15 @@ function startDashboard(deps, opts) {
       try { return sendJSON(res, 200, await deps.policyApply()); }
       catch (e) { return sendJSON(res, 200, { ok: false, error: String((e && e.message) || e) }); }
     }
+    // Freedom mode: ratify (human-sign for real) the Cells auto-approved under a grant. Routes
+    // the signature to the phone (or local key), same as any sign — supersedes the delegation.
+    if (req.method === 'POST' && url === '/api/ratify') {
+      if (!isLocal(req)) return sendJSON(res, 403, { error: 'local only' });
+      if (!deps.ratifyApply) return sendJSON(res, 200, { ok: false, error: 'ratify not available' });
+      if (pending) return sendJSON(res, 409, { error: 'a request is already awaiting the phone' });
+      try { return sendJSON(res, 200, await deps.ratifyApply()); }
+      catch (e) { return sendJSON(res, 200, { ok: false, error: String((e && e.message) || e) }); }
+    }
     if (req.method === 'GET' && (url === '/' || url === '/index.html' || url === '/map')) {
       try { const m = deps.buildMapHTML(); return sendHTML(res, withLiveControls(m.html, deps.version())); }
       catch (e) { return sendHTML(res, '<pre style="font-family:monospace;padding:24px;color:#d92d20">map build error:\n' + String((e && e.stack) || e).replace(/[<&]/g, '_') + '</pre>'); }

@@ -239,7 +239,7 @@ function renderMap(manifest, verified, project, changes, times, planDoc, gov, br
   // of signed Specs + Briefs over time (a Brief's weight = its own chars + its Cells' specs).
   const specChars = {};
   for (const id of Object.keys(manifest.cells)) { const c = manifest.cells[id]; if (c) specChars[id] = (c.specBlock || '').length; }
-  const meta = { project: project || 'project', counts: verified.counts, passed: verified.passed, totalUnits, plan: planDoc || null, gov: gov || null, files: FILES, briefs: briefs || [], specChars, tags: (tagCfg && tagCfg.tags) || [], tagSet: (tagCfg && tagCfg.set) || null, tagDescriptions: (tagCfg && tagCfg.descriptions) || {}, tagSets: tagSets || [], batch: batchCfg || { enabled: true, barrier: 5 }, policy: policyInfo || { enforced: [], draft: [], violations: [], signers: [] } };
+  const meta = { project: project || 'project', counts: verified.counts, passed: verified.passed, totalUnits, plan: planDoc || null, gov: gov || null, files: FILES, briefs: briefs || [], specChars, tags: (tagCfg && tagCfg.tags) || [], tagSet: (tagCfg && tagCfg.set) || null, tagDescriptions: (tagCfg && tagCfg.descriptions) || {}, tagSets: tagSets || [], batch: batchCfg || { enabled: true, barrier: 5 }, policy: policyInfo || { enforced: [], draft: [], violations: [], signers: [] }, signMethod: (policyInfo && policyInfo.signMethod) || 'phone' };
   const payload = JSON.stringify({ root: 'system', nodes: YLnodes, edges: { system: modEdges }, details, changes: changes || [], needs, meta })
     .replace(/</g, '\\u003c');
 
@@ -701,7 +701,9 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
         +(m.title?('<div style="font-size:1.06rem;font-weight:800;color:var(--ink);margin-bottom:3px">'+esc2(m.title)+'</div>'):'')
         +'<div style="font-size:'+(m.title?'.92rem':'1.02rem')+';line-height:1.45;color:'+(m.title?'var(--mut)':'var(--ink)')+';margin-bottom:8px">'+esc2(m.text||'')+'</div>'+tagline
         +'<div style="font-size:.8rem;color:var(--mut);display:flex;flex-wrap:wrap;gap:10px;align-items:baseline"><span>covers '+cells.length+' part'+(cells.length===1?'':'s')+(cells.length?' — click to open:':'')+'</span>'+hb+ratifyBadge(cells)+'</div>'
-        +(cells.length?('<div style="margin-top:2px">'+cellChips(cells)+'</div>'):'')+'</div>';
+        +(cells.length?('<div style="margin-top:2px">'+cellChips(cells)+'</div>'):'')
+        +(function(){ var a=briefAutoCells(cells); if(!a.length) return ''; var g=m.grant||cellAuto['u:'+a[0]]||''; return '<div style="margin-top:10px;border:1px solid #c9860f;border-radius:9px;padding:9px 11px;background:var(--paper);font-size:.8rem;color:var(--ink-2)"><b style="color:#c9860f">⚡ Delegated'+((g&&g!==true)?(' · grant '+esc2(g)):'')+'</b> — auto-approved in Freedom mode, <b>not human-reviewed</b>. Ratify (sign for real) '+(isLive()?'with the <b>⚡ Ratify now</b> button at the top of the Briefs tab':'from a live dashboard’s ⚡ Ratify button, or run <code>yay ratify --sign</code>')+'.</div>'; })()
+        +'</div>';
     }
     // ── Chart view: cumulative characters of signed Specs + Briefs over time, filterable
     // by tag and/or signer. A Brief's "weight" = its own chars (title + prose) plus the
@@ -842,7 +844,9 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
     // Freedom-mode call-out: how many Cells across how many Briefs are delegated (auto-approved
     // under a grant) and still await a real human signature.
     var ratCells=0, ratBriefs=0; ms.forEach(function(b){ var a=briefAutoCells(b.cells); if(a.length){ ratBriefs++; ratCells+=a.length; } });
-    var ratNote=ratCells?('<div style="border:1px solid #c9860f;border-left:3px solid #c9860f;border-radius:12px;padding:11px 14px;margin:0 0 16px;background:var(--card2)"><div style="font-weight:800;color:#c9860f;font-size:.9rem">⚡ '+ratCells+' Cell'+(ratCells===1?'':'s')+' across '+ratBriefs+' Brief'+(ratBriefs===1?'':'s')+' await ratification</div><div style="font-size:.82rem;color:var(--mut);margin-top:4px">Auto-approved under a grant (<b>Freedom mode</b>) — delegated, <b>not human-reviewed</b>. Look back and sign them for real with <code>yay ratify --sign</code> (list them with <code>yay ratify</code>). Filter the Chart to just these with the <b>⚡ Awaiting ratification</b> toggle.</div></div>'):'';
+    var onPhone=((DATA.meta&&DATA.meta.signMethod)!=='local');
+    var ratBtn=isLive()?('<div style="margin-top:11px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button id="bf-ratify" style="padding:8px 15px;border-radius:8px;border:none;background:#c9860f;color:#fff;font-weight:700;cursor:pointer">⚡ Ratify now — '+(onPhone?'sign on your phone':'sign')+'</button><span style="font-size:.82rem;color:var(--mut)">reviews & signs all delegated Cells for real</span><span id="bf-ratmsg" style="font-size:.82rem;color:var(--mut)"></span></div>'):'';
+    var ratNote=ratCells?('<div style="border:1px solid #c9860f;border-left:3px solid #c9860f;border-radius:12px;padding:11px 14px;margin:0 0 16px;background:var(--card2)"><div style="font-weight:800;color:#c9860f;font-size:.9rem">⚡ '+ratCells+' Cell'+(ratCells===1?'':'s')+' across '+ratBriefs+' Brief'+(ratBriefs===1?'':'s')+' await ratification</div><div style="font-size:.82rem;color:var(--mut);margin-top:4px">Auto-approved under a grant (<b>Freedom mode</b>) — delegated, <b>not human-reviewed</b>. Look back, then sign them for real'+(isLive()?' with the button below':' with <code>yay ratify --sign</code> (list them with <code>yay ratify</code>)')+'. Filter the Chart to just these with the <b>⚡ Awaiting ratification</b> toggle.</div>'+ratBtn+'</div>'):'';
     var html='<h1>Briefs</h1><div class="snote" style="margin:0 0 14px">What was ordered, in plain language.</div>'+ratNote+batchbar+toolbar+'<div class="snote" style="margin:2px 0 14px;font-size:.82rem">'+hint+'</div>';
 
     if(briefView==='chart'){
@@ -890,6 +894,8 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
     var cct=document.getElementById('bf-ct'); if(cct) cct.onchange=function(){ briefChartTag=cct.value||null; renderBriefs(); };
     var ccs=document.getElementById('bf-cs'); if(ccs) ccs.onchange=function(){ briefChartSigner=ccs.value||null; renderBriefs(); };
     var crat=document.getElementById('bf-crat'); if(crat) crat.onclick=function(){ briefChartRatify=!briefChartRatify; renderBriefs(); };
+    var rbtn=document.getElementById('bf-ratify'); if(rbtn) rbtn.onclick=function(){ var rm=document.getElementById('bf-ratmsg'); if(rm){ rm.textContent=onPhone?'Sending to your phone to sign…':'Signing locally…'; rm.style.color=''; } rbtn.disabled=true; rbtn.style.opacity='.6';
+      fetch('/api/ratify',{method:'POST',headers:{'content-type':'application/json'},body:'{}'}).then(function(r){return r.json();}).then(function(j){ if(j&&j.ok){ if(rm){ rm.textContent='✓ Ratified — reloading…'; rm.style.color='#1f9d57'; } setTimeout(function(){ location.reload(); },1200); } else { rbtn.disabled=false; rbtn.style.opacity='1'; if(rm){ rm.textContent='✗ '+((j&&j.error)||'failed'); rm.style.color='#cf4436'; } } }).catch(function(){ rbtn.disabled=false; rbtn.style.opacity='1'; if(rm){ rm.textContent='✗ request failed'; rm.style.color='#cf4436'; } }); };
     var crs=document.getElementById('bf-creset'); if(crs) crs.onclick=function(){ briefChartTag=null; briefChartSigner=null; briefChartRatify=false; renderBriefs(); };
     if(briefView==='chart') setupChartLens();
     var ben=document.getElementById('bf-batch-en'), bn=document.getElementById('bf-batch-n'), bmsg=document.getElementById('bf-batch-msg');

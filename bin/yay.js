@@ -1896,6 +1896,18 @@ async function cmdDashboard(flags) {
           ? { ok: true, output: out.replace(/\x1b\[[0-9;]*m/g, '').trim() }
           : { ok: false, error: (out.replace(/\x1b\[[0-9;]*m/g, '').trim() || ('policy --set exited ' + code)) }));
       }),
+      // Freedom mode: human-ratify all delegated (auto-approved) Cells — routes to the phone
+      // (reuses yay ratify --sign, which lays a real signature over exactly the auto Cells).
+      ratifyApply: () => new Promise((resolve) => {
+        const child = require('child_process').spawn(process.execPath, [process.argv[1], 'ratify', '--sign'], { cwd: p.root });
+        let out = '';
+        child.stdout.on('data', (d) => { out += d; });
+        child.stderr.on('data', (d) => { out += d; });
+        child.on('error', (e) => resolve({ ok: false, error: String((e && e.message) || e) }));
+        child.on('exit', (code) => resolve(code === 0
+          ? { ok: true, output: out.replace(/\x1b\[[0-9;]*m/g, '').trim() }
+          : { ok: false, error: (out.replace(/\x1b\[[0-9;]*m/g, '').trim() || ('ratify --sign exited ' + code)) }));
+      }),
       // Live tag-pool editing from the dashboard (add / remove / rename / describe). Renaming
       // a tag already used in a signed Brief is refused — it would split the history.
       tagsEdit: (op) => {
