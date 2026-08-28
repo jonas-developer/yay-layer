@@ -668,7 +668,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
 
   // ── Briefs tab — the plain-English ledger of what was ordered (Standard §5) ──
   var briefTagFilter=null, briefGroupBy=false, briefView='list'; // Briefs-tab view state
-  var briefChartTag=null, briefChartSigner=null; // Chart-view filters (tag / signer / both)
+  var briefChartTag=null, briefChartSigner=null, briefChartMetric='count'; // Chart-view filters (tag / signer / both) + Y-axis metric
   function renderBriefs(){
     var el=document.getElementById('briefs'); if(!el) return;
     var ms=(DATA.meta&&DATA.meta.briefs)||[];
@@ -699,13 +699,21 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
       var tagOpts='<option value="">All tags</option>'+pool.map(function(t){return '<option value="'+esc2(t)+'"'+(briefChartTag&&lc(t)===lc(briefChartTag)?' selected':'')+'>#'+esc2(t)+'</option>';}).join('');
       var sigOpts='<option value="">All signers</option>'+signers.map(function(s){return '<option value="'+esc2(s)+'"'+(briefChartSigner&&lc(s)===lc(briefChartSigner)?' selected':'')+'>'+esc2(s)+'</option>';}).join('');
       var reset=(briefChartTag||briefChartSigner)?'<span id="bf-creset" style="font-size:.78rem;color:var(--accent);cursor:pointer;text-decoration:underline">reset</span>':'';
-      return '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 12px"><span style="font-size:.8rem;color:var(--mut)">Filter:</span><select id="bf-ct" style="'+selCss+'">'+tagOpts+'</select><select id="bf-cs" style="'+selCss+'">'+sigOpts+'</select>'+reset+'</div>';
+      function mb(v,l,tip){ var on=briefChartMetric===v; return '<button class="bf-metric" data-m="'+v+'" title="'+esc2(tip)+'" style="border:none;padding:6px 13px;font-weight:600;cursor:pointer;font-family:inherit;font-size:.78rem;'+(on?'background:var(--accent);color:#fff':'background:transparent;color:var(--ink)')+'">'+l+'</button>'; }
+      var metricSeg='<span style="font-size:.8rem;color:var(--mut)">Y-axis:</span><div style="display:inline-flex;border:1px solid var(--rule);border-radius:8px;overflow:hidden">'+mb('count','Count','How many things you have signed — each Brief plus every Cell it covers (counted once)')+mb('chars','Chars','Depth — characters of Brief prose plus the specs it covers')+'</div>';
+      return '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 12px">'+metricSeg+'<span style="width:8px"></span><span style="font-size:.8rem;color:var(--mut)">Filter:</span><select id="bf-ct" style="'+selCss+'">'+tagOpts+'</select><select id="bf-cs" style="'+selCss+'">'+sigOpts+'</select>'+reset+'</div>';
     }
     function chartSVG(list){
       if(!list.length) return '<div class="snote">No Briefs match this filter.</div>';
-      var pts=[], cum=0, tmin=Infinity, tmax=-Infinity;
-      list.forEach(function(b){ cum+=briefChars(b); var t=Date.parse(b.at||'')||0; if(t<tmin)tmin=t; if(t>tmax)tmax=t; pts.push({t:t,y:cum,b:b}); });
+      // Y-axis metric. Default "count" = approved units the human has signed over time:
+      // each Brief adds itself (+1) plus every Cell it covers that no earlier Brief already
+      // counted (distinct). "chars" is the secondary depth lens (title+prose+covered specs).
+      var isCount=(briefChartMetric==='count'), unit=isCount?'units':'chars';
+      function inc(b,seen){ if(!isCount) return briefChars(b); var k=1; (b.cells||[]).forEach(function(c){ if(!seen[c]){ seen[c]=1; k++; } }); return k; }
+      var pts=[], cum=0, tmin=Infinity, tmax=-Infinity, seen={};
+      list.forEach(function(b){ var d=inc(b,seen); cum+=d; var t=Date.parse(b.at||'')||0; if(t<tmin)tmin=t; if(t>tmax)tmax=t; pts.push({t:t,y:cum,inc:d,b:b}); });
       var ymax=cum||1, n=list.length;
+      function fmtY(v){ return isCount?String(Math.round(v)):(v>=1000?(Math.round(v/100)/10)+'k':Math.round(v)); }
       var W=760,H=340,L=58,R=20,Tp=18,Bp=46, pw=W-L-R, ph=H-Tp-Bp, same=(tmax<=tmin);
       function X(i,t){ return same?(n<=1?L+pw/2:L+(i/(n-1))*pw):(L+(t-tmin)/(tmax-tmin)*pw); }
       function Y(v){ return Tp+ph-(v/ymax)*ph; }
@@ -716,30 +724,32 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
       function sigColor(s){ if(!s) return '#9aa0a6'; var i=sigNamed.indexOf(s); return i<=0?'var(--accent)':PAL[(i-1)%PAL.length]; }
       var line='', dots='', pdata=[], dr=Math.max(1.4, 4-Math.floor(n/25)); // dots shrink as points crowd (a year of dailies stays legible; the line always reads)
       pts.forEach(function(p,i){ var x=X(i,p.t), y=Y(p.y), col=sigColor(p.b.signer||''); line+=(i?' L':'M')+x.toFixed(1)+','+y.toFixed(1);
-        pdata.push({x:+x.toFixed(1),y:+y.toFixed(1),d:String(p.b.at||'').slice(0,10),t:(p.b.title||''),bt:(p.b.text||''),c:briefChars(p.b),v:p.y,s:p.b.signer||'',id:(p.b.id||''),col:col});
-        dots+='<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="'+dr+'" fill="'+col+'"'+(dr>=3?' stroke="var(--card2)" stroke-width="1.5"':'')+'><title>'+esc2((p.b.title||p.b.text||'')+' — +'+briefChars(p.b)+' chars → '+p.y+' total · '+String(p.b.at||'').replace('T',' ').slice(0,16)+(p.b.signer?' · '+p.b.signer:''))+'</title></circle>'; });
+        pdata.push({x:+x.toFixed(1),y:+y.toFixed(1),d:String(p.b.at||'').slice(0,10),t:(p.b.title||''),bt:(p.b.text||''),c:p.inc,v:p.y,s:p.b.signer||'',id:(p.b.id||''),col:col});
+        dots+='<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="'+dr+'" fill="'+col+'"'+(dr>=3?' stroke="var(--card2)" stroke-width="1.5"':'')+'><title>'+esc2((p.b.title||p.b.text||'')+' — +'+p.inc+' '+unit+' → '+p.y+' total · '+String(p.b.at||'').replace('T',' ').slice(0,16)+(p.b.signer?' · '+p.b.signer:''))+'</title></circle>'; });
       var pattr=esc2(JSON.stringify(pdata)).replace(/"/g,'&quot;');
       var hasUnsigned=list.some(function(b){ return !(b.signer); });
       var legItems=sigNamed.map(function(s){ return {s:s,c:sigColor(s)}; }); if(hasUnsigned) legItems.push({s:'(unattributed)',c:'#9aa0a6'});
       var legend=(legItems.length>1)?('<div style="display:flex;flex-wrap:wrap;gap:12px;padding:9px 4px 2px;border-top:1px solid var(--rule);margin-top:2px">'+legItems.map(function(it){ return '<span style="display:inline-flex;align-items:center;gap:6px;font-size:.72rem;color:var(--ink-2)"><span style="width:9px;height:9px;border-radius:50%;background:'+it.c+';display:inline-block;flex:0 0 auto"></span>'+esc2(it.s)+'</span>'; }).join('')+'</div>'):'';
       var x0=X(0,pts[0].t), xl=X(n-1,pts[n-1].t), y0=Y(0);
       var area='M'+x0.toFixed(1)+','+y0.toFixed(1)+' '+line.replace(/^M/,'L')+' L'+xl.toFixed(1)+','+y0.toFixed(1)+' Z';
-      var yt=''; for(var k=0;k<=4;k++){ var v=ymax*k/4, yy=Y(v); yt+='<line x1="'+L+'" y1="'+yy.toFixed(1)+'" x2="'+(W-R)+'" y2="'+yy.toFixed(1)+'" stroke="var(--rule)" stroke-width="1" opacity="0.55"/><text x="'+(L-8)+'" y="'+(yy+3.5).toFixed(1)+'" text-anchor="end" font-size="10" fill="var(--mut)">'+(v>=1000?(Math.round(v/100)/10)+'k':Math.round(v))+'</text>'; }
+      // integer metric → at most (ymax+1) distinct gridlines, so a 3-unit chart doesn't show "0.75, 1.5…"
+      var steps=isCount?Math.max(1,Math.min(4,Math.round(ymax))):4;
+      var yt=''; for(var k=0;k<=steps;k++){ var v=ymax*k/steps, yy=Y(v); yt+='<line x1="'+L+'" y1="'+yy.toFixed(1)+'" x2="'+(W-R)+'" y2="'+yy.toFixed(1)+'" stroke="var(--rule)" stroke-width="1" opacity="0.55"/><text x="'+(L-8)+'" y="'+(yy+3.5).toFixed(1)+'" text-anchor="end" font-size="10" fill="var(--mut)">'+fmtY(v)+'</text>'; }
       var xt='', idxs=(n<=1)?[0]:(n<=3?pts.map(function(_,i){return i;}):[0,Math.floor((n-1)/2),n-1]);
       idxs.forEach(function(i){ var x=X(i,pts[i].t); xt+='<text x="'+x.toFixed(1)+'" y="'+(H-24)+'" text-anchor="middle" font-size="10" fill="var(--mut)">'+esc2(String(pts[i].b.at||'').slice(0,10))+'</text>'; });
       return '<div id="bf-chartwrap" style="position:relative;border:1px solid var(--rule);border-radius:14px;background:var(--card2);padding:14px 12px 8px;overflow-x:auto">'
-        +'<svg id="bf-chartsvg" data-pts="'+pattr+'" viewBox="0 0 '+W+' '+H+'" style="width:100%;min-width:520px;height:auto;display:block;cursor:pointer">'
+        +'<svg id="bf-chartsvg" data-pts="'+pattr+'" data-unit="'+unit+'" viewBox="0 0 '+W+' '+H+'" style="width:100%;min-width:520px;height:auto;display:block;cursor:pointer">'
         +yt+'<path d="'+area+'" fill="var(--accent)" opacity="0.10"/><path d="'+line+'" fill="none" stroke="var(--accent)" stroke-width="2"/>'+dots
-        +'<text x="'+L+'" y="'+(Tp+1)+'" font-size="10" fill="var(--mut)">cumulative chars — Specs + Briefs</text>'+xt+'</svg>'
+        +'<text x="'+L+'" y="'+(Tp+1)+'" font-size="10" fill="var(--mut)">'+(isCount?'cumulative approved units — Cells + Briefs':'cumulative chars — Specs + Briefs')+'</text>'+xt+'</svg>'
         +legend
-        +'<div style="font-size:.75rem;color:var(--mut);padding:6px 4px 2px">'+n+' Brief'+(n===1?'':'s')+' · '+ymax+' total characters signed'+(briefChartTag?(' · #'+esc2(briefChartTag)):'')+(briefChartSigner?(' · '+esc2(briefChartSigner)):'')+'. Hover to preview a Brief; click a point to open it.</div></div>';
+        +'<div style="font-size:.75rem;color:var(--mut);padding:6px 4px 2px">'+n+' Brief'+(n===1?'':'s')+' · '+(isCount?(ymax+' approved unit'+(ymax===1?'':'s')+' (Cells + Briefs)'):(ymax+' total characters signed'))+(briefChartTag?(' · #'+esc2(briefChartTag)):'')+(briefChartSigner?(' · '+esc2(briefChartSigner)):'')+'. Hover to preview a Brief; click a point to open it.</div></div>';
     }
     // Hover the line: a small white bubble shows the nearest Brief — its title in a
     // readable size, the full Brief text in smaller letters below.
     function setupChartLens(){
       var svg=document.getElementById('bf-chartsvg'), wrap=document.getElementById('bf-chartwrap');
       if(!svg||!wrap) return; var pd; try{ pd=JSON.parse(svg.getAttribute('data-pts')||'[]'); }catch(e){ pd=[]; }
-      if(!pd.length) return; var VW=760, VH=340;
+      if(!pd.length) return; var VW=760, VH=340, unitW=svg.getAttribute('data-unit')||'chars';
       var oldTip=document.getElementById('bf-chart-tip'); if(oldTip) oldTip.remove(); // a body-level tip from a previous render would otherwise leak
       var tip=document.createElement('div'); tip.id='bf-chart-tip'; tip.style.cssText='position:fixed;pointer-events:none;cursor:pointer;opacity:0;transition:opacity .1s ease;z-index:9999;max-width:230px;background:#fff;border:1px solid rgba(0,0,0,0.10);border-radius:12px;box-shadow:0 10px 28px rgba(0,0,0,0.22);padding:9px 12px;text-align:left;font-weight:400'; document.body.appendChild(tip);
       var mark=document.createElement('div'); mark.style.cssText='position:absolute;pointer-events:none;opacity:0;transition:opacity .1s ease;z-index:29;width:14px;height:14px;border-radius:50%;border:2px solid var(--accent);background:#fff;box-shadow:0 0 0 3px rgba(0,0,0,0.05)'; wrap.appendChild(mark);
@@ -767,7 +777,8 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
         var key=near.x;
         if(tip._key!==key){
           tip._key=key; var head=near.t||near.bt, body=near.t?near.bt:'';
-          tip.innerHTML='<div style="font-size:12px;font-weight:700;color:#1a1a1a;line-height:1.3;white-space:normal;overflow-wrap:anywhere;word-break:break-word">'+esc2(head)+'</div>'
+          tip.innerHTML='<div style="font-size:11px;font-weight:700;color:'+(near.col||'var(--accent)')+';margin-bottom:2px">+'+near.c+' '+unitW+' → '+near.v+' total</div>'
+            +'<div style="font-size:12px;font-weight:700;color:#1a1a1a;line-height:1.3;white-space:normal;overflow-wrap:anywhere;word-break:break-word">'+esc2(head)+'</div>'
             +(body?('<div style="font-size:10px;font-weight:400;color:#666;line-height:1.4;margin-top:3px;white-space:normal;overflow-wrap:anywhere">'+esc2(body)+'</div>'):'')
             +'<div style="font-size:9px;font-weight:400;color:#9a9a9a;margin-top:5px;letter-spacing:.02em;display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;display:inline-block;flex:0 0 auto;background:'+(near.col||'#9aa0a6')+'"></span>'+esc2(near.d)+(near.s?(' · '+esc2(near.s)):'')+'</div>';
         }
@@ -805,7 +816,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
       +'</div>'
       +'<div style="font-size:.77rem;color:var(--mut);margin-top:7px">Controls how the <b style="color:var(--ink-2)">AI groups changes into Briefs</b> before you sign — and is shared with your team. It does <b style="color:var(--ink-2)">not</b> affect how Briefs are displayed here.</div>'
       +'</div>'):'';
-    var hint=briefView==='clouds'?'Each tag is a cloud; inside, its Briefs newest-first. A Brief with several tags appears in every matching cloud — tap one to see its parts.':briefView==='chart'?'How your signed Specs + Briefs grow over time (each Brief adds its own text plus its Cells’ specs). Filter by tag and/or signer.':'Click a tag to filter; “Group by tag” orders by tag first, date second.';
+    var hint=briefView==='clouds'?'Each tag is a cloud; inside, its Briefs newest-first. A Brief with several tags appears in every matching cloud — tap one to see its parts.':briefView==='chart'?'How much you’ve signed over time. <b>Count</b> = approved units (each Brief + the Cells it covers); <b>Chars</b> = the same growth by depth (Brief prose + covered specs). Filter by tag and/or signer.':'Click a tag to filter; “Group by tag” orders by tag first, date second.';
     // Order: description → project setting (batch) → view controls + their hint → the Briefs.
     // The List/Clouds/Group controls sit right above the Briefs they display.
     var html='<h1>Briefs</h1><div class="snote" style="margin:0 0 14px">What was ordered, in plain language.</div>'+batchbar+toolbar+'<div class="snote" style="margin:2px 0 14px;font-size:.82rem">'+hint+'</div>';
@@ -850,6 +861,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
     }
     el.innerHTML=html;
     Array.prototype.forEach.call(el.querySelectorAll('.bf-view'),function(bt){ bt.onclick=function(){ briefView=bt.getAttribute('data-v'); renderBriefs(); }; });
+    Array.prototype.forEach.call(el.querySelectorAll('.bf-metric'),function(bt){ bt.onclick=function(){ briefChartMetric=bt.getAttribute('data-m'); renderBriefs(); }; });
     var cct=document.getElementById('bf-ct'); if(cct) cct.onchange=function(){ briefChartTag=cct.value||null; renderBriefs(); };
     var ccs=document.getElementById('bf-cs'); if(ccs) ccs.onchange=function(){ briefChartSigner=ccs.value||null; renderBriefs(); };
     var crs=document.getElementById('bf-creset'); if(crs) crs.onclick=function(){ briefChartTag=null; briefChartSigner=null; renderBriefs(); };
