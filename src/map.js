@@ -233,7 +233,7 @@ function renderMap(manifest, verified, project, changes, times, planDoc, gov, br
     const res = verified.results[id];
     const mc = manifest.cells[id];
     if (mc && mc.contains && mc.contains.length) continue; // container Cells aren't file units
-    FILES.push({ file: res.file || (mc && mc.file) || 'other', name: (mc && (mc.unitName || (mc.spec && mc.spec.unit))) || res.name || id, id: 'u:' + id, state: res.state, line: res.line || (mc && mc.line) || 0 });
+    FILES.push({ file: res.file || (mc && mc.file) || 'other', name: (mc && (mc.unitName || (mc.spec && mc.spec.unit))) || res.name || id, id: 'u:' + id, state: res.state, line: res.line || (mc && mc.line) || 0, auto: !!(res.trust && res.trust.auto), grant: (res.trust && res.trust.grant) || null });
   }
   // Per-Cell spec-block character count — so the Briefs "Chart" view can plot the growth
   // of signed Specs + Briefs over time (a Brief's weight = its own chars + its Cells' specs).
@@ -668,7 +668,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
 
   // ── Briefs tab — the plain-English ledger of what was ordered (Standard §5) ──
   var briefTagFilter=null, briefGroupBy=false, briefView='list'; // Briefs-tab view state
-  var briefChartTag=null, briefChartSigner=null, briefChartMetric='count'; // Chart-view filters (tag / signer / both) + Y-axis metric
+  var briefChartTag=null, briefChartSigner=null, briefChartMetric='count', briefChartRatify=false; // Chart-view filters (tag / signer / both / awaiting-ratification) + Y-axis metric
   function renderBriefs(){
     var el=document.getElementById('briefs'); if(!el) return;
     var ms=(DATA.meta&&DATA.meta.briefs)||[];
@@ -679,11 +679,16 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
     // must not read as green. RED = broke, PINK = unauthorised, UNSIGNED = lost its signature.
     var CST={GREEN:'#1f9d57',YELLOW:'#c9860f',RED:'#cf4436',UNSIGNED:'#7f8796',PINK:'#e0559b'};
     var CRANK={GREEN:0,YELLOW:1,UNSIGNED:2,PINK:3,RED:4};
-    var cellState={}; ((DATA.meta&&DATA.meta.files)||[]).forEach(function(f){ cellState[f.id]=f.state; });
+    var cellState={}, cellAuto={}; ((DATA.meta&&DATA.meta.files)||[]).forEach(function(f){ cellState[f.id]=f.state; if(f.auto) cellAuto[f.id]=f.grant||true; });
+    // Freedom mode: a Cell auto-approved under an owner-signed grant is GREEN-on-verify but was
+    // NOT human-reviewed. It awaits ratification — a human should look back and sign it for real
+    // with "yay ratify --sign". Surfaced distinctly (⚡) so delegated work never hides as done.
+    function briefAutoCells(cells){ var r=[]; (cells||[]).forEach(function(c){ if(cellAuto['u:'+c]) r.push(c); }); return r; }
+    function ratifyBadge(cells){ var a=briefAutoCells(cells); if(!a.length) return ''; return '<span style="font-size:.72rem;font-weight:800;color:#c9860f" title="Auto-approved under a grant (Freedom mode) — delegated, NOT human-reviewed. A human should look back and sign for real: yay ratify --sign">⚡ '+a.length+' awaiting ratification</span>'; }
     function briefWorst(cells){ var w='GREEN'; (cells||[]).forEach(function(c){ var st=cellState['u:'+c]; if(st && (CRANK[st]||0)>(CRANK[w]||0)) w=st; }); return w; }
     function briefHealthBadge(cells){ var by={}; (cells||[]).forEach(function(c){ var st=cellState['u:'+c]; if(st && st!=='GREEN') by[st]=(by[st]||0)+1; }); var parts=[]; ['RED','PINK','UNSIGNED','YELLOW'].forEach(function(s){ if(by[s]) parts.push(by[s]+' '+s); }); if(!parts.length) return ''; var w=briefWorst(cells); return '<span style="font-size:.72rem;font-weight:800;color:'+CST[w]+'" title="A Cell this Brief covers no longer verifies GREEN — yay re-derived it as '+w+'. The seal is intact; the code drifted from what was signed.">⚠ '+parts.join(' · ')+'</span>'; }
-    function cellChips(cells){ return (cells||[]).map(function(c){ var uid='u:'+c; var known=!!DETAILS[uid]; var st=cellState[uid]; var col=known?(CST[st]||'var(--accent)'):null;
-      return '<span class="mcell'+(known?' known':'')+'"'+(known?(' data-uid="'+esc2(uid)+'"'):'')+(col?(' style="color:'+col+';border-color:'+col+'"'):'')+' title="'+(known?('Open this Cell'+(st?(' — '+st):'')):'This Cell is no longer in the codebase')+'">'+esc2(c)+((st&&st!=='GREEN')?(' · '+esc2(st)):'')+'</span>'; }).join(''); }
+    function cellChips(cells){ return (cells||[]).map(function(c){ var uid='u:'+c; var known=!!DETAILS[uid]; var st=cellState[uid]; var auto=!!cellAuto[uid]; var col=known?(auto?'#c9860f':(CST[st]||'var(--accent)')):null;
+      return '<span class="mcell'+(known?' known':'')+'"'+(known?(' data-uid="'+esc2(uid)+'"'):'')+(col?(' style="color:'+col+';border-color:'+col+'"'):'')+' title="'+(known?('Open this Cell'+(st?(' — '+st):'')+(auto?' · ⚡ auto-approved under grant, awaiting ratification':'')):'This Cell is no longer in the codebase')+'">'+(auto?'⚡ ':'')+esc2(c)+((st&&st!=='GREEN')?(' · '+esc2(st)):'')+'</span>'; }).join(''); }
     function briefCard(m){
       var when=m.at?String(m.at).slice(0,10):'';
       var cells=m.cells||[]; var valid=m.valid!==false; var worst=valid?briefWorst(cells):'RED';
@@ -695,7 +700,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
         +'<div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline;margin-bottom:6px"><span style="font-weight:800;letter-spacing:.06em;font-size:.72rem;color:var(--accent)">BRIEF '+esc2(m.id||'')+'</span><span style="font-size:.78rem;color:var(--mut)">'+badge+' · '+esc2(when)+(m.signer?(' · '+esc2(m.signer)):'')+'</span></div>'
         +(m.title?('<div style="font-size:1.06rem;font-weight:800;color:var(--ink);margin-bottom:3px">'+esc2(m.title)+'</div>'):'')
         +'<div style="font-size:'+(m.title?'.92rem':'1.02rem')+';line-height:1.45;color:'+(m.title?'var(--mut)':'var(--ink)')+';margin-bottom:8px">'+esc2(m.text||'')+'</div>'+tagline
-        +'<div style="font-size:.8rem;color:var(--mut);display:flex;flex-wrap:wrap;gap:10px;align-items:baseline"><span>covers '+cells.length+' part'+(cells.length===1?'':'s')+(cells.length?' — click to open:':'')+'</span>'+hb+'</div>'
+        +'<div style="font-size:.8rem;color:var(--mut);display:flex;flex-wrap:wrap;gap:10px;align-items:baseline"><span>covers '+cells.length+' part'+(cells.length===1?'':'s')+(cells.length?' — click to open:':'')+'</span>'+hb+ratifyBadge(cells)+'</div>'
         +(cells.length?('<div style="margin-top:2px">'+cellChips(cells)+'</div>'):'')+'</div>';
     }
     // ── Chart view: cumulative characters of signed Specs + Briefs over time, filterable
@@ -709,10 +714,12 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
       var selCss='padding:7px 10px;border-radius:8px;border:1px solid var(--rule);background:var(--paper);color:var(--ink);font-family:inherit;font-size:.82rem';
       var tagOpts='<option value="">All tags</option>'+pool.map(function(t){return '<option value="'+esc2(t)+'"'+(briefChartTag&&lc(t)===lc(briefChartTag)?' selected':'')+'>#'+esc2(t)+'</option>';}).join('');
       var sigOpts='<option value="">All signers</option>'+signers.map(function(s){return '<option value="'+esc2(s)+'"'+(briefChartSigner&&lc(s)===lc(briefChartSigner)?' selected':'')+'>'+esc2(s)+'</option>';}).join('');
-      var reset=(briefChartTag||briefChartSigner)?'<span id="bf-creset" style="font-size:.78rem;color:var(--accent);cursor:pointer;text-decoration:underline">reset</span>':'';
+      var reset=(briefChartTag||briefChartSigner||briefChartRatify)?'<span id="bf-creset" style="font-size:.78rem;color:var(--accent);cursor:pointer;text-decoration:underline">reset</span>':'';
       function mb(v,l,tip){ var on=briefChartMetric===v; return '<button class="bf-metric" data-m="'+v+'" title="'+esc2(tip)+'" style="border:none;padding:6px 13px;font-weight:600;cursor:pointer;font-family:inherit;font-size:.78rem;'+(on?'background:var(--accent);color:#fff':'background:transparent;color:var(--ink)')+'">'+l+'</button>'; }
       var metricSeg='<span style="font-size:.8rem;color:var(--mut)">Y-axis:</span><div style="display:inline-flex;border:1px solid var(--rule);border-radius:8px;overflow:hidden">'+mb('count','Count','How many things you have signed — each Brief plus every Cell it covers (counted once)')+mb('chars','Chars','Depth — characters of Brief prose plus the specs it covers')+'</div>';
-      return '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 12px">'+metricSeg+'<span style="width:8px"></span><span style="font-size:.8rem;color:var(--mut)">Filter:</span><select id="bf-ct" style="'+selCss+'">'+tagOpts+'</select><select id="bf-cs" style="'+selCss+'">'+sigOpts+'</select>'+reset+'</div>';
+      var anyAuto=ms.some(function(b){ return briefAutoCells(b.cells).length; });
+      var ratTog=anyAuto?('<button id="bf-crat" title="Show only Briefs with Cells auto-approved under a grant (Freedom mode), awaiting a real human signature — yay ratify --sign" style="border:1px solid '+(briefChartRatify?'#c9860f':'var(--rule)')+';background:'+(briefChartRatify?'#c9860f':'transparent')+';color:'+(briefChartRatify?'#fff':'var(--ink)')+';border-radius:100px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:.78rem;font-weight:700">⚡ Awaiting ratification</button>'):'';
+      return '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 12px">'+metricSeg+'<span style="width:8px"></span><span style="font-size:.8rem;color:var(--mut)">Filter:</span><select id="bf-ct" style="'+selCss+'">'+tagOpts+'</select><select id="bf-cs" style="'+selCss+'">'+sigOpts+'</select>'+ratTog+reset+'</div>';
     }
     function chartSVG(list){
       if(!list.length) return '<div class="snote">No Briefs match this filter.</div>';
@@ -734,9 +741,10 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
       var PAL=['#3b82f6','#f59e0b','#a855f7','#14b8a6','#ec4899','#6366f1','#84cc16','#f97316'];
       function sigColor(s){ if(!s) return '#9aa0a6'; var i=sigNamed.indexOf(s); return i<=0?'var(--accent)':PAL[(i-1)%PAL.length]; }
       var line='', dots='', pdata=[], dr=Math.max(1.4, 4-Math.floor(n/25)); // dots shrink as points crowd (a year of dailies stays legible; the line always reads)
-      pts.forEach(function(p,i){ var x=X(i,p.t), y=Y(p.y), col=sigColor(p.b.signer||''); line+=(i?' L':'M')+x.toFixed(1)+','+y.toFixed(1);
-        pdata.push({x:+x.toFixed(1),y:+y.toFixed(1),d:String(p.b.at||'').slice(0,10),t:(p.b.title||''),bt:(p.b.text||''),c:p.inc,v:p.y,s:p.b.signer||'',id:(p.b.id||''),col:col});
-        dots+='<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="'+dr+'" fill="'+col+'"'+(dr>=3?' stroke="var(--card2)" stroke-width="1.5"':'')+'><title>'+esc2((p.b.title||p.b.text||'')+' — +'+p.inc+' '+unit+' → '+p.y+' total · '+String(p.b.at||'').replace('T',' ').slice(0,16)+(p.b.signer?' · '+p.b.signer:''))+'</title></circle>'; });
+      pts.forEach(function(p,i){ var x=X(i,p.t), y=Y(p.y), col=sigColor(p.b.signer||''), au=briefAutoCells(p.b.cells).length; line+=(i?' L':'M')+x.toFixed(1)+','+y.toFixed(1);
+        pdata.push({x:+x.toFixed(1),y:+y.toFixed(1),d:String(p.b.at||'').slice(0,10),t:(p.b.title||''),bt:(p.b.text||''),c:p.inc,v:p.y,s:p.b.signer||'',id:(p.b.id||''),col:col,au:au});
+        if(au) dots+='<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="'+(dr+3)+'" fill="none" stroke="#c9860f" stroke-width="1.6"/>'; // ⚡ awaiting-ratification ring
+        dots+='<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="'+dr+'" fill="'+col+'"'+(dr>=3?' stroke="var(--card2)" stroke-width="1.5"':'')+'><title>'+esc2((au?'⚡ awaiting ratification · ':'')+(p.b.title||p.b.text||'')+' — +'+p.inc+' '+unit+' → '+p.y+' total · '+String(p.b.at||'').replace('T',' ').slice(0,16)+(p.b.signer?' · '+p.b.signer:''))+'</title></circle>'; });
       var pattr=esc2(JSON.stringify(pdata)).replace(/"/g,'&quot;');
       var hasUnsigned=list.some(function(b){ return !(b.signer); });
       var legItems=sigNamed.map(function(s){ return {s:s,c:sigColor(s)}; }); if(hasUnsigned) legItems.push({s:'(unattributed)',c:'#9aa0a6'});
@@ -788,7 +796,8 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
         var key=near.x;
         if(tip._key!==key){
           tip._key=key; var head=near.t||near.bt, body=near.t?near.bt:'';
-          tip.innerHTML='<div style="font-size:11px;font-weight:700;color:'+(near.col||'var(--accent)')+';margin-bottom:2px">+'+near.c+' '+unitW+' → '+near.v+' total</div>'
+          tip.innerHTML=(near.au?'<div style="font-size:10px;font-weight:800;color:#c9860f;margin-bottom:3px">⚡ '+near.au+' cell'+(near.au===1?'':'s')+' awaiting ratification</div>':'')
+            +'<div style="font-size:11px;font-weight:700;color:'+(near.col||'var(--accent)')+';margin-bottom:2px">+'+near.c+' '+unitW+' → '+near.v+' total</div>'
             +'<div style="font-size:12px;font-weight:700;color:#1a1a1a;line-height:1.3;white-space:normal;overflow-wrap:anywhere;word-break:break-word">'+esc2(head)+'</div>'
             +(body?('<div style="font-size:10px;font-weight:400;color:#666;line-height:1.4;margin-top:3px;white-space:normal;overflow-wrap:anywhere">'+esc2(body)+'</div>'):'')
             +'<div style="font-size:9px;font-weight:400;color:#9a9a9a;margin-top:5px;letter-spacing:.02em;display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;display:inline-block;flex:0 0 auto;background:'+(near.col||'#9aa0a6')+'"></span>'+esc2(near.d)+(near.s?(' · '+esc2(near.s)):'')+'</div>';
@@ -830,13 +839,18 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
     var hint=briefView==='clouds'?'Each tag is a cloud; inside, its Briefs newest-first. A Brief with several tags appears in every matching cloud — tap one to see its parts.':briefView==='chart'?'How much you’ve signed over time. <b>Count</b> = approved units (each Brief + the Cells it covers); <b>Chars</b> = the same growth by depth (Brief prose + covered specs). Filter by tag and/or signer.':'Click a tag to filter; “Group by tag” orders by tag first, date second.';
     // Order: description → project setting (batch) → view controls + their hint → the Briefs.
     // The List/Clouds/Group controls sit right above the Briefs they display.
-    var html='<h1>Briefs</h1><div class="snote" style="margin:0 0 14px">What was ordered, in plain language.</div>'+batchbar+toolbar+'<div class="snote" style="margin:2px 0 14px;font-size:.82rem">'+hint+'</div>';
+    // Freedom-mode call-out: how many Cells across how many Briefs are delegated (auto-approved
+    // under a grant) and still await a real human signature.
+    var ratCells=0, ratBriefs=0; ms.forEach(function(b){ var a=briefAutoCells(b.cells); if(a.length){ ratBriefs++; ratCells+=a.length; } });
+    var ratNote=ratCells?('<div style="border:1px solid #c9860f;border-left:3px solid #c9860f;border-radius:12px;padding:11px 14px;margin:0 0 16px;background:var(--card2)"><div style="font-weight:800;color:#c9860f;font-size:.9rem">⚡ '+ratCells+' Cell'+(ratCells===1?'':'s')+' across '+ratBriefs+' Brief'+(ratBriefs===1?'':'s')+' await ratification</div><div style="font-size:.82rem;color:var(--mut);margin-top:4px">Auto-approved under a grant (<b>Freedom mode</b>) — delegated, <b>not human-reviewed</b>. Look back and sign them for real with <code>yay ratify --sign</code> (list them with <code>yay ratify</code>). Filter the Chart to just these with the <b>⚡ Awaiting ratification</b> toggle.</div></div>'):'';
+    var html='<h1>Briefs</h1><div class="snote" style="margin:0 0 14px">What was ordered, in plain language.</div>'+ratNote+batchbar+toolbar+'<div class="snote" style="margin:2px 0 14px;font-size:.82rem">'+hint+'</div>';
 
     if(briefView==='chart'){
       html+=chartControls();
       var cf=ms.filter(function(b){
         if(briefChartTag && !(b.tags||[]).some(function(t){return lc(t)===lc(briefChartTag);})) return false;
         if(briefChartSigner && lc(b.signer||'')!==lc(briefChartSigner)) return false;
+        if(briefChartRatify && !briefAutoCells(b.cells).length) return false;
         return true;
       }).slice().sort(function(a,z){ return String(a.at||'').localeCompare(String(z.at||'')); });
       html+=chartSVG(cf);
@@ -851,7 +865,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
             +'<div style="display:flex;gap:8px;justify-content:space-between;align-items:baseline"><span style="font-size:.9rem;font-weight:'+(b.title?'700':'400')+';color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc2(b.title||b.text||'')+'</span><span style="font-size:.68rem;color:var(--mut);font-variant-numeric:tabular-nums;white-space:nowrap">'+esc2(when)+'</span></div>'
             +'<div class="cbdetail" style="display:none;margin-top:7px;padding-top:7px;border-top:1px solid var(--rule)">'
               +'<div style="font-size:.88rem;color:var(--ink);margin-bottom:6px">'+esc2(b.text||'')+'</div>'
-              +'<div style="font-size:.72rem;color:var(--mut);margin-bottom:5px">'+esc2(b.id||'')+' · '+((b.valid!==false)?'✓ signed':'⚠ seal invalid')+(b.signer?(' · '+esc2(b.signer)):'')+(hb2?(' · '+hb2):'')+'</div>'
+              +'<div style="font-size:.72rem;color:var(--mut);margin-bottom:5px">'+esc2(b.id||'')+' · '+((b.valid!==false)?'✓ signed':'⚠ seal invalid')+(b.signer?(' · '+esc2(b.signer)):'')+(hb2?(' · '+hb2):'')+(function(){var rb=ratifyBadge(b.cells);return rb?(' · '+rb):'';})()+'</div>'
               +((b.cells&&b.cells.length)?('<div style="font-size:.72rem;color:var(--mut);margin-bottom:3px">covers '+b.cells.length+' part'+(b.cells.length===1?'':'s')+':</div><div>'+cellChips(b.cells)+'</div>'):'<div style="font-size:.72rem;color:var(--mut)">no parts</div>')
               +((b.tags&&b.tags.length>1)?('<div style="font-size:.7rem;color:var(--mut);margin-top:5px">also in: '+b.tags.filter(function(t){return lc(t)!==k;}).map(esc2).join(', ')+'</div>'):'')
             +'</div></div>';
@@ -875,7 +889,8 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
     Array.prototype.forEach.call(el.querySelectorAll('.bf-metric'),function(bt){ bt.onclick=function(){ briefChartMetric=bt.getAttribute('data-m'); renderBriefs(); }; });
     var cct=document.getElementById('bf-ct'); if(cct) cct.onchange=function(){ briefChartTag=cct.value||null; renderBriefs(); };
     var ccs=document.getElementById('bf-cs'); if(ccs) ccs.onchange=function(){ briefChartSigner=ccs.value||null; renderBriefs(); };
-    var crs=document.getElementById('bf-creset'); if(crs) crs.onclick=function(){ briefChartTag=null; briefChartSigner=null; renderBriefs(); };
+    var crat=document.getElementById('bf-crat'); if(crat) crat.onclick=function(){ briefChartRatify=!briefChartRatify; renderBriefs(); };
+    var crs=document.getElementById('bf-creset'); if(crs) crs.onclick=function(){ briefChartTag=null; briefChartSigner=null; briefChartRatify=false; renderBriefs(); };
     if(briefView==='chart') setupChartLens();
     var ben=document.getElementById('bf-batch-en'), bn=document.getElementById('bf-batch-n'), bmsg=document.getElementById('bf-batch-msg');
     function saveBatch(){ fetch('/api/batch',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({enabled:ben.checked,barrier:parseInt(bn.value,10)||5})}).then(function(r){return r.json();}).then(function(j){ if(bmsg){ bmsg.textContent=(j&&j.ok)?'✓ saved':'✗ '+((j&&j.error)||'failed'); bmsg.style.color=(j&&j.ok)?'#1f9d57':'#cf4436'; } }); }

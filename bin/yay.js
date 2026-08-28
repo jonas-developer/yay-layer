@@ -1641,7 +1641,7 @@ function collectBriefs(config, lock, drv) {
     const trustedPubs = (drv.roster && drv.roster[a.signer]) || U.pubKeysOf(cfgSigners[a.signer]) || [];
     let valid = false;
     try { valid = !!signature && trustedPubs.some((pub) => pub && C.verify(U.canonical(rest), signature, pub)); } catch (_) { valid = false; }
-    return { id: a.id, at: a.at, signer: a.signer, title: (b.title || ''), text: b.text, orderedBy: (b.orderedBy || ''), tags: b.tags || [], cells: Object.keys(a.items || {}), valid };
+    return { id: a.id, at: a.at, signer: a.signer, title: (b.title || ''), text: b.text, orderedBy: (b.orderedBy || ''), tags: b.tags || [], cells: Object.keys(a.items || {}), valid, auto: !!a.autoApproved, grant: a.grant || null };
   }).reverse();
 }
 
