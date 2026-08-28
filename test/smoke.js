@@ -346,6 +346,39 @@ fs.rmSync(pdir, { recursive: true, force: true });
   fs.rmSync(ad, { recursive: true, force: true });
 }
 
+// 12g) INERTNESS check: a dormant branch (pure, ensures-consistent, never hit by
+// generated inputs) is flagged; declared guards (throws:) and perf: are exempt;
+// policy escalates to block or relaxes to note.
+{
+  const itmp = fs.mkdtempSync(P.join(os.tmpdir(), 'yay-inert-'));
+  const ispec = (id, unit, extra) => `//∷YAY⟨${id}⟩\n// unit: ${unit}\n// intent: t.\n// in: n:number\n// out: number\n// pure: yes\n// ensures: out === n * 2\n${extra || ''}//∷YAY-END⟨${id}⟩\n`;
+  fs.writeFileSync(P.join(itmp, 'a.js'),
+    ispec('C-1', 'clean') + 'function clean(n){ return n * 2; }\n\n'
+    + ispec('C-2', 'dormant') + 'function dormant(n){ if (n === 987654) { return 0; } return n * 2; }\n\n'
+    + ispec('C-3', 'guarded', '// throws: TypeError when n is not a number\n') + 'function guarded(n){ if (typeof n !== "number") { throw new TypeError("n"); } return n * 2; }\n\n'
+    + ispec('C-4', 'cached', '// perf: memoized fast-path for zero\n') + 'function cached(n){ if (n === 0) { return 0; } return n * 2; }\n');
+  const iman = buildManifest(itmp);
+  const ikp = C.generateKeypair();
+  const iit = {}; for (const id of ['C-1', 'C-2', 'C-3', 'C-4']) iit[id] = iman.cells[id].specHash;
+  const iap = { id: 'A-1', project: 'x', prev: 'genesis', nonce: 'n', at: new Date().toISOString(), signer: 'T', items: iit };
+  iap.signature = C.sign(canonical(iap), ikp.privDer);
+  const icfg = { signers: { T: ikp.pubB64 } };
+  const ires = verifyManifest(iman, { approvals: [iap] }, icfg);
+  ok(ires.results['C-1'].state === 'GREEN' && !ires.results['C-1'].notes.some((n) => /inert code/.test(n.text)), 'inertness: clean Cell → green, no flag');
+  ok(ires.results['C-2'].state === 'YELLOW' && ires.results['C-2'].notes.some((n) => n.level === 'yellow' && /inert code/.test(n.text)), 'inertness: dormant branch → Yellow cap (default) with the prune/spec/declare route');
+  ok(ires.results['C-3'].state === 'GREEN', 'inertness: guard matching a declared throws: → exempt (still green)');
+  ok(ires.results['C-4'].state === 'GREEN' && ires.results['C-4'].notes.some((n) => /inertness: Cell exempt — perf:/.test(n.text)), 'inertness: perf: declaration → exempt, reason shown (signed)');
+  const iresB = verifyManifest(iman, { approvals: [iap] }, icfg, { policy: { rules: [{ match: { path: 'a.js' }, inert: 'block' }] } });
+  ok(iresB.results['C-2'].state === 'RED' && iresB.results['C-2'].notes.some((n) => n.level === 'red' && /inert/.test(n.text)), 'inertness: policy inert:block → RED (gate-blocking)');
+  const iresN = verifyManifest(iman, { approvals: [iap] }, icfg, { policy: { rules: [{ match: { path: 'a.js' }, inert: 'note' }] } });
+  ok(iresN.results['C-2'].state === 'GREEN' && iresN.results['C-2'].notes.some((n) => n.level === 'info' && /inert/.test(n.text)), 'inertness: policy inert:note → relaxed to info (green stands)');
+  fs.rmSync(itmp, { recursive: true, force: true });
+  // policy helper directly
+  const PM = require('../src/policy');
+  ok(PM.inertLevel({ rules: [] }, { file: 'x.js', spec: {} }) === 'yellow', 'inertness: no rule → yellow default');
+  ok(PM.inertLevel({ rules: [{ match: { tag: 'sensitive' }, inert: 'block' }] }, { file: 'x.js', spec: { sensitive: 'yes' } }) === 'block', 'inertness: sensitive-tag rule escalates to block');
+}
+
 // 13) `yay gate` generators: workflow + hook content, idempotent write
 const G = require('../src/gate');
 ok(/yay verify --strict/.test(G.ciWorkflow()) && /gate:/.test(G.ciWorkflow()), 'gate: workflow runs `yay verify --strict` under a `gate` job');

@@ -17,7 +17,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('node:vm');
 const cp = require('child_process');
-const { mutants } = require('./mutate');
+const { mutants, deletions } = require('./mutate');
 const { makeRecorder } = require('./record');
 const { isJsLang } = require('./util');
 
@@ -491,6 +491,56 @@ function runMutation(adapter, source, cell, opts) {
   return { total, killed, survived, score: total ? killed / total : null, survivor };
 }
 
+// INERTNESS check — the dual of mutation testing. Mutation corrupts code and asks
+// "does the ensures notice?"; inertness DELETES a branch and asks "does anything
+// notice?". A branch removable with every spec-derived test still passing is
+// semantically inert under the promise: dead weight, ahead-of-spec scaffolding, or a
+// dormant payload riding under the signature. Route: prune it, spec it, or declare it.
+// Exemptions (both SIGNED — they live inside the spec, so using one to hide a payload
+// means getting a human to sign the declaration):
+//   throws: — a deleted guard containing `throw` is exempt when the spec declares throws
+//   perf:   — declares intentional semantically-invisible code (cache, early-exit);
+//             exempts the Cell, with the reason shown.
+function runInertness(adapter, source, cell, opts) {
+  opts = opts || {};
+  const declaredThrows = String((cell.spec && cell.spec.throws) || '').trim();
+  const perf = String((cell.spec && cell.spec.perf) || '').trim();
+  if (perf && !/^todo$/i.test(perf)) return { checked: 0, flagged: [], exempt: 'perf: ' + perf };
+  const params = adapter.inputs(cell);
+  const ensures = String((cell.spec && cell.spec.ensures) || '');
+  const dels = deletions(cell.unitBody || '', 20);
+  if (!dels.length) return { checked: 0, flagged: [] };
+  const tuples = cartesian(params.map((p) => valuesFor(p.type)), 40);
+  const inputs = tuples.length ? tuples : [[]];
+  const srcLines = source.split(/\r?\n/);
+  const start = cell.unitBodyStart || 0;
+  const len = (cell.unitBody || '').split('\n').length;
+  const flagged = [];
+  let checked = 0;
+  for (const d of dels) {
+    if (/\bthrow\b/.test(d.removed) && declaredThrows && !/^todo$/i.test(declaredThrows)) continue; // declared guard
+    checked++;
+    const lines = srcLines.slice();
+    lines.splice(start, len, ...d.code.split('\n'));
+    const r = adapter.load(lines.join('\n'), [cell.unitName], { jsx: opts.jsx, file: opts.file });
+    if (r.error || typeof r.fns[cell.unitName] !== 'function') continue; // deletion broke the load → not inert
+    let checker;
+    try { checker = adapter.checker(r.ctx, params.map((p) => p.name), ensures); }
+    catch (_) { continue; }
+    let noticed = false;
+    for (const A of inputs) {
+      let rr; try { rr = checker(r.fns[cell.unitName], A); } catch (_) { noticed = true; break; }
+      if (!rr.ok) { noticed = true; break; }
+    }
+    if (!noticed) {
+      const snippet = d.removed.trim().split('\n')[0].slice(0, 80);
+      flagged.push({ desc: d.desc, line: (cell.unitBodyStart || 0) + d.line, snippet });
+      if (flagged.length >= 5) break; // enough to act on; don't drown the report
+    }
+  }
+  return { checked, flagged };
+}
+
 // The driver — dispatch each Cell to an adapter, load once per file, run cases, grade.
 // opts.mutate (default true) also grades each passing Cell's ensures by mutation.
 // opts.adapters overrides the registry (used by tests). Returns { [cellId]: result }.
@@ -533,7 +583,10 @@ function proveManifest(manifest, opts) {
           res = it.adapter.prove(it.cell, base, fn); // adapter owns its execution (e.g. out-of-VM) + verdict
         } else {
           res = runCases(it.adapter, base.ctx, it.cell, fn);
-          if (res.status === 'pass' && mutate) res.mutation = runMutation(it.adapter, source, it.cell, { jsx: wantsJSX, file });
+          if (res.status === 'pass' && mutate) {
+            res.mutation = runMutation(it.adapter, source, it.cell, { jsx: wantsJSX, file });
+            res.inertness = runInertness(it.adapter, source, it.cell, { jsx: wantsJSX, file });
+          }
         }
         out[it.cell.id] = res;
       } catch (e) { out[it.cell.id] = { status: 'skip', level: 'info', reason: 'prover error: ' + (e && e.message) }; }

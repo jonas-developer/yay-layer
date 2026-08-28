@@ -12,7 +12,7 @@
 const { canonical, pubKeysOf, isJsLang } = require('./util');
 const { verify: sigVerify } = require('./crypto');
 const { proveManifest } = require('./prove');
-const { requiredSigners } = require('./policy');
+const { requiredSigners, inertLevel } = require('./policy');
 const { deriveRoster } = require('./roster');
 const G = require('./grants');
 
@@ -103,7 +103,15 @@ function staticChecks(cell) {
       }
     });
     const signals = [...new Set(found.map((f) => f.signal))];
-    if (pure && found.length) {
+    const renders = /^yes\b/i.test(spec.renders || '');
+    if (pure && found.length && renders) {
+      // A component's inline handlers (onClick={() => fetch(…)}) run AFTER render, so a
+      // signal here isn't proof the RENDER is impure — a line net can't tell handler from
+      // body. Honest middle: Yellow, with the fix spelled out (never a silent pass, never
+      // a false Red on a legitimately pure render that attaches effectful handlers).
+      yellow = true; badLines = found.map((f) => f.text);
+      for (const f of found) notes.push({ level: 'yellow', text: `effect signal in a \`renders:\` component (line ${f.line}): ${f.signal} → ${f.text} — if it's in a handler, declare it in \`effects:\` (handlers run outside the render) or drop \`pure: yes\`; if it runs during render, the render is not pure` });
+    } else if (pure && found.length) {
       red = true;
       badLines = found.map((f) => f.text);
       for (const f of found) notes.push({ level: 'red', text: `purity violated (line ${f.line}): \`pure: yes\` but uses ${f.signal} → ${f.text}` });
@@ -272,6 +280,32 @@ function verifyManifest(manifest, lock, config, opts) {
       r.notes.push({ level: 'red', text: `policy: requires ${req.join(' or ')} to sign — ${r.trust && r.trust.signed ? 'currently signed by ' + (r.trust.signer || '?') : 'not yet signed by them'}` });
       policyBlocked++;
     } else { r.policyOk = true; }
+  }
+
+  // ── Inertness verdicts (built-in security feature) ──
+  // The prover flags branches removable with every spec-derived test still passing —
+  // unpromised behaviour riding under a signature (dead weight, ahead-of-spec
+  // scaffolding, or a dormant payload). Default: Yellow cap. Policy escalates
+  // (inert: block → gate-blocking) or relaxes (inert: note) per path/tag/module.
+  for (const id of Object.keys(proofs)) {
+    const pr = proofs[id];
+    const r = results[id];
+    if (!r || !pr || !pr.inertness) continue;
+    const inert = pr.inertness;
+    if (inert.exempt) { r.notes.push({ level: 'info', text: `inertness: Cell exempt — ${inert.exempt} (signed declaration)` }); continue; }
+    if (!inert.flagged || !inert.flagged.length) continue;
+    const level = inertLevel(policy, manifest.cells[id]);
+    const ex = inert.flagged[0];
+    const msg = `inert code — ${inert.flagged.length} branch(es) removable with every spec-derived test still passing (e.g. line ${ex.line}: \`${ex.snippet}\`): unpromised behaviour riding under the signature. Prune it, spec it (add the ensures case or its own Cell), or declare it (\`throws:\` for guards, \`perf:\` for optimizations).`;
+    if (level === 'note') {
+      r.notes.push({ level: 'info', text: msg + ' (policy: inert → note)' });
+    } else if (level === 'block') {
+      r.state = worst(r.state, 'RED');
+      r.notes.push({ level: 'red', text: msg + ' (policy: inert → block — this Cell is gate-blocked until resolved)' });
+    } else {
+      r.state = worst(r.state, 'YELLOW');
+      r.notes.push({ level: 'yellow', text: msg });
+    }
   }
 
   for (const id of Object.keys(manifest.cells)) {

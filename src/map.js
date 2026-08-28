@@ -859,26 +859,65 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
       if(m.path) parts.push('path <code>'+esc2(m.path)+'</code>');
       if(m.tag) parts.push('tag <code>'+esc2(m.tag)+'</code>');
       if(m.module) parts.push('module <code>'+esc2(m.module)+'</code>');
+      var left=(parts.join(' &amp; ')||'(no matcher)');
+      if(r.inert){
+        var lv=String(r.inert).toLowerCase();
+        var desc=lv==='block'?'<b style="color:#cf4436">inert: block</b> — inert code gate-blocks these Cells':lv==='note'?'<b>inert: note</b> — inert findings shown as info only':'<b style="color:#c9860f">inert: yellow</b> — inert code caps these Cells at Yellow (the default, scoped explicitly)';
+        return left+' → '+desc;
+      }
       var who=r.signer?esc2(r.signer):((r.signers||[]).map(esc2).join(' or '));
-      return (parts.join(' &amp; ')||'(no matcher)')+' → must be signed by <b>'+who+'</b>';
+      return left+' → must be signed by <b>'+who+'</b>';
     }
     var same=JSON.stringify(enforced)===JSON.stringify(draft);
     var html='<h1>Policy</h1><div class="snote" style="margin:0 0 14px">Who must sign what. Neutral by default — a rule requires a specific person to sign matching Cells, and the gate blocks any match they haven’t signed. Enforced rules are <b>owner-signed</b> into the roster (tamper-evident).</div>';
     if(!enforced.length){ html+='<div class="snote" style="margin:0 0 14px">Enforced: <b>none</b> — every enrolled signer is treated the same.</div>'; }
     else { html+='<div style="margin:0 0 16px"><div style="font-weight:800;font-size:.8rem;color:var(--accent);margin-bottom:6px">ENFORCED · owner-signed</div>'+enforced.map(function(r){return '<div style="border:1px solid var(--rule);border-left:3px solid var(--accent);border-radius:10px;padding:9px 12px;margin:0 0 8px;font-size:.92rem">'+ruleLine(r)+'</div>';}).join('')+'</div>'; }
     if(viol.length){ html+='<div style="margin:0 0 16px"><div style="font-weight:800;font-size:.8rem;color:#cf4436;margin-bottom:6px">VIOLATIONS · '+viol.length+'</div>'+viol.map(function(v){return '<div style="font-size:.88rem;color:#cf4436;padding:2px 0 2px 12px;border-left:2px solid #cf4436;margin:0 0 6px">'+esc2(v.id)+' — '+esc2(v.note)+'</div>';}).join('')+'</div>'; }
+    // ── Built-in security: the INERTNESS feature — always visible so users discover it.
+    // Templates are OFF by default (examples, not active rules) until added to the
+    // draft and owner-signed. Uses the project's own security-ish spec tag if the
+    // pool suggests one; the built-in synthetic tag "sensitive" always works.
+    (function(){
+      var pool=(DATA.meta&&DATA.meta.tags)||[];
+      var secTag='sensitive';
+      for(var i=0;i<pool.length;i++){ if(/secur|auth/i.test(pool[i])){ secTag=pool[i].toLowerCase(); break; } }
+      var tpls=[
+        { match:{path:'src/payments/**'}, inert:'yellow', why:'scope the default explicitly to a payments area' },
+        { match:{tag:secTag},            inert:'block',  why:'crown jewels — inert code BLOCKS the gate here' },
+        { match:{path:'legacy/**'},      inert:'note',   why:'relax for an adopted/legacy area so retrofit noise stays informational' },
+      ];
+      var hasInert=enforced.concat(draft).some(function(r){return r&&r.inert;});
+      html+='<div style="border:1px solid var(--rule);border-left:3px solid var(--accent);border-radius:12px;padding:13px 15px;margin:4px 0 16px;background:var(--card2)">'
+        +'<div style="font-weight:800;margin-bottom:4px">🛡 Built-in security: inert-code strictness</div>'
+        +'<div style="font-size:.85rem;color:var(--mut);line-height:1.5;margin-bottom:10px">The prover flags <b>inert code</b> — a branch removable with every spec-derived test still passing (dead weight, ahead-of-spec scaffolding, or a <b>dormant payload</b> riding under a signature). Default verdict: <b style="color:#c9860f">Yellow</b>, with the route “prune it, spec it, or declare it” (<code>throws:</code> for guards, <code>perf:</code> for optimizations). Policy rules adjust it per path/tag/module — <b>owner-signed either way, so it can’t be quietly weakened</b>:</div>'
+        +tpls.map(function(t){
+          var m=t.match.path?('path <code>'+esc2(t.match.path)+'</code>'):('tag <code>'+esc2(t.match.tag)+'</code>');
+          var lv=t.inert==='block'?'<b style="color:#cf4436">inert: block</b>':t.inert==='note'?'<b>inert: note</b>':'<b style="color:#c9860f">inert: yellow</b>';
+          return '<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;border:1px dashed var(--rule);border-radius:10px;padding:8px 11px;margin:0 0 7px;font-size:.88rem;opacity:.92">'
+            +'<span>'+m+' → '+lv+' <span style="color:var(--mut)">— '+esc2(t.why)+'</span></span>'
+            +'<span style="display:flex;gap:8px;align-items:center;flex-shrink:0">'
+            +'<span style="font-size:.68rem;font-weight:700;color:var(--mut);border:1px solid var(--rule);border-radius:100px;padding:1px 9px" title="An example — not an active rule until you add it to the draft and owner-sign it">off</span>'
+            +(LIVE?('<button class="pol-tpl" data-rule="'+esc2(JSON.stringify({match:t.match,inert:t.inert}))+'" style="border:1px solid var(--accent);background:none;color:var(--accent);border-radius:8px;padding:3px 10px;cursor:pointer;font-size:.78rem;font-weight:700">Add to draft</button>'):'')
+            +'</span></div>';
+        }).join('')
+        +'<div style="font-size:.78rem;color:var(--mut)">'+(hasInert?'This project has inert rules '+(LIVE?'below':'listed above/below')+'.':(LIVE?'Templates are examples — tap “Add to draft”, edit the matcher below if needed, then Apply (owner-signs on your phone).':'Enable via the live dashboard’s Policy tab, or add a rule with <b>yay policy</b> (e.g. <code>{ "match": { "tag": "'+esc2(secTag)+'" }, "inert": "block" }</code>) and <b>yay policy --set</b>.'))+'</div>'
+        +'</div>';
+    })();
     html+='<div style="margin:18px 0 6px;font-weight:800;font-size:.8rem;color:var(--mut)">DRAFT · .yaylayer/policy.json'+(same?' (matches enforced)':' (differs — not yet signed)')+'</div>';
     if(!draft.length){ html+='<div class="snote" style="margin:0 0 10px">No draft rules.</div>'; }
     else { html+=draft.map(function(r,i){return '<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;border:1px dashed var(--rule);border-radius:10px;padding:9px 12px;margin:0 0 8px;font-size:.92rem"><span>'+ruleLine(r)+'</span>'+(LIVE?('<button class="pol-rm" data-i="'+i+'" style="border:1px solid var(--rule);background:none;color:#cf4436;border-radius:8px;padding:3px 9px;cursor:pointer;font-size:.8rem">remove</button>'):'')+'</div>';}).join(''); }
     if(LIVE){
-      var sigOpts=signers.map(function(s){return '<option value="'+esc2(s)+'">'+esc2(s)+'</option>';}).join('');
+      var sigOpts=signers.map(function(s){return '<option value="s:'+esc2(s)+'">must be signed by '+esc2(s)+'</option>';}).join('');
       html+='<div style="border:1px solid var(--rule);border-radius:12px;padding:14px;margin:12px 0 0;background:var(--card2)">'
         +'<div style="font-weight:700;margin-bottom:10px">Add a rule</div>'
         +'<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">'
         +'<select id="pol-mtype" style="padding:8px;border-radius:8px;border:1px solid var(--rule);background:var(--paper);color:var(--ink)"><option value="path">path glob</option><option value="tag">spec tag</option><option value="module">module</option></select>'
         +'<input id="pol-mval" placeholder="e.g. **/auth/**" style="flex:1;min-width:150px;padding:8px;border-radius:8px;border:1px solid var(--rule);background:var(--paper);color:var(--ink)">'
         +'<span style="color:var(--mut)">→</span>'
-        +'<select id="pol-signer" style="padding:8px;border-radius:8px;border:1px solid var(--rule);background:var(--paper);color:var(--ink)">'+(sigOpts||'<option value="">(no signers)</option>')+'</select>'
+        +'<select id="pol-req" style="padding:8px;border-radius:8px;border:1px solid var(--rule);background:var(--paper);color:var(--ink)">'
+        +(sigOpts||'')
+        +'<option value="i:yellow">inert code → Yellow (default, scoped)</option><option value="i:block">inert code → BLOCK the gate</option><option value="i:note">inert code → note only (relax)</option>'
+        +'</select>'
         +'<button id="pol-add" style="padding:8px 14px;border-radius:8px;border:none;background:var(--brand);color:#04231a;font-weight:700;cursor:pointer">Add to draft</button>'
         +'</div>'
         +(!same?('<div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button id="pol-apply" style="padding:9px 16px;border-radius:8px;border:none;background:var(--accent);color:#fff;font-weight:700;cursor:pointer">Apply — owner-sign on your phone</button><span style="color:var(--mut);font-size:.85rem">signs the draft into the roster</span></div>'):'')
@@ -892,12 +931,18 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
       function post(u,b){return fetch(u,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b||{})}).then(function(r){return r.json();});}
       Array.prototype.forEach.call(el.querySelectorAll('.pol-rm'),function(btn){ btn.onclick=function(){ post('/api/policy/remove',{index:parseInt(btn.getAttribute('data-i'),10)}).then(function(){ location.reload(); }); }; });
       var add=document.getElementById('pol-add'); if(add) add.onclick=function(){
-        var t=document.getElementById('pol-mtype').value, v=(document.getElementById('pol-mval').value||'').trim(), s=document.getElementById('pol-signer').value;
+        var t=document.getElementById('pol-mtype').value, v=(document.getElementById('pol-mval').value||'').trim(), req=document.getElementById('pol-req').value;
         if(!v){ if(msg){msg.textContent='Enter a value to match.';msg.style.color='#cf4436';} return; }
-        if(!s){ if(msg){msg.textContent='No signer selected — enroll one first.';msg.style.color='#cf4436';} return; }
+        if(!req){ if(msg){msg.textContent='Pick a requirement — a signer, or an inert level.';msg.style.color='#cf4436';} return; }
         var match={}; match[t]=v;
-        post('/api/policy/rule',{match:match,signer:s}).then(function(j){ if(j&&j.ok){location.reload();} else if(msg){msg.textContent='✗ '+((j&&j.error)||'failed');msg.style.color='#cf4436';} });
+        var body={match:match};
+        if(req.slice(0,2)==='i:') body.inert=req.slice(2); else body.signer=req.slice(2);
+        post('/api/policy/rule',body).then(function(j){ if(j&&j.ok){location.reload();} else if(msg){msg.textContent='✗ '+((j&&j.error)||'failed');msg.style.color='#cf4436';} });
       };
+      Array.prototype.forEach.call(el.querySelectorAll('.pol-tpl'),function(btn){ btn.onclick=function(){
+        var r; try{ r=JSON.parse(btn.getAttribute('data-rule')); }catch(_){ return; }
+        post('/api/policy/rule',r).then(function(j){ if(j&&j.ok){location.reload();} else if(msg){msg.textContent='✗ '+((j&&j.error)||'failed');msg.style.color='#cf4436';} });
+      };});
       var ap=document.getElementById('pol-apply'); if(ap) ap.onclick=function(){
         if(msg){msg.textContent='Sending to your phone to owner-sign…';msg.style.color='';}
         post('/api/policy/apply',{}).then(function(j){ if(j&&j.ok){ if(msg){msg.textContent='✓ Applied — reloading…';msg.style.color='#1f9d57';} setTimeout(function(){location.reload();},1200);} else if(msg){msg.textContent='✗ '+((j&&j.error)||'failed');msg.style.color='#cf4436';} });
