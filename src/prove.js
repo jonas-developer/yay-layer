@@ -19,7 +19,7 @@ const vm = require('node:vm');
 const cp = require('child_process');
 const { mutants, deletions } = require('./mutate');
 const { makeRecorder } = require('./record');
-const { isJsLang } = require('./util');
+const { isJsLang, looseTopLevelNonJs } = require('./util');
 
 function stripTS(code) {
   let m; try { m = require('node:module'); } catch (_) { return code; }
@@ -409,6 +409,13 @@ const pythonAdapter = {
   load: (source, names) => {
     const pyBin = detectPython();
     if (!pyBin) return { error: 'python-missing' };
+    // The harness exec()s the whole module to reach the function — with REAL builtins,
+    // no VM sandbox — so top-level imperative code (os.system(…), a bare call) would
+    // actually RUN during verify. Refuse to prove such a file: it's flagged Pink by the
+    // manifest and gate-blocked anyway; we must not execute it to get there.
+    if (looseTopLevelNonJs(String(source).split(/\r?\n/), 'python').length) {
+      return { error: 'python-toplevel' };
+    }
     const fns = {}; for (const n of names) fns[n] = function () {}; // placeholder — real run is out-of-process in prove()
     return { fns, ctx: { pyBin, source } };
   },
@@ -571,7 +578,9 @@ function proveManifest(manifest, opts) {
         ? 'add the optional deps @babel/core + @babel/plugin-transform-react-jsx to machine-prove JSX Cells'
         : base.error === 'python-missing'
           ? 'install Python 3 (python3/python on PATH) to machine-prove Python Cells'
-          : 'could not run file (' + base.error + ')';
+          : base.error === 'python-toplevel'
+            ? 'not run: this file has top-level code that would execute on import — wrap it in a Cell (it is also flagged Pink)'
+            : 'could not run file (' + base.error + ')';
       for (const it of items) out[it.cell.id] = { status: 'skip', level: 'info', reason }; continue;
     }
     for (const it of items) {

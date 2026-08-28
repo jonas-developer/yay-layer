@@ -144,8 +144,36 @@ const STATE = {
   PINK: { glyph: '◆', color: c.pink, label: 'PINK' },
 };
 
+// Top-level IMPERATIVE code in a non-JS file (Python/Ruby) — the "sneak a DO-THIS line
+// at module scope" shape that runs at import time. JS gets this from the AST; non-JS
+// langs had no equivalent, so a bare `os.system(...)` at column 0 slipped past the Pink
+// net entirely. Conservative on purpose (mirrors JS looseTopLevel): flag indent-0 bare
+// CALLS (`foo(` / `foo.bar(`) and control-flow starters, but skip declarations, imports,
+// comments, spec markers, the `if __name__` main-guard, and assignments (module
+// constants/wiring — same carve-out JS makes). Returns 1-based line numbers.
+function looseTopLevelNonJs(lines, family) {
+  if (family !== 'python' && family !== 'ruby') return [];
+  const out = [];
+  const CALL = /^[A-Za-z_$][\w$]*(?:\s*\.\s*[A-Za-z_$][\w$]*)*\s*\(/;
+  const CTRL = /^(?:if|for|while|with|try|unless|begin|case|loop)\b/;
+  const DECL = /^(?:def|class|async|module|import|from|require|require_relative|include|extend|attr_[a-z]+|@|#|"""|''')/;
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    if (/^\s/.test(raw)) continue;            // indented → inside some block
+    const t = raw.trim();
+    if (!t) continue;
+    if (/∷YAY/.test(t) || DECL.test(t)) continue;
+    if (/^if\s+__name__/.test(t)) continue;   // standard Python entry guard (dead on import)
+    const eq = t.search(/[^=!<>]=[^=]/);       // a real single '=' (assignment), not ==/!=/<=/>=
+    const par = t.indexOf('(');
+    if (eq >= 0 && (par < 0 || eq < par)) continue; // assignment before any call → module constant/wiring
+    if (CALL.test(t) || CTRL.test(t)) out.push(i + 1);
+  }
+  return out;
+}
+
 module.exports = {
   MARK_BEGIN, MARK_END, YAY_DIR,
   repoRoot, paths, readJSON, writeJSON, canonical, pubKeysOf, walk, c, STATE,
-  langOf, isJsLang, commentLeadOf,
+  langOf, isJsLang, commentLeadOf, looseTopLevelNonJs,
 };

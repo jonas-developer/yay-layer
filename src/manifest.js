@@ -7,7 +7,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { walk, repoRoot, langOf, isJsLang } = require('./util');
+const { walk, repoRoot, langOf, isJsLang, looseTopLevelNonJs } = require('./util');
 const { sha256 } = require('./crypto');
 const { extractFile } = require('./extract');
 const { analyze, nearestUnitAfter } = require('./analyze');
@@ -177,6 +177,13 @@ function buildManifest(targetDir) {
       untrackedRegex(file, rel, coveredNames, untracked);
     } else {
       untrackedLangRegex(file, rel, langOf(file), coveredNames, untracked);
+      // Top-level imperative code in a non-JS file (Python/Ruby) → Pink, same as JS.
+      // The regex net above only finds un-specced FUNCTIONS; a bare `os.system(...)` at
+      // module scope is neither a function nor covered, so without this it slipped past.
+      try {
+        const loose = looseTopLevelNonJs(fs.readFileSync(file, 'utf8').split(/\r?\n/), langOf(file));
+        if (loose.length) untracked.push({ name: 'module-level code', file: rel, line: loose[0], kind: 'loose', count: loose.length, lang: path.extname(file).slice(1), module: baseName(rel), group: 'module-level' });
+      } catch (_) {}
     }
   }
 

@@ -397,6 +397,27 @@ fs.rmSync(pdir, { recursive: true, force: true });
   fs.rmSync(ad2, { recursive: true, force: true });
 }
 
+// 12i) top-level imperative code in non-JS files → Pink (parity with JS), and the
+// Python prover refuses to exec such a file (never runs a sneaked module-level call).
+{
+  const U2 = require('../src/util');
+  // detector unit checks
+  ok(U2.looseTopLevelNonJs(["os.system('curl x | sh')"], 'python').length === 1, 'looseNonJs: bare top-level call → flagged');
+  ok(U2.looseTopLevelNonJs(['CONFIG = {"a": 1}', 'NAME = "x"'], 'python').length === 0, 'looseNonJs: top-level assignments (module constants) → not flagged');
+  ok(U2.looseTopLevelNonJs(['def f(n):', '    print(n)', '    return n'], 'python').length === 0, 'looseNonJs: code INSIDE a function (indented) → not flagged');
+  ok(U2.looseTopLevelNonJs(['import os', 'from a import b', '@decorator', '# comment'], 'python').length === 0, 'looseNonJs: imports/decorators/comments → not flagged');
+  ok(U2.looseTopLevelNonJs(['if __name__ == "__main__":', '    main()'], 'python').length === 0, 'looseNonJs: if __name__ main-guard → not flagged');
+  ok(U2.looseTopLevelNonJs(["fetch('x')"], 'go').length === 0, 'looseNonJs: only python/ruby scanned (brace/other → none, avoid false Pink)');
+  // end-to-end: a .py file with a sneaked top-level call
+  const ltmp = fs.mkdtempSync(P.join(os.tmpdir(), 'yay-loose-'));
+  fs.writeFileSync(P.join(ltmp, 'm.py'), '#∷YAY⟨C-1⟩\n# unit: ok\n# intent: t.\n# in: n:number\n# out: number\n# pure: yes\n# ensures: out == n\n#∷YAY-END⟨C-1⟩\ndef ok(n):\n    return n\n\nimport os\nos.system("echo SHOULD_NOT_RUN")\n');
+  const lman = buildManifest(ltmp);
+  ok((lman.untracked || []).some((u) => u.kind === 'loose' && /\.py$/.test(u.file)), 'pink: Python top-level code → module-level Pink entry');
+  const lproofs = require('../src/prove').proveManifest(lman, { mutate: false });
+  ok(lproofs['C-1'].status === 'skip' && /top-level code/.test(lproofs['C-1'].reason || ''), 'safety: Python prover refuses to exec a file with top-level code (never runs it)');
+  fs.rmSync(ltmp, { recursive: true, force: true });
+}
+
 // 13) `yay gate` generators: workflow + hook content, idempotent write
 const G = require('../src/gate');
 ok(/yay verify --strict/.test(G.ciWorkflow()) && /gate:/.test(G.ciWorkflow()), 'gate: workflow runs `yay verify --strict` under a `gate` job');
