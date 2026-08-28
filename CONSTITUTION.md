@@ -10,7 +10,7 @@
 
 **2 — Use the marker grammar exactly.** Emit each spec between `∷YAY⟨C-xxx⟩` and `∷YAY-END⟨C-xxx⟩` comment markers, with a flat `C-` id, directly above the code it governs.
 
-**3 — Two tracks.** Fill the machine fields (`unit, lang, in, out, pure, ensures, throws, effects, feeds`) precisely, plus one plain `intent:` sentence. Vague prose never earns Green — write specific, checkable claims.
+**3 — Two tracks.** Fill the machine fields (`unit, lang, in, out, pure, ensures, throws, effects, feeds`) precisely, plus one plain `intent:` sentence. Vague prose never earns Green — write specific, checkable claims. **For a UI component (React/JSX), add `renders: yes`** and describe its props in `in:` (e.g. `in: props: {title:string, featured:boolean}`). Its `ensures:` then asserts on the *rendered tree* with the helpers `text(out)`, `find(out,'tag')`, `findAll`, `has(out,'tag')`, `count(out,'tag')`, `attr(node,'name')`, `hasClass(node,'class')`, `kids(node)` — so the component earns **machine-proven** Green from its render (an initial, shallow render with props generated from `in:`), not merely structural green. Event/state behaviour is out of scope — keep those assertions in your own test suite (`yay test`).
 
 **4 — Minimality & completeness.** Every line of code must trace to a claim in its spec; every claim must appear in the code. Add nothing that wasn't asked for. Undeclared behaviour makes the Cell Red.
 
