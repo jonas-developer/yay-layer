@@ -711,7 +711,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
       function Y(v){ return Tp+ph-(v/ymax)*ph; }
       var line='', dots='', pdata=[], dr=Math.max(1.4, 4-Math.floor(n/25)); // dots shrink as points crowd (a year of dailies stays legible; the line always reads)
       pts.forEach(function(p,i){ var x=X(i,p.t), y=Y(p.y); line+=(i?' L':'M')+x.toFixed(1)+','+y.toFixed(1);
-        pdata.push({x:+x.toFixed(1),y:+y.toFixed(1),d:String(p.b.at||'').slice(0,10),t:(p.b.title||''),bt:(p.b.text||''),c:briefChars(p.b),v:p.y,s:p.b.signer||''});
+        pdata.push({x:+x.toFixed(1),y:+y.toFixed(1),d:String(p.b.at||'').slice(0,10),t:(p.b.title||''),bt:(p.b.text||''),c:briefChars(p.b),v:p.y,s:p.b.signer||'',id:(p.b.id||'')});
         dots+='<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="'+dr+'" fill="var(--accent)"'+(dr>=3?' stroke="var(--card2)" stroke-width="1.5"':'')+'><title>'+esc2((p.b.title||p.b.text||'')+' — +'+briefChars(p.b)+' chars → '+p.y+' total · '+String(p.b.at||'').replace('T',' ').slice(0,16)+(p.b.signer?' · '+p.b.signer:''))+'</title></circle>'; });
       var pattr=esc2(JSON.stringify(pdata)).replace(/"/g,'&quot;');
       var x0=X(0,pts[0].t), xl=X(n-1,pts[n-1].t), y0=Y(0);
@@ -723,7 +723,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
         +'<svg id="bf-chartsvg" data-pts="'+pattr+'" viewBox="0 0 '+W+' '+H+'" style="width:100%;min-width:520px;height:auto;display:block;cursor:crosshair">'
         +yt+'<path d="'+area+'" fill="var(--accent)" opacity="0.10"/><path d="'+line+'" fill="none" stroke="var(--accent)" stroke-width="2"/>'+dots
         +'<text x="'+L+'" y="'+(Tp+1)+'" font-size="10" fill="var(--mut)">cumulative chars — Specs + Briefs</text>'+xt+'</svg>'
-        +'<div style="font-size:.75rem;color:var(--mut);padding:6px 4px 2px">'+n+' Brief'+(n===1?'':'s')+' · '+ymax+' total characters signed'+(briefChartTag?(' · #'+esc2(briefChartTag)):'')+(briefChartSigner?(' · '+esc2(briefChartSigner)):'')+'. Hover the line to read each Brief.</div></div>';
+        +'<div style="font-size:.75rem;color:var(--mut);padding:6px 4px 2px">'+n+' Brief'+(n===1?'':'s')+' · '+ymax+' total characters signed'+(briefChartTag?(' · #'+esc2(briefChartTag)):'')+(briefChartSigner?(' · '+esc2(briefChartSigner)):'')+'. Hover to preview a Brief; click a point to open it.</div></div>';
     }
     // Hover the line: a small white bubble shows the nearest Brief — its title in a
     // readable size, the full Brief text in smaller letters below.
@@ -755,6 +755,17 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
         lx=Math.max(4, Math.min(lx, window.innerWidth-tw-4));
         if(ly+th>window.innerHeight-4) ly=Math.max(4, window.innerHeight-th-4);
         tip.style.left=lx+'px'; tip.style.top=ly+'px'; tip.style.opacity='1';
+      });
+      // Click a point → open that Brief in the modal (title, full text, tags, and its exact Cells — each chip opens the Cell).
+      svg.addEventListener('click',function(ev){
+        var r=svg.getBoundingClientRect(); if(!r.width) return; var vx=(ev.clientX-r.left)/(r.width/VW);
+        var near=pd[0], bd=1e9; pd.forEach(function(p){ var d=Math.abs(p.x-vx); if(d<bd){bd=d;near=p;} });
+        var b=((DATA.meta&&DATA.meta.briefs)||[]).filter(function(x){ return String(x.id)===String(near.id); })[0]; if(!b) return;
+        var mo=document.getElementById('modal'); if(!mo) return;
+        mo.querySelector('.modal-body').innerHTML=briefCard(b);
+        mo.classList.add('open'); document.body.style.overflow='hidden'; hide();
+        Array.prototype.forEach.call(mo.querySelectorAll('.mcell.known'),function(ch){ ch.addEventListener('click',function(){ openDetail(ch.getAttribute('data-uid')); }); });
+        Array.prototype.forEach.call(mo.querySelectorAll('.btag'),function(ch){ ch.addEventListener('click',function(){ briefChartTag=ch.getAttribute('data-tag'); var cl=mo.querySelector('.modal-close'); if(cl) cl.click(); renderBriefs(); }); });
       });
     }
     // View toggle: List (flat / grouped) vs Clouds (a card per tag) vs Chart (growth over time)
