@@ -302,7 +302,7 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);l
 .srow{display:flex;align-items:flex-start;gap:14px;border:1px solid var(--rule);border-radius:12px;padding:15px 18px;margin:0 0 10px;background:var(--card);box-shadow:var(--shadow)}
 .mcell{display:inline-block;font-family:var(--mono);font-size:.78rem;padding:2px 9px;margin:5px 6px 0 0;border-radius:7px;border:1px solid var(--rule);color:var(--mut)}
 .mcell.known{cursor:pointer;color:var(--accent);border-color:var(--accent)}
-.mcell.known:hover{background:var(--accent);color:#fff}
+.mcell.known:hover{background:var(--rule)}
 .savatar{width:40px;height:40px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-family:var(--sans)}
 .sname{font-family:var(--sans);font-weight:700;font-size:1rem}
 .srole{font-family:var(--mono);font-size:.58rem;text-transform:uppercase;letter-spacing:.08em;font-weight:700;padding:2px 9px;border-radius:100px;margin-left:8px;vertical-align:middle}
