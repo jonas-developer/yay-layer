@@ -444,9 +444,9 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
 </style></head><body>
 <header class="nav"><div class="nav-in">
 <div class="brand"><span class="logo"><svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><rect width="26" height="26" rx="7" fill="#3ecf8e"/><path d="M6.5 13.5l4 4L20 7.5" fill="none" stroke="#04231a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="brandname">YayLayer</span><span class="brandsep">/</span><span class="brandproj">${esc(project || 'project')}</span></div>
-<div class="nav-right"><nav class="tabs"><button class="tab active" data-tab="map">Map</button><button class="tab" data-tab="files">Files</button><button class="tab" data-tab="plan" id="tab-plan" style="display:none">System Plan</button><button class="tab" data-tab="briefs">Briefs</button><button class="tab" data-tab="tags" id="tab-tags" style="display:none">Tags</button><button class="tab" data-tab="policy" id="tab-policy" style="display:none">Policy</button><button class="tab" data-tab="signers">Signers</button><button class="tab" data-tab="commands">Commands</button></nav><button id="themebtn" class="themebtn" aria-label="Toggle theme">Dark</button><button id="navburger" class="navburger" aria-label="Menu" aria-expanded="false">☰</button></div>
+<div class="nav-right"><nav class="tabs"><button class="tab active" data-tab="map">Map</button><button class="tab" data-tab="briefs">Briefs</button><button class="tab" data-tab="files">Files</button><button class="tab" data-tab="plan" id="tab-plan" style="display:none">System Plan</button><button class="tab" data-tab="tags" id="tab-tags" style="display:none">Tags</button><button class="tab" data-tab="policy" id="tab-policy" style="display:none">Policy</button><button class="tab" data-tab="signers">Signers</button><button class="tab" data-tab="commands">Commands</button></nav><button id="themebtn" class="themebtn" aria-label="Toggle theme">Dark</button><button id="navburger" class="navburger" aria-label="Menu" aria-expanded="false">☰</button></div>
 </div>
-<div id="navmenu" class="navmenu"><button class="tab active" data-tab="map">Map</button><button class="tab" data-tab="files">Files</button><button class="tab" data-tab="plan" style="display:none">System Plan</button><button class="tab" data-tab="briefs">Briefs</button><button class="tab" data-tab="tags" style="display:none">Tags</button><button class="tab" data-tab="policy" style="display:none">Policy</button><button class="tab" data-tab="signers">Signers</button><button class="tab" data-tab="commands">Commands</button></div>
+<div id="navmenu" class="navmenu"><button class="tab active" data-tab="map">Map</button><button class="tab" data-tab="briefs">Briefs</button><button class="tab" data-tab="files">Files</button><button class="tab" data-tab="plan" style="display:none">System Plan</button><button class="tab" data-tab="tags" style="display:none">Tags</button><button class="tab" data-tab="policy" style="display:none">Policy</button><button class="tab" data-tab="signers">Signers</button><button class="tab" data-tab="commands">Commands</button></div>
 </header>
 <div class="wrap">
 <div class="pagehead"><h1>System map</h1><p class="sub">${totalUnits} units · ${verified.passed ? 'gate PASS' : 'gate BLOCKED'}${verified.counts.GREEN ? ` · ${verified.counts.proven || 0} proven / ${verified.counts.unproven || 0} unproven` : ''}</p></div>
@@ -921,6 +921,20 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
           +'<div style="font-weight:700;color:'+(on?'var(--accent)':'var(--ink)')+';font-size:.85rem">'+esc2(s.name)+' <span style="font-weight:600;color:var(--mut);font-size:.74rem">· '+((s.tags&&s.tags.length)||0)+' tags'+(on?' · current':'')+'</span></div>'
           +'<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">'+((s.tags||[]).map(function(t){ return '<span style="font-size:.68rem;font-weight:600;color:var(--ink-2);background:var(--card2);border:1px solid var(--rule);border-radius:100px;padding:1px 7px">'+esc2(t)+'</span>'; }).join(''))+'</div></div>'; }).join('')
         +'<div class="setpick" data-set="custom" style="border:1px dashed var(--rule);border-radius:10px;padding:9px 12px;cursor:pointer;background:var(--paper)"><div style="font-weight:700;color:var(--mut);font-size:.85rem">Custom <span style="font-weight:600;font-size:.74rem">· blank placeholders (Custom 1–4) you relabel</span></div></div></div></div>';
+    }
+    // Read-only reference to the built-in starter sets and their tags — shown when the interactive
+    // switcher isn't (i.e. once a set is in use, or when viewing a non-live snapshot / the site demo),
+    // so anyone can still glimpse what each set contains.
+    if(!(LIVE && !anyUsed)){
+      var ref=(DATA.meta&&DATA.meta.tagSets)||[];
+      if(ref.length && ref.some(function(s){return s.tags&&s.tags.length;})){
+        html+='<details style="margin:0 0 16px;border:1px solid var(--rule);border-radius:12px;background:var(--card2);padding:2px 4px"><summary style="cursor:pointer;padding:11px 12px;font-weight:700;font-size:.9rem;color:var(--ink)">Starter sets <span style="font-weight:600;color:var(--mut);font-size:.8rem">— '+ref.length+' built-in vocabularies you can switch to (what’s in each)</span></summary><div style="padding:2px 12px 12px;display:flex;flex-direction:column;gap:10px">'
+          +ref.map(function(s){ var on=cur.set===s.id; return '<div style="border:1px solid '+(on?'var(--accent)':'var(--rule)')+';border-radius:10px;padding:9px 12px;background:var(--paper)">'
+            +'<div style="font-weight:700;color:'+(on?'var(--accent)':'var(--ink)')+';font-size:.85rem">'+esc2(s.name)+' <span style="font-weight:600;color:var(--mut);font-size:.74rem">· '+((s.tags&&s.tags.length)||0)+' tags'+(on?' · in use':'')+'</span></div>'
+            +'<div style="font-size:.74rem;color:var(--mut);margin-top:2px">'+esc2(s.desc||'')+'</div>'
+            +'<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">'+((s.tags||[]).map(function(t){ return '<span style="font-size:.68rem;font-weight:600;color:var(--ink-2);background:var(--card2);border:1px solid var(--rule);border-radius:100px;padding:1px 7px">'+esc2(t)+'</span>'; }).join(''))+'</div></div>'; }).join('')
+          +'</div></details>';
+      }
     }
     if(LIVE){
       html+='<div id="tag-editor" style="margin:0 0 22px">';
