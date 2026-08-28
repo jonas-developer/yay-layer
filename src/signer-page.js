@@ -95,7 +95,8 @@ textarea.inp{min-height:96px;resize:vertical;font-family:var(--mono);font-size:.
 .mcard .mtag{font-family:var(--mono);font-weight:600;letter-spacing:.15em;font-size:.64rem;text-transform:uppercase;color:var(--accent)}
 .mcard .medit{font-size:.8rem;font-weight:600;background:none;border:0;color:var(--accent);cursor:pointer;padding:0}
 .mcard .mtxt{font-size:1.04rem;line-height:1.45;color:var(--ink)}
-.mcard .marea{width:100%;font-size:1rem;line-height:1.45;padding:10px;border-radius:10px;border:1px solid var(--rule);background:var(--card);color:var(--ink);font-family:var(--sans);min-height:88px}
+.marea{display:block;width:100%;box-sizing:border-box;font-size:1rem;line-height:1.45;padding:10px;border-radius:10px;border:1px solid var(--rule);background:var(--card);color:var(--ink);font-family:var(--sans);min-height:88px}
+.sbwarn{display:none;color:var(--accent);font-size:.85rem;font-weight:600;margin:7px 2px 0}
 .mcard .msub{color:var(--mut);font-size:.75rem;margin-top:9px}
 .words{display:grid;grid-template-columns:1fr 1fr;gap:8px 10px;margin:12px 0}
 .word{font-family:var(--mono);font-size:.85rem;padding:8px 10px;background:var(--card);border:1px solid var(--rule);border-radius:9px;display:flex;gap:8px}
@@ -344,7 +345,7 @@ function approveFlow(sess){
     +(brief.title?('<div style="font-weight:800;font-size:1.08rem;color:var(--ink);margin:0 0 4px">'+esc(brief.title)+'</div>'):'')
     +'<div class="mtxt"'+(brief.title?' style="font-size:.95rem;color:var(--muted,#8a8a8a)"':'')+'>'+esc(brief.text)+'</div>'+tagSel
     +'<div class="msub">covers '+((sess.summary||[]).length)+' part(s) · sign it, or send it back for changes</div></div>'):'';
-  h(gate.banner+briefCard+'<div class="help">Approve these <b>'+((sess.summary||[]).length)+'</b> change(s) — tap a part to see its spec.</div>'+rows+(gate.ok?'<button id="go" class="btn" style="margin-top:16px">Accept &amp; sign</button><button id="sb" class="btn ghost">Send back</button>':''));
+  h(gate.banner+briefCard+'<div class="help">Approve these <b>'+((sess.summary||[]).length)+'</b> change(s) — tap a part to see its spec.</div>'+rows+(gate.ok?'<button id="go" class="btn" style="margin-top:16px">Accept &amp; sign</button><textarea id="sbnote" class="marea" rows="2" style="margin-top:12px" placeholder="What should change? (optional — for Send back)"></textarea><div id="sbwarn" class="sbwarn">What should change?</div><button id="sb" class="btn ghost">Send back</button>':''));
   var taps=document.querySelectorAll('.cell.tap');
   for(var ti=0;ti<taps.length;ti++){(function(el){el.onclick=function(){var d=document.getElementById('d'+el.getAttribute('data-i'));var open=d.style.display!=='none';d.style.display=open?'none':'block';var car=el.querySelector('.caret');if(car)car.textContent=open?'▸':'▾';};})(taps[ti]);}
   if(!gate.ok) return; // wrong signer for this request — no buttons wired
@@ -363,24 +364,29 @@ function approveFlow(sess){
       setStatus('Signed','ok');
     }catch(e){ setStatus('Signing failed: '+e,'err'); }
   };
-  document.getElementById('sb').onclick=function(){
+  // Send back is ONE tap: the note field sits right on this screen. An empty note on
+  // the first tap shows a tiny inline nudge ("What should change?") instead of sending;
+  // the next tap sends regardless (a deliberate blank is allowed — the AI will ask).
+  // A tags-only correction never nudges: the new tags ARE the message.
+  var sbWarned=false;
+  var sbNote=document.getElementById('sbnote');
+  if(sbNote) sbNote.addEventListener('input',function(){ if(sbNote.value.trim()){ var w=document.getElementById('sbwarn'); if(w) w.style.display='none'; } });
+  document.getElementById('sb').onclick=async function(){
     var changed=tagsChanged();
-    h((brief?('<div class="mcard"><div class="mlab"><span class="mtag">Brief</span></div><div class="mtxt">'+esc(brief.text)+'</div>'+(changed?('<div class="msub" style="margin-top:8px">New tags: <b>'+sel.map(esc).join(', ')+'</b></div>'):'')+'</div>'):'')
-      +'<div class="help">'+(changed?'You changed the tags — this goes back so the AI re-issues the Brief with them. Add a note if you also want other changes (optional).':'Send this back for changes. Add a note so the AI knows what to fix — e.g. “rate-limit signup too, keep the rest”. A blank note means the AI will have to ask you what you meant.')+'</div>'
-      +'<textarea id="note" class="marea" placeholder="What should change? (optional)"></textarea>'
-      +'<button id="sbgo" class="btn">Send back</button><button id="cancel" class="btn ghost">Cancel</button>');
-    document.getElementById('note').focus();
-    document.getElementById('cancel').onclick=function(){ approveFlow(sess); };
-    document.getElementById('sbgo').onclick=async function(){
-      try{
-        var note=(document.getElementById('note').value||'').trim();
-        setStatus('Sending back…');
-        var res=await api('/api/submit',{rejected:true,reason:note,tags:(changed?sel:undefined)});
-        if(res.error){ setStatus('Failed: '+res.error,'err'); return; }
-        okScreen('Sent back','The requester has been notified in their tool. Leave this open for the next request.');
-        setStatus('Sent back');
-      }catch(e){ setStatus('Failed: '+e,'err'); }
-    };
+    var note=(sbNote&&sbNote.value||'').trim();
+    if(!note && !changed && !sbWarned){
+      sbWarned=true;
+      var w=document.getElementById('sbwarn'); if(w) w.style.display='block';
+      if(sbNote) sbNote.focus();
+      return;
+    }
+    try{
+      setStatus('Sending back…');
+      var res=await api('/api/submit',{rejected:true,reason:note,tags:(changed?sel:undefined)});
+      if(res.error){ setStatus('Failed: '+res.error,'err'); return; }
+      okScreen('Sent back','The requester has been notified in their tool. Leave this open for the next request.');
+      setStatus('Sent back');
+    }catch(e){ setStatus('Failed: '+e,'err'); }
   };
 }
 // Owner authorizes a roster/governance change (enroll, revoke, reroot) from the phone.
