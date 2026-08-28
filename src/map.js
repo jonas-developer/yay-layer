@@ -1012,7 +1012,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
             +'<span>'+m+' → '+lv+' <span style="color:var(--mut)">— '+esc2(t.why)+'</span></span>'
             +'<span style="display:flex;gap:8px;align-items:center;flex-shrink:0">'
             +'<span style="font-size:.68rem;font-weight:700;color:var(--mut);border:1px solid var(--rule);border-radius:100px;padding:1px 9px" title="An example — not an active rule until you add it to the draft and owner-sign it">off</span>'
-            +(LIVE?('<button class="pol-tpl" data-rule="'+esc2(JSON.stringify({match:t.match,inert:t.inert}))+'" style="border:1px solid var(--accent);background:none;color:var(--accent);border-radius:8px;padding:3px 10px;cursor:pointer;font-size:.78rem;font-weight:700">Add to draft</button>'):'')
+            +(LIVE?('<button class="pol-tpl" data-rule="'+esc2(JSON.stringify({match:t.match,inert:t.inert})).replace(/"/g,'&quot;')+'" style="border:1px solid var(--accent);background:none;color:var(--accent);border-radius:8px;padding:3px 10px;cursor:pointer;font-size:.78rem;font-weight:700">Add to draft</button>'):'')
             +'</span></div>';
         }).join('')
         +'<div style="font-size:.78rem;color:var(--mut)">'+(hasInert?'This project has inert rules '+(LIVE?'below':'listed above/below')+'.':(LIVE?'Templates are examples — tap “Add to draft”, edit the matcher below if needed, then Apply (owner-signs on your phone).':'Enable via the live dashboard’s Policy tab, or add a rule with <b>yay policy</b> (e.g. <code>{ "match": { "tag": "'+esc2(secTag)+'" }, "inert": "block" }</code>) and <b>yay policy --set</b>.'))+'</div>'
