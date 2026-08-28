@@ -731,7 +731,8 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
       var svg=document.getElementById('bf-chartsvg'), wrap=document.getElementById('bf-chartwrap');
       if(!svg||!wrap) return; var pd; try{ pd=JSON.parse(svg.getAttribute('data-pts')||'[]'); }catch(e){ pd=[]; }
       if(!pd.length) return; var VW=760, VH=340;
-      var tip=document.createElement('div'); tip.style.cssText='position:absolute;pointer-events:none;opacity:0;transition:opacity .1s ease;z-index:30;max-width:230px;background:#fff;border:1px solid rgba(0,0,0,0.10);border-radius:12px;box-shadow:0 10px 28px rgba(0,0,0,0.22);padding:9px 12px;text-align:left'; wrap.appendChild(tip);
+      var oldTip=document.getElementById('bf-chart-tip'); if(oldTip) oldTip.remove(); // a body-level tip from a previous render would otherwise leak
+      var tip=document.createElement('div'); tip.id='bf-chart-tip'; tip.style.cssText='position:fixed;pointer-events:none;opacity:0;transition:opacity .1s ease;z-index:9999;max-width:230px;background:#fff;border:1px solid rgba(0,0,0,0.10);border-radius:12px;box-shadow:0 10px 28px rgba(0,0,0,0.22);padding:9px 12px;text-align:left;font-weight:400'; document.body.appendChild(tip);
       var mark=document.createElement('div'); mark.style.cssText='position:absolute;pointer-events:none;opacity:0;transition:opacity .1s ease;z-index:29;width:14px;height:14px;border-radius:50%;border:2px solid var(--accent);background:#fff;box-shadow:0 0 0 3px rgba(0,0,0,0.05)'; wrap.appendChild(mark);
       function hide(){ tip.style.opacity='0'; mark.style.opacity='0'; tip._key=''; }
       svg.addEventListener('mouseleave',hide);
@@ -745,12 +746,14 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
         if(tip._key!==key){
           tip._key=key; var head=near.t||near.bt, body=near.t?near.bt:'';
           tip.innerHTML='<div style="font-size:12px;font-weight:700;color:#1a1a1a;line-height:1.3;white-space:normal;overflow-wrap:anywhere;word-break:break-word">'+esc2(head)+'</div>'
-            +(body?('<div style="font-size:10px;color:#666;line-height:1.4;margin-top:3px;white-space:normal;overflow-wrap:anywhere">'+esc2(body)+'</div>'):'')
-            +'<div style="font-size:9px;color:#9a9a9a;margin-top:5px;letter-spacing:.02em">'+esc2(near.d)+(near.s?(' · '+esc2(near.s)):'')+'</div>';
+            +(body?('<div style="font-size:10px;font-weight:400;color:#666;line-height:1.4;margin-top:3px;white-space:normal;overflow-wrap:anywhere">'+esc2(body)+'</div>'):'')
+            +'<div style="font-size:9px;font-weight:400;color:#9a9a9a;margin-top:5px;letter-spacing:.02em">'+esc2(near.d)+(near.s?(' · '+esc2(near.s)):'')+'</div>';
         }
+        var px=r.left+near.x*sx, py=r.top+near.y*sy; // the point in viewport (fixed) coords
         var tw=tip.offsetWidth||200, th=tip.offsetHeight||60;
-        var lx=cx-tw/2, ly=cy-th-14; if(ly<2) ly=cy+16;
-        lx=Math.max(2, Math.min(lx, wr.width-tw-2));
+        var lx=px-tw/2, ly=py-th-14; if(ly<4) ly=py+16;
+        lx=Math.max(4, Math.min(lx, window.innerWidth-tw-4));
+        if(ly+th>window.innerHeight-4) ly=Math.max(4, window.innerHeight-th-4);
         tip.style.left=lx+'px'; tip.style.top=ly+'px'; tip.style.opacity='1';
       });
     }
