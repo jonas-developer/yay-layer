@@ -1863,14 +1863,16 @@ async function cmdDashboard(flags) {
       // draft enforces nothing on its own — `policyApply` owner-signs it into the roster.
       policyAddRule: (rule) => {
         const inertOk = rule && /^(note|yellow|block)$/i.test(String(rule.inert || ''));
-        if (!rule || !rule.match || (!rule.match.path && !rule.match.tag && !rule.match.module) || (!rule.signer && !(rule.signers && rule.signers.length) && !inertOk)) {
-          return { ok: false, error: 'a rule needs a matcher (path/tag/module) and a requirement — a signer, or an inert level (note/yellow/block)' };
+        const ignoreOk = rule && /^source$/i.test(String(rule.ignore || ''));
+        if (!rule || !rule.match || (!rule.match.path && !rule.match.tag && !rule.match.module) || (!rule.signer && !(rule.signers && rule.signers.length) && !inertOk && !ignoreOk)) {
+          return { ok: false, error: 'a rule needs a matcher (path/tag/module) and a requirement — a signer, an inert level (note/yellow/block), or ignore:source' };
         }
         const rules = policyMod.loadPolicy(p).rules;
         const clean = { match: {}, };
         for (const k of ['path', 'tag', 'module']) if (rule.match[k]) clean.match[k] = String(rule.match[k]);
         if (rule.signer) clean.signer = String(rule.signer);
         if (inertOk) clean.inert = String(rule.inert).toLowerCase();
+        if (ignoreOk) clean.ignore = 'source';
         rules.push(clean);
         U.writeJSON(policyMod.policyPath(p), { rules });
         return { ok: true, rules };
@@ -2081,6 +2083,10 @@ function printRules(rules) {
       const lv = String(r.inert).toLowerCase();
       const desc = lv === 'block' ? U.c.red('inert: block') + U.c.dim(' — inert code gate-blocks') : lv === 'note' ? 'inert: note' + U.c.dim(' — findings shown as info only') : U.c.yellow('inert: yellow') + U.c.dim(' — inert code caps at Yellow');
       console.log('  ' + matcherStr(r.match) + U.c.dim(' → ') + desc);
+      continue;
+    }
+    if (r.ignore) {
+      console.log('  ' + matcherStr(r.match) + U.c.dim(' → ') + 'ignore: source' + U.c.dim(' — source here may be .yaylayerignore\'d (kept out of the gate)'));
       continue;
     }
     const who = r.signer || (r.signers || []).join(' or ') || '?';

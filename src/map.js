@@ -865,6 +865,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
         var desc=lv==='block'?'<b style="color:#cf4436">inert: block</b> — inert code gate-blocks these Cells':lv==='note'?'<b>inert: note</b> — inert findings shown as info only':'<b style="color:#c9860f">inert: yellow</b> — inert code caps these Cells at Yellow (the default, scoped explicitly)';
         return left+' → '+desc;
       }
+      if(r.ignore){ return left+' → <b>ignore: source</b> — source here may be excluded from the gate (kept out on purpose)'; }
       var who=r.signer?esc2(r.signer):((r.signers||[]).map(esc2).join(' or '));
       return left+' → must be signed by <b>'+who+'</b>';
     }
@@ -917,6 +918,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
         +'<select id="pol-req" style="padding:8px;border-radius:8px;border:1px solid var(--rule);background:var(--paper);color:var(--ink)">'
         +(sigOpts||'')
         +'<option value="i:yellow">inert code → Yellow (default, scoped)</option><option value="i:block">inert code → BLOCK the gate</option><option value="i:note">inert code → note only (relax)</option>'
+        +'<option value="g:source">authorise ignoring source (.yaylayerignore)</option>'
         +'</select>'
         +'<button id="pol-add" style="padding:8px 14px;border-radius:8px;border:none;background:var(--brand);color:#04231a;font-weight:700;cursor:pointer">Add to draft</button>'
         +'</div>'
@@ -936,7 +938,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
         if(!req){ if(msg){msg.textContent='Pick a requirement — a signer, or an inert level.';msg.style.color='#cf4436';} return; }
         var match={}; match[t]=v;
         var body={match:match};
-        if(req.slice(0,2)==='i:') body.inert=req.slice(2); else body.signer=req.slice(2);
+        if(req.slice(0,2)==='i:') body.inert=req.slice(2); else if(req.slice(0,2)==='g:') body.ignore=req.slice(2); else body.signer=req.slice(2);
         post('/api/policy/rule',body).then(function(j){ if(j&&j.ok){location.reload();} else if(msg){msg.textContent='✗ '+((j&&j.error)||'failed');msg.style.color='#cf4436';} });
       };
       Array.prototype.forEach.call(el.querySelectorAll('.pol-tpl'),function(btn){ btn.onclick=function(){

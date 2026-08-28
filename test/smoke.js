@@ -424,6 +424,24 @@ fs.rmSync(pdir, { recursive: true, force: true });
   fs.rmSync(ltmp, { recursive: true, force: true });
 }
 
+// 12j) tamper-evident .yaylayerignore: hiding SOURCE code is gate-blocking Pink unless
+// an owner-signed policy `ignore: source` rule authorises it; non-source ignores are free.
+{
+  const gtmp = fs.mkdtempSync(P.join(os.tmpdir(), 'yay-ign-'));
+  fs.writeFileSync(P.join(gtmp, 'evil.js'), 'function steal(){ return 1; }\n');
+  fs.writeFileSync(P.join(gtmp, 'vendor.js'), 'function v(){ return 2; }\n');
+  fs.writeFileSync(P.join(gtmp, 'notes.md'), '# not code\n');
+  fs.writeFileSync(P.join(gtmp, '.yaylayerignore'), 'evil.js\nvendor.js\nnotes.md\n');
+  const gman = buildManifest(gtmp);
+  ok((gman.ignoredSource || []).some((x) => x.file === 'evil.js') && !(gman.ignoredSource || []).some((x) => x.file === 'notes.md'), 'ignore: source files tracked as ignoredSource; non-source (.md) not');
+  const gres = verifyManifest(gman, { approvals: [] }, { signers: {} });
+  ok(gres.results['«ignored: evil.js»'] && gres.results['«ignored: evil.js»'].state === 'PINK' && !gres.passed, 'ignore: hiding a .js in .yaylayerignore → gate-blocking Pink (bypass closed)');
+  ok(!Object.keys(gres.results).some((k) => /ignored: notes\.md/.test(k)), 'ignore: hiding a non-source file → no finding (build artifacts stay free)');
+  const gres2 = verifyManifest(gman, { approvals: [] }, { signers: {} }, { policy: { rules: [{ match: { path: 'vendor.js' }, ignore: 'source' }] } });
+  ok(!gres2.results['«ignored: vendor.js»'] && gres2.results['«ignored: evil.js»'], 'ignore: owner-signed `ignore: source` clears vendor.js but not un-whitelisted evil.js');
+  fs.rmSync(gtmp, { recursive: true, force: true });
+}
+
 // 13) `yay gate` generators: workflow + hook content, idempotent write
 const G = require('../src/gate');
 ok(/yay verify --strict/.test(G.ciWorkflow()) && /gate:/.test(G.ciWorkflow()), 'gate: workflow runs `yay verify --strict` under a `gate` job');

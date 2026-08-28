@@ -12,7 +12,7 @@
 const { canonical, pubKeysOf, isJsLang } = require('./util');
 const { verify: sigVerify } = require('./crypto');
 const { proveManifest } = require('./prove');
-const { requiredSigners, inertLevel } = require('./policy');
+const { requiredSigners, inertLevel, ignoreAllowed } = require('./policy');
 const { deriveRoster } = require('./roster');
 const G = require('./grants');
 
@@ -337,6 +337,20 @@ function verifyManifest(manifest, lock, config, opts) {
       id, state: 'PINK', trust: { signed: false }, untracked: true,
       name: u.name, file: u.file, line: u.line, lang: u.lang, module: u.module, group: u.group,
       notes: [{ level: 'red', text }],
+      badLines: [],
+    };
+  }
+
+  // Source code hidden from the gate by .yaylayerignore → gate-blocking Pink, unless an
+  // OWNER-SIGNED policy `ignore: source` rule authorises it. Closes the bypass where a
+  // bare .yaylayerignore line removes a file from judgment entirely.
+  for (const ig of manifest.ignoredSource || []) {
+    if (ignoreAllowed(policy, ig.file)) continue; // whitelisted (vendored/generated), signed
+    const id = `«ignored: ${ig.file}»`;
+    results[id] = {
+      id, state: 'PINK', trust: { signed: false }, untracked: true, ignoredSource: true,
+      name: 'ignored source', file: ig.file, line: 1, lang: ig.lang, module: ig.file, group: 'hidden',
+      notes: [{ level: 'red', text: `SOURCE file hidden from the gate by .yaylayerignore — code here is never scanned, signed, or verified. Un-ignore it, or authorise it with an owner-signed policy rule { "match": { "path": "${ig.file}" }, "ignore": "source" } (yay policy → --set).` }],
       badLines: [],
     };
   }

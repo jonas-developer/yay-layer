@@ -323,7 +323,7 @@ function startDashboard(deps, opts) {
       if (!isLocal(req)) return sendJSON(res, 403, { error: 'local only' });
       if (!deps.policyAddRule) return sendJSON(res, 200, { ok: false, error: 'policy editing not available' });
       const b = await readBody(req);
-      try { return sendJSON(res, 200, deps.policyAddRule({ match: b.match || {}, signer: b.signer, inert: b.inert })); }
+      try { return sendJSON(res, 200, deps.policyAddRule({ match: b.match || {}, signer: b.signer, inert: b.inert, ignore: b.ignore })); }
       catch (e) { return sendJSON(res, 200, { ok: false, error: String((e && e.message) || e) }); }
     }
     if (req.method === 'POST' && url === '/api/policy/remove') {

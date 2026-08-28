@@ -113,7 +113,16 @@ function makeIgnore(root) {
 function buildManifest(targetDir) {
   const root = repoRoot(targetDir);
   const ignore = makeIgnore(root);
-  const files = walk(path.resolve(targetDir || root)).filter((f) => !ignore(path.relative(root, f)));
+  const scanned = walk(path.resolve(targetDir || root));
+  const files = scanned.filter((f) => !ignore(path.relative(root, f)));
+  // Files HIDDEN by .yaylayerignore that are SOURCE CODE — a bare `.yaylayerignore`
+  // line can otherwise remove code from the gate's view entirely (green while a file
+  // holds anything). These become gate-blocking Pink below unless an OWNER-SIGNED
+  // policy `ignore: source` rule whitelists them (build artifacts / non-code are fine).
+  const CODE_LANGS = new Set(['js', 'python', 'ruby', 'brace']);
+  const ignoredSource = scanned
+    .filter((f) => ignore(path.relative(root, f)) && CODE_LANGS.has(langOf(f)))
+    .map((f) => ({ file: path.relative(root, f), lang: path.extname(f).slice(1) }));
   const cells = {};
   const problems = [];
   const perFile = {};
@@ -226,7 +235,7 @@ function buildManifest(targetDir) {
   }
 
   computeInfluence(cells);
-  return { root, cells, problems, untracked, moduleEdges };
+  return { root, cells, problems, untracked, moduleEdges, ignoredSource };
 }
 
 const shortName = (n) => String(n || '').split('.').pop();
