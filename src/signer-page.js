@@ -90,6 +90,7 @@ textarea.inp{min-height:96px;resize:vertical;font-family:var(--mono);font-size:.
 .dl.add{background:rgba(31,157,87,.14);color:var(--green)}
 .dl.del{background:rgba(200,64,47,.14);color:var(--red)}
 .dl.ctx{color:var(--mut)}
+.codeblk{font-family:var(--mono);font-size:.8rem;border:1px solid var(--rule);border-radius:9px;padding:9px 11px;background:var(--card-tint);white-space:pre-wrap;word-break:break-word;overflow-x:auto;margin-top:4px;color:var(--ink)}
 .mcard{background:var(--card-tint);border:1px solid var(--rule);border-left:3px solid var(--accent);border-radius:14px;padding:14px 15px;margin:0 0 16px}
 .mcard .mlab{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
 .mcard .mtag{font-family:var(--mono);font-weight:600;letter-spacing:.15em;font-size:.64rem;text-transform:uppercase;color:var(--accent)}
@@ -307,7 +308,10 @@ function detailHTML(c){
       +'</div>';
   }
   var notes=(c.notes||[]).map(function(nt){ var col=nt.level==='red'?'var(--red)':(nt.level==='yellow'?'var(--amber)':'var(--mut)'); return '<div class="note" style="color:'+col+'">'+esc(nt.text)+'</div>'; }).join('');
-  return '<div class="detail">'+(parts.join('')||'<div class="kv"><span class="v">No structured spec fields.</span></div>')+diff+(notes?'<div class="notes">'+notes+'</div>':'')+'</div>';
+  // Ratification only: the implementation already exists (built unattended under a grant), so
+  // show it for review — this is the one sign where the human sees real code, not just intent.
+  var code=c.code?('<div class="difflbl" style="color:var(--amber)">code it built'+(c.grant?' · ran under grant '+esc(c.grant):'')+'</div><pre class="codeblk">'+esc(c.code)+'</pre>'):'';
+  return '<div class="detail">'+(parts.join('')||'<div class="kv"><span class="v">No structured spec fields.</span></div>')+diff+code+(notes?'<div class="notes">'+notes+'</div>':'')+'</div>';
 }
 // Is THIS phone the one the laptop asked for? It tells us the intended signer
 // (sess.signer name + sess.signerPubs keys). If this phone holds a different key we
