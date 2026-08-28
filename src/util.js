@@ -151,6 +151,21 @@ const STATE = {
 // CALLS (`foo(` / `foo.bar(`) and control-flow starters, but skip declarations, imports,
 // comments, spec markers, the `if __name__` main-guard, and assignments (module
 // constants/wiring — same carve-out JS makes). Returns 1-based line numbers.
+// A NARROW, high-confidence set of "runs a dangerous side effect AT IMPORT" tokens —
+// network exfiltration + process execution. Used ONLY to un-exempt a top-level
+// ASSIGNMENT (`const X = …`, `X = …`), which is otherwise treated as a module constant.
+// Deliberately excludes ubiquitous benign wiring (require, document/window, Date.now)
+// so a normal codebase isn't drowned in false Pinks: the target is `LEAK = fetch(evil)`
+// / `X = requests.get(url)` at module scope, not every constant. (Distinct from the
+// broad purity net in verify.js, which polices effects INSIDE a Cell's body.)
+const LOADTIME_JS = [/\bfetch\s*\(/, /\bXMLHttpRequest\b/, /\baxios\b/, /\bWebSocket\b/, /\bnavigator\s*\.\s*sendBeacon\b/, /\.\s*exec(?:Sync|File|FileSync)?\s*\(/, /\.\s*spawn(?:Sync)?\s*\(/, /\bchild_process\b/, /\bimport\s*\(/];
+const LOADTIME_PY = [/\brequests\s*\./, /\burllib\b/, /\bhttpx\s*\./, /\bsocket\s*\./, /\bos\s*\.\s*system\s*\(/, /\bos\s*\.\s*popen\s*\(/, /\bsubprocess\s*\./, /\b__import__\s*\(/, /\beval\s*\(/, /\bexec\s*\(/];
+function hasLoadTimeEffect(text, family) {
+  const set = /^py/.test(String(family || '')) ? LOADTIME_PY : LOADTIME_JS;
+  const s = String(text || '');
+  return set.some((re) => re.test(s));
+}
+
 function looseTopLevelNonJs(lines, family) {
   if (family !== 'python' && family !== 'ruby') return [];
   const out = [];
@@ -166,7 +181,10 @@ function looseTopLevelNonJs(lines, family) {
     if (/^if\s+__name__/.test(t)) continue;   // standard Python entry guard (dead on import)
     const eq = t.search(/[^=!<>]=[^=]/);       // a real single '=' (assignment), not ==/!=/<=/>=
     const par = t.indexOf('(');
-    if (eq >= 0 && (par < 0 || eq < par)) continue; // assignment before any call → module constant/wiring
+    if (eq >= 0 && (par < 0 || eq < par)) {    // assignment → module constant/wiring…
+      if (hasLoadTimeEffect(t, family)) out.push(i + 1); // …UNLESS its RHS exfiltrates/execs at import
+      continue;
+    }
     if (CALL.test(t) || CTRL.test(t)) out.push(i + 1);
   }
   return out;
@@ -175,5 +193,5 @@ function looseTopLevelNonJs(lines, family) {
 module.exports = {
   MARK_BEGIN, MARK_END, YAY_DIR,
   repoRoot, paths, readJSON, writeJSON, canonical, pubKeysOf, walk, c, STATE,
-  langOf, isJsLang, commentLeadOf, looseTopLevelNonJs,
+  langOf, isJsLang, commentLeadOf, looseTopLevelNonJs, hasLoadTimeEffect,
 };

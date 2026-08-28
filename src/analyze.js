@@ -11,6 +11,7 @@
 // not separate units. Also flags top-level imperative code that runs at load.
 
 const babel = require('@babel/parser');
+const { hasLoadTimeEffect } = require('./util');
 
 // One parser for JS, TypeScript, JSX and TSX. The `estree` plugin makes the AST
 // ESTree-shaped (Literal / Property / MethodDefinition) so the walker below is
@@ -164,14 +165,23 @@ function isDirective(node) {
   return node.type === 'ExpressionStatement' && node.expression &&
     node.expression.type === 'Literal' && typeof node.expression.value === 'string';
 }
-function looseTopLevel(ast) {
-  const SKIP = new Set(['FunctionDeclaration', 'ClassDeclaration', 'VariableDeclaration',
-    'ImportDeclaration', 'ExportNamedDeclaration', 'ExportDefaultDeclaration', 'ExportAllDeclaration', 'EmptyStatement']);
+function looseTopLevel(ast, code) {
+  // Always-skip: definitions, imports/exports, empty. (A function/class DEFINITION that
+  // contains fetch is fine — it isn't executed at load; it's handled as a unit elsewhere.)
+  const SKIP = new Set(['FunctionDeclaration', 'ClassDeclaration',
+    'ImportDeclaration', 'ExportDefaultDeclaration', 'ExportAllDeclaration', 'EmptyStatement']);
+  // Wiring that's exempt UNLESS its right-hand side runs an exfil/exec effect at import
+  // (`const LEAK = fetch(evil)`, `X = require('cp').execSync(...)`): declarations, named
+  // exports (which wrap a declaration), and bare assignments (module.exports = …, X = Y).
   const out = [];
   for (const node of ast.body) {
     if (SKIP.has(node.type) || isDirective(node) || isIIFE(node)) continue;
-    // Top-level assignments (module.exports = …, X = Y) are wiring, not an action.
-    if (node.type === 'ExpressionStatement' && node.expression && node.expression.type === 'AssignmentExpression') continue;
+    const isDecl = node.type === 'VariableDeclaration' || node.type === 'ExportNamedDeclaration';
+    const isAssign = node.type === 'ExpressionStatement' && node.expression && node.expression.type === 'AssignmentExpression';
+    if (isDecl || isAssign) {
+      if (code && node.start != null && node.end != null && hasLoadTimeEffect(code.slice(node.start, node.end), 'js')) out.push(node.loc.start.line);
+      continue;
+    }
     out.push(node.loc.start.line);
   }
   return out;
@@ -222,7 +232,7 @@ function analyze(code) {
   });
   units.sort((a, b) => a.startLine - b.startLine);
   for (const u of units) { u.callsOut = [...u.callsOut]; u.callsDirect = [...u.callsDirect]; }
-  return { ok: true, units, loose: looseTopLevel(ast), calls: [...calls], bindings: collectBindings(ast), namespace: namespaceOf(ast) };
+  return { ok: true, units, loose: looseTopLevel(ast, code), calls: [...calls], bindings: collectBindings(ast), namespace: namespaceOf(ast) };
 }
 
 // Every name BOUND anywhere in the file (function/class ids, variable declarators,
