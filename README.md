@@ -264,6 +264,12 @@ yay verify --strict
 
 Anything Red or Unsigned fails the check, so it can't be merged. The real enforcement lives here, in infrastructure the AI doesn't control — not in a local hook.
 
+## Briefs & Git — two ledgers that move together
+
+A **git commit** snapshots *code*; a **Brief** is the human-signed record of *intent* (you sign the **spec + Brief, never the code**). They live in different places a single commit unites: the **spec Cells live inline in your source** (so they commit with the code), while the **Brief and its seal live in `.yaylayer/`** (also git-tracked). `yay verify` never trusts a stored verdict — it **re-derives** each Cell from the tree, and the CI gate runs that on the **pushed commit**. So the seal and the code it authorizes must ride the **same commit**: commit code without its seal → that commit is **Unsigned** (blocked); edit a signed Cell's spec afterwards → its `specHash` changes and the seal no longer matches (back to needs-signing).
+
+**Your AI is instructed to keep them in lockstep.** The Constitution written into your AI-harness files (`yay init --constitution`, Article 4) tells it: *when `yay verify` passes, **commit the code and `.yaylayer/` together in ONE commit**, and do **not** `git push` unless the human asks.* So each signed Brief lands as its own self-contained, human-authorized commit — pushing stays your call. It isn't strictly one-Brief-per-commit (batch mode groups small changes into one Brief), but the invariant holds: **never a commit with authorized code but no seal, or a seal with no code.** git records *what the code is*; the Brief records *that a human approved what it should be* — committed together so `yay verify` can prove the two still agree.
+
 ## What's built vs planned
 
 A **working reference implementation** of the protocol — honest about scope.
