@@ -63,7 +63,7 @@ The Constitution's rules, in one breath: *spec before code; use the marker gramm
 
 ## Try it in under a minute
 
-You need **Node ≥ 18**. Clone, install its one dependency ([`@babel/parser`](https://babeljs.io/docs/babel-parser), which handles JS, TypeScript, JSX & TSX), and run:
+You need **Node ≥ 18**, and you'll want **git installed first** — YayLayer works without it, but git is where the proof lives: the CI gate reads committed state, and the dashboard's history features (spec diffs on the phone, and the Briefs tab's *"as this Brief signed it"* view) reconstruct past versions straight from your git history. **Install git, then yay-layer.** Clone, install its one dependency ([`@babel/parser`](https://babeljs.io/docs/babel-parser), which handles JS, TypeScript, JSX & TSX), and run:
 
 ```bash
 git clone https://github.com/jonas-developer/yay-layer.git
