@@ -22,8 +22,8 @@ Legend: ✅ shipped · 🔜 v1 (building) · 🔭 later.
 |----------|-----------|---------------------|-------|
 | **JavaScript / TypeScript** (incl. JSX/TSX) | `.js .ts .jsx .tsx .mjs .cjs` | **Proven** ✅ | Full: AST via `@babel/parser`, behavioral prover + mutation grading + inertness; JSX render prover (`renders: yes`). Node.js = this. |
 | **Python** | `.py .pyw` | **Proven** ✅ | Out-of-process `python3` subprocess; pure functions with `ensures` reach proven Green. |
-| **Ruby** | `.rb` | **Proven** 🔜 | v1: `ruby` subprocess adapter (Python pattern) + Ruby effect/purity net. |
-| **PHP** | `.php` | **Proven** 🔜 | v1: `php` subprocess adapter (Python pattern) + PHP effect/purity net. |
+| **Ruby** | `.rb` | **Proven** 🔜 | v1: `ruby` subprocess adapter (Python pattern) + Ruby effect/purity net. Proof today covers **top-level/module functions** only; class/instance methods & framework-coupled code (Rails) → Yellow ([limits](#current-proving-limits-rubyphp--rails)). |
+| **PHP** | `.php` | **Proven** 🔜 | v1: `php` subprocess adapter (Python pattern) + PHP effect/purity net. Same **top-level-only** proof scope; class/instance methods → Yellow ([limits](#current-proving-limits-rubyphp--rails)). |
 | **Solidity** | `.sol` | **Static** 🔜 (proven 🔭) | v1: Solidity effect/purity net (static, first-class gate). Behavioral proof needs an EVM harness (Foundry/Hardhat) — its own later release. |
 | **Rust** | `.rs` | **Static** 🔜 (proven 🔭) | v1: Rust effect/purity net. Behavioral proof needs a compile-harness (`rustc`/`cargo`) — a `1.x` capability bump. |
 | **C#** | `.cs` | **Static** 🔜 (proven 🔭) | v1: C# effect/purity net. Behavioral proof needs a compile-harness (`dotnet`) — a `1.x` capability bump. |

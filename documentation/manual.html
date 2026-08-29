@@ -374,8 +374,8 @@ Ratified                   Green</code></pre>
         <tbody>
           <tr><td>JavaScript / TypeScript (JSX/TSX)</td><td><strong>Proven</strong> <span class="pill shipped">Shipped</span></td><td>AST via Babel; behavioral prover + mutation + inertness; JSX render prover. Node = this.</td></tr>
           <tr><td>Python</td><td><strong>Proven</strong> <span class="pill shipped">Shipped</span></td><td><code>python3</code> subprocess; pure functions with <code>ensures</code> reach Green.</td></tr>
-          <tr><td>Ruby</td><td><strong>Proven</strong> <span class="pill v1">v1</span></td><td><code>ruby</code> subprocess (Python pattern) + Ruby effect net.</td></tr>
-          <tr><td>PHP</td><td><strong>Proven</strong> <span class="pill v1">v1</span></td><td><code>php</code> subprocess (Python pattern) + PHP effect net.</td></tr>
+          <tr><td>Ruby</td><td><strong>Proven</strong> <span class="pill v1">v1</span></td><td><code>ruby</code> subprocess (Python pattern) + Ruby effect net. Proof covers <strong>top-level/module functions</strong> only; class/instance methods &amp; framework-coupled code (Rails) → Yellow.</td></tr>
+          <tr><td>PHP</td><td><strong>Proven</strong> <span class="pill v1">v1</span></td><td><code>php</code> subprocess (Python pattern) + PHP effect net. Same <strong>top-level-only</strong> proof scope; class/instance methods → Yellow.</td></tr>
           <tr><td>Solidity</td><td><strong>Static</strong> <span class="pill v1">v1</span></td><td>Effect net now; behavioral proof needs an EVM harness — <span class="pill later">Later</span>.</td></tr>
           <tr><td>Rust</td><td><strong>Static</strong> <span class="pill v1">v1</span></td><td>Effect net now; proof needs a compile-harness — <span class="pill later">Later</span>.</td></tr>
           <tr><td>C#</td><td><strong>Static</strong> <span class="pill v1">v1</span></td><td>Effect net now; proof needs a compile-harness — <span class="pill later">Later</span>.</td></tr>
