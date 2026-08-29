@@ -6,7 +6,7 @@
 
 **Authority axis** — the human-trust dimension of a Cell: Unapproved → Delegated → Ratified. Orthogonal to the verification axis.
 
-**Autopilot** — friendly name for delegated execution: operating under a grant. Formal term: **Delegated execution**. (Replaces the retired "Freedom mode.")
+**Autopilot** — friendly name for delegated execution: operating under a grant. Formal term: **Delegated execution**.
 
 **Brief** — the human-readable headline over a change-set: title + 1–3 sentences of intent + the Cells it covers. Signed with the specs; attributes intent; never earns Green.
 

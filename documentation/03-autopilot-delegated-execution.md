@@ -1,6 +1,6 @@
 # 03 — Autopilot (Delegated execution)
 
-**Autopilot** is the friendly name; **Delegated execution** is the formal/enterprise term. (It replaces the earlier name "Freedom mode," retired because "freedom" implies the AI is *unbound* — the opposite of what this is: bounded, revocable, ratified delegation with the human in control.) The technical nouns stay: `yay grant`, **Delegated**, **Ratified**.
+**Autopilot** is the friendly name; **Delegated execution** is the formal/enterprise term. It is bounded, revocable, ratified delegation with the human in control. The technical nouns: `yay grant`, **Delegated**, **Ratified**.
 
 > **A grant is authorization to *act*. It is not approval of the resulting artifact.** Reserve "approved" for actual human signatures.
 
