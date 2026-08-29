@@ -132,6 +132,7 @@ function buildVerification(manifest, verified, opts) {
     rulesetHash: C.sha256(canonical(opts.policy || { rules: [] })),
     rootFp: (verified && verified.rootFp) || null,
     evidenceHash: C.sha256(canonical(evidence)),
+    evidence, // per-Cell {state,proven} — small, self-describing, and lets `yay reverify` diff verdicts across capability versions
     cells: leaves.length,
     result,
     env: { node: process.version, platform: os.platform() + '/' + os.arch() },

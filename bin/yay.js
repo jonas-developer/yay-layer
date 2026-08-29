@@ -17,6 +17,7 @@ const C = require('../src/crypto');
 const R = require('../src/ratify');
 const O = require('../src/objects');
 const A = require('../src/attest');
+const AS = require('../src/assurance');
 const { buildManifest } = require('../src/manifest');
 const { verifyManifest } = require('../src/verify');
 const { renderMap } = require('../src/map');
@@ -1681,6 +1682,78 @@ function cmdAttest(flags, positional) {
   console.log('  ' + U.c.dim('append-only ledger → ') + U.c.bold('.yaylayer/attest.json') + U.c.dim(' + full object in .yaylayer/attestations/ (commit both). Key stays in gitignored keys/.'));
 }
 
+// `yay reverify` (P4) — re-run verification at the CURRENT verifier capability and, if anything
+// changed (a capability bump, a verdict moving Yellow→Green as a prover lands, or code drift),
+// APPEND a new attestation that chains to the prior one. Never rewrites old attestations: a better
+// verifier's assessment is a NEW event beside the old, so history compounds instead of being edited.
+function cmdReverify(flags) {
+  const { p, config, lock } = loadState();
+  if (!config) return fail('run `yay init` first');
+  const manifest = buildManifest(flags.dir || p.root);
+  if (!Object.keys(manifest.cells).length) return fail('no Cells to reverify.');
+  const last = A.latestEntry(p, config);
+  if (!last) return fail('no prior attestation to reverify against — mint the first with `yay attest`.');
+  const prevAtt = A.loadAttestation(p, config, last.hash);
+  if (!prevAtt) return fail('the latest attestation object is missing or fails its integrity check — cannot reverify against it.');
+  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), grants: loadGrants(p), root: trustRootPin(flags) });
+  const verObj = A.buildVerification(manifest, verified, { config, policy: verified.policy });
+  const diff = AS.reverifyDiff(prevAtt, verObj);
+
+  console.log(U.c.bold('Re-verification') + U.c.dim(` — prior ${last.hash.slice(0, 12)} (capability ${diff.fromCapability}) → now capability ${diff.toCapability}`));
+  if (diff.capabilityChanged) console.log('  ' + U.c.accent(`verifier capability changed ${diff.fromCapability} → ${diff.toCapability}`));
+  if (!diff.changes.length && verObj.codeTreeHash === prevAtt.codeTreeHash) {
+    console.log('  ' + U.c.green('✓ no change') + U.c.dim(' — same verdicts, same code, same capability. Nothing appended (the prior attestation still stands).'));
+    return;
+  }
+  for (const ch of diff.changes) {
+    const arrow = ch.from + ' → ' + ch.to + (ch.toProven && !ch.fromProven ? ' (now machine-proven)' : '');
+    console.log('  ' + (ch.to === 'GREEN' ? U.c.green('▲') : (ch.from === 'GREEN' ? U.c.red('▼') : U.c.yellow('•'))) + ' ' + ch.cell + U.c.dim(' · ' + arrow));
+  }
+  console.log(U.c.dim(`  ${diff.improved} improved · ${diff.regressed} regressed · ${diff.changes.length} changed`));
+  if (!verified.passed && !flags.force) return fail('gate is BLOCKED — refusing to append a failing re-verification. Pass --force to record it anyway.');
+  const id = A.verifierIdentity(p, config);
+  A.pinVerifier(config, id) && U.writeJSON(p.config, config);
+  const att = A.signAttestation(verObj, id);
+  A.appendAttestation(p, config, att);
+  console.log('\n' + U.c.green('✓ appended re-verification') + U.c.dim(` ${att.hash.slice(0, 16)} (chained to ${att.prev.slice(0, 12)}) — old attestations are untouched.`));
+}
+
+// `yay witness` (P4) — integrity witness: cross-check the append-only ledgers against each other and
+// the code on disk. Answers "is the record internally sound, and does it still describe reality?"
+function cmdWitness(flags) {
+  const { p, config, lock } = loadState();
+  if (!config) return fail('run `yay init` first');
+  const manifest = buildManifest(flags.dir || p.root);
+  const w = AS.integrityWitness({
+    ledger: A.loadLedger(p, config),
+    loadAttestation: (h) => A.loadAttestation(p, config, h),
+    currentCodeTreeHash: A.codeTreeHashOf(manifest),
+    approvals: (lock && lock.approvals) || [],
+    hasSpecObject: (h) => O.hasObject(p.root, h),
+  });
+  const c = w.checks;
+  console.log(U.c.bold('Integrity witness'));
+  console.log('  ' + (c.chainOk ? U.c.green('✓') : U.c.red('✗')) + U.c.dim(` attestation chain — ${c.attestationsValidated}/${c.attestations} validated`));
+  console.log('  ' + (c.latestCovered ? U.c.green('✓') : (c.attestations ? U.c.yellow('⚠') : U.c.dim('–'))) + U.c.dim(` latest attestation covers the current code`));
+  console.log('  ' + (c.specsMissing ? U.c.red('✗') : U.c.green('✓')) + U.c.dim(` spec archive — ${c.specsChecked - c.specsMissing}/${c.specsChecked} signed spec revisions archived`));
+  for (const pb of w.problems) console.log('  ' + U.c.red('• ') + pb);
+  console.log('\n  ' + (w.ok ? U.c.green('WITNESS: SOUND') : U.c.red('WITNESS: PROBLEMS')) + U.c.dim(' (git/tree vs ledger vs spec-archive)'));
+  if (flags.strict) process.exit(w.ok ? 0 : 1);
+}
+
+// `yay metrics` (P4) — earned-autonomy metrics from the rejection + delegation history.
+function cmdMetrics(flags) {
+  const { p, config, lock } = loadState();
+  if (!config) return fail('run `yay init` first');
+  const m = AS.earnedAutonomy(loadRejections(p), (lock && lock.approvals) || []);
+  console.log(U.c.bold('Earned-autonomy metrics') + U.c.dim(' — from delegation + ratification + rejection history'));
+  console.log('  ' + U.c.dim(`delegated Cells: ${m.delegated} · ratified: ${m.ratified} · rejected: ${m.rejected}` + (m.ratifiedRate != null ? ` · ratified rate ${Math.round(m.ratifiedRate * 100)}%` : '')));
+  const cats = Object.keys(m.byCategory);
+  if (cats.length) { console.log('  ' + U.c.bold('rejections by category:')); for (const cat of cats.sort((a, b) => m.byCategory[b] - m.byCategory[a])) console.log('    ' + U.c.red(String(m.byCategory[cat])) + U.c.dim(' × ' + cat)); }
+  else console.log('  ' + U.c.dim('no rejections recorded yet.'));
+  for (const s of m.suggestions) console.log('  ' + U.c.yellow('→ ') + s);
+}
+
 // `yay attest list` / `yay attest verify` — read the ledger; re-check every stored attestation.
 function cmdAttestList(flags, positional) {
   const { p, config } = loadState();
@@ -2558,6 +2631,13 @@ const HELP = `yay — a protocol for provable, signed AI code
                              capability-versioned. "list" shows the ledger; "verify" re-checks every attestation
                              (--strict exits non-zero on any invalid). Key stays machine-side (gitignored); the
                              public verifier of record is pinned in config (committed) so anyone can verify.
+  yay reverify               re-run verification at the current verifier capability; if a capability bump,
+                             a verdict change (e.g. Yellow→Green), or code drift is found, APPEND a new
+                             attestation chained to the prior one (never rewrites old Green). Prints an upgrade report.
+  yay witness [--strict]     integrity witness — cross-check the attestation chain, the spec archive, and
+                             whether the latest attestation still covers the code (git/tree vs ledger vs archive)
+  yay metrics                earned-autonomy metrics from the delegation + ratification + rejection history
+                             (per-category rejection rates; suggests categories to stop delegating)
   yay plan [--provider anthropic|openai|custom] [--model m] [--base-url url]
                              AI-synthesize a high-level System Plan → .yaylayer/plan.json
                              key from .env (ANTHROPIC_API_KEY / OPENAI_API_KEY); custom = any OpenAI-compatible
@@ -2594,6 +2674,9 @@ async function main() {
     case 'ratify': return cmdRatify(flags);
     case 'verify': case 'check': return cmdVerify(flags);
     case 'attest': case 'attestation': return cmdAttest(flags, positional);
+    case 'reverify': return cmdReverify(flags);
+    case 'witness': return cmdWitness(flags);
+    case 'metrics': return cmdMetrics(flags);
     case 'map': return cmdMap(flags);
     case 'dashboard': case 'serve': return cmdDashboard(flags);
     case 'test': case 'tests': return cmdTest(flags);

@@ -1386,5 +1386,44 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 
+  // 21) P4 — long-lived assurance: reverify diff, integrity witness, earned-autonomy metrics.
+  {
+    const AS = require('../src/assurance');
+    // reverify diff: Yellow→Green is an improvement; Green→Red a regression; capability change flagged.
+    const prev = { capability: '1.0.0', evidence: { 'C-1': { state: 'YELLOW', proven: false }, 'C-2': { state: 'GREEN', proven: true }, 'C-3': { state: 'GREEN', proven: true } } };
+    const now = { capability: '1.1.0', evidence: { 'C-1': { state: 'GREEN', proven: true }, 'C-2': { state: 'RED', proven: false }, 'C-3': { state: 'GREEN', proven: true } } };
+    const d = AS.reverifyDiff(prev, now);
+    ok(d.capabilityChanged === true && d.fromCapability === '1.0.0' && d.toCapability === '1.1.0', 'p4-reverify: a capability change is flagged with from/to');
+    ok(d.improved === 1 && d.regressed === 1 && d.changes.length === 2, 'p4-reverify: counts improvements (Y→G) and regressions (G→R); unchanged Cells are omitted');
+    ok(AS.reverifyDiff(prev, prev).changes.length === 0, 'p4-reverify: identical evidence yields no changes (nothing to append)');
+
+    // integrity witness: sound when the chain validates, latest covers the tree, and specs are archived.
+    const ledger = { entries: [{ hash: 'h1', prev: 'genesis', codeTreeHash: 'TREE' }, { hash: 'h2', prev: 'h1', codeTreeHash: 'TREE' }] };
+    const good = AS.integrityWitness({ ledger, loadAttestation: () => ({ ok: true }), currentCodeTreeHash: 'TREE', approvals: [{ items: { 'C-1': 'sh1' } }], hasSpecObject: () => true });
+    ok(good.ok === true && good.checks.chainOk && good.checks.latestCovered && good.checks.specsMissing === 0, 'p4-witness: sound when chain + coverage + spec-archive all hold');
+    const brokenChain = AS.integrityWitness({ ledger: { entries: [{ hash: 'h1', prev: 'genesis' }, { hash: 'h2', prev: 'WRONG' }] }, loadAttestation: () => ({}), currentCodeTreeHash: null, approvals: [] });
+    ok(brokenChain.ok === false && brokenChain.checks.chainOk === false, 'p4-witness: a broken attestation chain is caught');
+    const drift = AS.integrityWitness({ ledger, loadAttestation: () => ({}), currentCodeTreeHash: 'DIFFERENT', approvals: [], hasSpecObject: () => true });
+    ok(drift.ok === false && drift.checks.latestCovered === false, 'p4-witness: code drift (latest attestation no longer covers the tree) is caught');
+    const missSpec = AS.integrityWitness({ ledger, loadAttestation: () => ({}), currentCodeTreeHash: 'TREE', approvals: [{ items: { 'C-1': 'sh1' } }], hasSpecObject: () => false });
+    ok(missSpec.checks.specsMissing === 1 && missSpec.ok === false, 'p4-witness: a signed spec revision missing from the archive is caught');
+    const tampered = AS.integrityWitness({ ledger, loadAttestation: () => null, currentCodeTreeHash: 'TREE', approvals: [], hasSpecObject: () => true });
+    ok(tampered.ok === false && tampered.checks.attestationsValidated === 0, 'p4-witness: an attestation object that fails its integrity check is caught');
+
+    // earned-autonomy: delegated/ratified/rejected + by-category + a suggestion at ≥3 rejections.
+    const approvals = [
+      { autoApproved: true, items: { 'C-1': 'a', 'C-2': 'b' } },
+      { items: { 'C-1': 'a' } }, // human ratification of C-1
+    ];
+    const rejections = { events: [
+      { type: 'reject', category: 'dependency', cells: ['C-2'] },
+      { type: 'reject', category: 'dependency', cells: ['C-5', 'C-6'] },
+    ] };
+    const m = AS.earnedAutonomy(rejections, approvals);
+    ok(m.delegated === 2 && m.ratified === 1, 'p4-metrics: counts delegated Cells and ratified (delegated-then-human-signed) Cells');
+    ok(m.rejected === 3 && m.byCategory.dependency === 3, 'p4-metrics: counts rejected Cells and groups them by category');
+    ok(m.suggestions.length === 1 && /dependency/.test(m.suggestions[0]), 'p4-metrics: suggests excluding a category rejected ≥3×');
+  }
+
   console.log(`\nAll ${n} checks passed.`);
 })().catch((e) => { console.error('smoke failed:', e); process.exit(1); });
