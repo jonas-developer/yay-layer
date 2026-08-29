@@ -2179,7 +2179,10 @@ function buildMapHTML(p, config, lock, flags) {
       const last = A.latestEntry(p, config);
       if (last) { const covered = last.codeTreeHash === A.codeTreeHashOf(manifest); attest = { hash: last.hash, at: last.at, passed: last.passed, capability: last.capability, covered, fp: (config.verifier && config.verifier.fp) || null }; }
     } catch (_) {}
-    return { grants, rejections, attest, timelines };
+    // Verifier capability descriptor for the Capabilities view (derived from the live provers/nets/checks).
+    let capability = null;
+    try { capability = { version: CAP.CAPABILITY, fingerprint: CAP.capabilityFingerprint(), descriptor: CAP.describeCapability(), pinned: (config.verifier && { fp: config.verifier.fp, capability: config.verifier.capability }) || null }; } catch (_) {}
+    return { grants, rejections, attest, timelines, capability };
   })();
   return { html: renderMap(manifest, verified, config && config.project, changes, times, planDoc, gov, briefs, tagsMod.loadTags(p), policyInfo, tagSets, batchConfig(config), extra), count: Object.keys(verified.results).length };
 }

@@ -266,6 +266,8 @@ function renderMap(manifest, verified, project, changes, times, planDoc, gov, br
     signers: '<svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
     policy: '<svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
     commands: '<svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>',
+    capability: '<svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11.5 14.5 16 9.5"/></svg>',
+    manual: '<svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>',
   };
   const statblocks = '<div class="statgrid">' + ['GREEN', 'YELLOW', 'RED', 'UNSIGNED', 'PINK'].map((k) => {
     const m = STAT_META[k];
@@ -284,7 +286,7 @@ function renderMap(manifest, verified, project, changes, times, planDoc, gov, br
   // of signed Specs + Briefs over time (a Brief's weight = its own chars + its Cells' specs).
   const specChars = {};
   for (const id of Object.keys(manifest.cells)) { const c = manifest.cells[id]; if (c) specChars[id] = (c.specBlock || '').length; }
-  const meta = { project: project || 'project', counts: verified.counts, passed: verified.passed, totalUnits, plan: planDoc || null, gov: gov || null, files: FILES, briefs: briefs || [], specChars, tags: (tagCfg && tagCfg.tags) || [], tagSet: (tagCfg && tagCfg.set) || null, tagDescriptions: (tagCfg && tagCfg.descriptions) || {}, tagSets: tagSets || [], batch: batchCfg || { enabled: true, barrier: 5 }, policy: policyInfo || { enforced: [], draft: [], violations: [], signers: [] }, signMethod: (policyInfo && policyInfo.signMethod) || 'phone', ratify: (function(){ try { var b = ratifyBundle(manifest, verified); return { hash: b.hash, count: b.ids.length }; } catch (_) { return { hash: null, count: 0 }; } })(), grants: extra.grants || [], rejections: extra.rejections || [], attest: extra.attest || null, timelines: extra.timelines || {} };
+  const meta = { project: project || 'project', counts: verified.counts, passed: verified.passed, totalUnits, plan: planDoc || null, gov: gov || null, files: FILES, briefs: briefs || [], specChars, tags: (tagCfg && tagCfg.tags) || [], tagSet: (tagCfg && tagCfg.set) || null, tagDescriptions: (tagCfg && tagCfg.descriptions) || {}, tagSets: tagSets || [], batch: batchCfg || { enabled: true, barrier: 5 }, policy: policyInfo || { enforced: [], draft: [], violations: [], signers: [] }, signMethod: (policyInfo && policyInfo.signMethod) || 'phone', ratify: (function(){ try { var b = ratifyBundle(manifest, verified); return { hash: b.hash, count: b.ids.length }; } catch (_) { return { hash: null, count: 0 }; } })(), grants: extra.grants || [], rejections: extra.rejections || [], attest: extra.attest || null, timelines: extra.timelines || {}, capability: extra.capability || null };
   const payload = JSON.stringify({ root: 'system', nodes: YLnodes, edges: { system: modEdges }, details, changes: changes || [], needs, meta })
     .replace(/</g, '\\u003c');
 
@@ -326,6 +328,8 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);l
 .tab:hover:not(.active){color:var(--ink);background:color-mix(in srgb,var(--ink) 6%,transparent)}
 .tab.active{background:color-mix(in srgb,var(--brand) 15%,transparent);color:var(--accent);font-weight:600}
 .tab.active .ti{opacity:1}
+.tab.navext{text-decoration:none}
+.navext-ico{margin-left:auto;font-size:.78rem;opacity:.45}
 .themebtn{font-family:var(--sans);font-size:.8rem;font-weight:500;background:var(--card);color:var(--ink);border:1px solid var(--rule);border-radius:9px;padding:7px 13px;cursor:pointer}
 .themebtn:hover{border-color:var(--mut)}
 .viewbtn{font-family:var(--sans);font-size:.8rem;font-weight:600;background:var(--brand);color:#04231a;border:1px solid transparent;border-radius:9px;padding:7px 15px;cursor:pointer}
@@ -527,6 +531,8 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
 <button class="tab" data-tab="policy" id="tab-policy" style="display:none"><span class="ti">${ICONS.policy}</span>Policy</button>
 <div class="navgroup">Reference</div>
 <button class="tab" data-tab="commands"><span class="ti">${ICONS.commands}</span>Commands</button>
+<button class="tab" data-tab="capability"><span class="ti">${ICONS.capability}</span>Capabilities</button>
+<a class="tab navext" href="https://github.com/jonas-developer/yay-layer/tree/main/documentation" target="_blank" rel="noopener noreferrer"><span class="ti">${ICONS.manual}</span>Manual<span class="navext-ico">↗</span></a>
 </nav>
 <div id="yd-slot"></div>
 </aside>
@@ -548,6 +554,7 @@ ${statblocks}
 <div id="signers" class="signers" style="display:none"></div>
 <div id="files" class="files" style="display:none"></div>
 <div id="commands" class="commands" style="display:none">${commandsHTML()}</div>
+<div id="capability" class="signers" style="display:none"></div>
 <div class="foot">Generated by <code>yay map</code> · zoomable hierarchy · green = code proven to match a signed spec, pink = no spec · ▲N = Cells that depend on this (blast radius) · <span style="color:var(--amber)">unused?</span> = no callers found.</div>
 </div>
 </div>
@@ -750,6 +757,37 @@ ${statblocks}
         +s.keys.map(function(k){ return '<div class="skey">'+(k.kind?'<span class="skeykind">'+esc2(k.kind)+'</span>':'')+'<span>'+esc2(k.fp)+'</span>'+(k.addedAt?'<span style="color:var(--mut)">· added '+esc2(String(k.addedAt).slice(0,10))+'</span>':'')+'</div>'; }).join('')
         +'</div></div>';
     });
+    el.innerHTML=html;
+  }
+
+  // ── Capabilities tab — what THIS verifier can detect & prove, its version + fingerprint ──
+  function renderCapability(){
+    var el=document.getElementById('capability'); if(!el) return;
+    var cap=DATA.meta&&DATA.meta.capability;
+    if(!cap){ el.innerHTML='<h1>Verifier capabilities</h1><div class="snote">Capability info unavailable in this build.</div>'; return; }
+    var d=cap.descriptor||{};
+    var chip=function(t){ return '<span class="pm">'+esc2(t)+'</span>'; };
+    var provLabel={ 'pure-call':'JS/TS functions', 'render':'React components (JSX/TSX)', 'python':'Python', 'ruby':'Ruby', 'php':'PHP' };
+    var provers=(d.provers||[]).map(function(p){ return chip(provLabel[p]||p); }).join('');
+    var nets=(Object.keys(d.effectNets||{})).map(function(l){ return chip(l); }).join('');
+    var checks=(d.checks||[]).map(function(c){ return chip(c.replace(/-/g,' ')); }).join('');
+    var kinds=(d.policyKinds||[]).map(function(k){ return chip(k.replace(/-/g,' ')); }).join('');
+    var sec=function(h,body,note){ return '<div style="border:1px solid var(--rule);border-radius:14px;background:var(--card);box-shadow:var(--shadow);padding:16px 18px;margin:0 0 14px"><div class="dh" style="margin:0 0 9px">'+h+'</div>'+body+(note?('<div class="snote" style="margin-top:9px;font-family:var(--sans)">'+note+'</div>'):'')+'</div>'; }
+    var pinned=cap.pinned;
+    var html='<h1>Verifier capabilities</h1>'
+      +'<div class="snote" style="font-family:var(--sans);margin:0 0 16px">What this machine verifier can currently detect and prove. The version is <b>derived</b> from exactly the set below — a fingerprint over it — so it can never claim more than it does.</div>'
+      +'<div class="rootcard"><div><div class="rootlbl">Capability version</div><div class="rootfp">'+esc2(cap.version||'?')+'</div></div>'
+        +'<div style="text-align:right"><div class="rootlbl">Fingerprint</div><div class="smeta" style="font-family:var(--mono)">'+esc2(String(cap.fingerprint||'').slice(0,24))+'…</div></div></div>'
+      +sec('Behaviorally proven → machine Green', '<div class="pmetrics">'+provers+'</div>', 'Pure functions with an <span class="inline">ensures</span> run and are checked against it. (Ruby/PHP: top-level/module functions today.)')
+      +sec('First-class effect nets', '<div class="pmetrics">'+nets+'</div>', 'A <span class="inline">pure: yes</span> Cell that actually does I/O is caught (Red) in each of these languages, in its own idioms.')
+      +sec('Security &amp; quality checks', '<div class="pmetrics">'+checks+'</div>', 'Run on every passing Cell — mutation grading, inertness, literal-seeding (dormant-trigger hunt), branch-coverage honesty.')
+      +sec('Policy rule kinds understood', '<div class="pmetrics">'+kinds+'</div>', 'Owner-signed policy rules the gate enforces.')
+      +sec('Verifier of record', pinned?('<div class="skey" style="font-family:var(--mono)"><span class="skeykind">verifier key</span><span>'+esc2(pinned.fp||'')+'</span><span style="color:var(--mut)">· capability '+esc2(pinned.capability||cap.version)+'</span></div>'):'<div class="snote" style="font-family:var(--sans)">No verifier key pinned yet — run <b>yay attest</b> to mint the project verifier and sign the first attestation.</div>', null)
+      +'<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px">'
+        +'<a class="viewbtn" href="https://yaylayer.com/verify" target="_blank" rel="noopener noreferrer" style="text-decoration:none">Verify an attestation ↗</a>'
+        +'<a class="themebtn" href="https://yaylayer.com/capabilities.json" target="_blank" rel="noopener noreferrer" style="text-decoration:none">Canonical registry ↗</a>'
+        +'<a class="themebtn" href="https://github.com/jonas-developer/yay-layer/tree/main/documentation" target="_blank" rel="noopener noreferrer" style="text-decoration:none">Manual ↗</a>'
+      +'</div>';
     el.innerHTML=html;
   }
 
@@ -1339,7 +1377,7 @@ ${statblocks}
     curTab=name;
     try{ sessionStorage.setItem('yay.tab', name); }catch(e){} // remember across reloads (e.g. after a tag/policy save)
     MAP_ELS.forEach(function(s){ showSel(s, name==='map'); });
-    showSel('#plan', name==='plan'); showSel('#signers', name==='signers'); showSel('#files', name==='files'); showSel('#commands', name==='commands'); showSel('#briefs', name==='briefs'); showSel('#tags', name==='tags'); showSel('#policy', name==='policy');
+    showSel('#plan', name==='plan'); showSel('#signers', name==='signers'); showSel('#files', name==='files'); showSel('#commands', name==='commands'); showSel('#briefs', name==='briefs'); showSel('#tags', name==='tags'); showSel('#policy', name==='policy'); showSel('#capability', name==='capability');
     Array.prototype.forEach.call(document.querySelectorAll('.tab'),function(b){ b.classList.toggle('active', b.getAttribute('data-tab')===name); });
     var nm=document.getElementById('side'); if(nm) nm.classList.remove('open');
     var sc=document.getElementById('scrim'); if(sc) sc.classList.remove('open');
@@ -1349,6 +1387,7 @@ ${statblocks}
     if(name==='briefs') renderBriefs();
     if(name==='tags') renderTags();
     if(name==='policy') renderPolicy();
+    if(name==='capability') renderCapability();
     if(name==='files') renderFiles();
   }
   // Live = the dashboard's control bar is on the page. Checked LAZILY (not at parse time),
@@ -1361,7 +1400,7 @@ ${statblocks}
     var pol=(DATA.meta&&DATA.meta.policy)||{};
     function revealPolicy(){ if(isLive() || (pol.enforced&&pol.enforced.length) || (pol.draft&&pol.draft.length)) Array.prototype.forEach.call(document.querySelectorAll('[data-tab="policy"]'),function(t){ t.style.display=''; }); }
     revealPolicy(); window.addEventListener('load', revealPolicy); // re-check once yd-bar is in the DOM
-    Array.prototype.forEach.call(document.querySelectorAll('.tab'),function(b){ b.addEventListener('click',function(){ setTab(b.getAttribute('data-tab')); }); });
+    Array.prototype.forEach.call(document.querySelectorAll('.tab[data-tab]'),function(b){ b.addEventListener('click',function(){ setTab(b.getAttribute('data-tab')); }); });
     var nb=document.getElementById('navburger'), nm=document.getElementById('side'), sc=document.getElementById('scrim');
     if(nb && nm) nb.addEventListener('click',function(){ var open=nm.classList.toggle('open'); if(sc) sc.classList.toggle('open',open); nb.textContent=open?'✕':'☰'; nb.setAttribute('aria-expanded',open?'true':'false'); });
     if(sc) sc.addEventListener('click',function(){ nm.classList.remove('open'); sc.classList.remove('open'); if(nb){ nb.textContent='☰'; nb.setAttribute('aria-expanded','false'); } });
