@@ -1693,11 +1693,11 @@ function cmdAttest(flags, positional) {
   console.log('  ' + U.c.dim('code-tree ' + att.codeTreeHash.slice(0, 12) + ' · spec-set ' + att.specSetHash.slice(0, 12) + ' · ' + att.env.node + ' ' + att.env.platform));
   if (changed) console.log('  ' + U.c.dim('pinned this verifier as the project verifier of record → ') + U.c.bold('.yaylayer/config.json') + U.c.dim(' (commit it).'));
   console.log('  ' + U.c.dim('append-only ledger → ') + U.c.bold('.yaylayer/attest.json') + U.c.dim(' + full object in .yaylayer/attestations/ (commit both). Key stays in gitignored keys/.'));
-  console.log('  ' + U.c.dim('verify anywhere (no upload, checks in-browser) → ') + U.c.bold('https://verify.yaylayer.com') + U.c.dim(' · registry cross-check: ') + U.c.bold('yay attest verify --registry'));
+  console.log('  ' + U.c.dim('verify anywhere (no upload, checks in-browser) → ') + U.c.bold('https://yaylayer.com/verify') + U.c.dim(' · registry cross-check: ') + U.c.bold('yay attest verify --registry'));
 }
 
-// Base URL of the public verifier-capability registry (verify.yaylayer.com), overridable for testing.
-function registryBase(flags) { return (flags.registry && flags.registry !== true) ? String(flags.registry).replace(/\/$/, '') : 'https://verify.yaylayer.com'; }
+// Base URL of the public verifier-capability registry (yaylayer.com), overridable for testing.
+function registryBase(flags) { return (flags.registry && flags.registry !== true) ? String(flags.registry).replace(/\/$/, '') : 'https://yaylayer.com'; }
 
 // `yay archive` (P4 — Durable mode + governance). Keeps an encrypted, sha256-anchored copy of the
 // SIGNED source so "what the code was when signed" survives git loss. Subcommands: enable/disable,
@@ -1914,7 +1914,7 @@ async function cmdAttestList(flags, positional) {
     const pub = A.verifierPub(p, config);
     if (!led.entries.length) { console.log(U.c.dim('no attestations to verify.')); return; }
     // Optional: cross-check each attestation's declared capability against the public registry at
-    // verify.yaylayer.com, so a fingerprint that claims more than the canonical version is caught.
+    // yaylayer.com/verify, so a fingerprint that claims more than the canonical version is caught.
     let registry = null;
     if (flags.registry) {
       try { const r = await fetch(registryBase(flags) + '/capabilities.json'); registry = (await r.json()).capabilities || {}; }
@@ -2829,9 +2829,9 @@ const HELP = `yay — a protocol for provable, signed AI code
                              verify. Refuses a blocked gate (--force records a failing one). Append-only, chained,
                              capability-versioned. "list" shows the ledger; "verify" re-checks every attestation
                              (--strict exits non-zero on any invalid) · "verify --registry" also cross-checks each
-                             attestation's capability against verify.yaylayer.com (catches over-claim). Key stays
+                             attestation's capability against yaylayer.com/verify (catches over-claim). Key stays
                              machine-side (gitignored); the public verifier of record is pinned in config. Anyone
-                             can also verify an attestation in-browser at https://verify.yaylayer.com (no upload).
+                             can also verify an attestation in-browser at https://yaylayer.com/verify (no upload).
   yay capability [--json]    the verifier's DERIVED capability descriptor + fingerprint (provers, effect
                              nets, checks, policy kinds); flags DRIFT if detectors changed without a version bump
   yay reverify               re-run verification at the current verifier capability; if a capability bump,
