@@ -281,18 +281,18 @@ function renderMap(manifest, verified, project, changes, times, planDoc, gov, br
 *{box-sizing:border-box}
 body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);line-height:1.6;-webkit-font-smoothing:antialiased}
 .nav{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule)}
-.nav-in{max-width:1800px;margin:0;padding:0 32px;height:56px;display:flex;align-items:center;justify-content:space-between}
+.nav-in{max-width:1800px;margin:0;padding:0 32px;height:56px;display:flex;align-items:center;justify-content:flex-start}
 .brand{display:flex;align-items:center;gap:10px;min-width:0}
 .brand .logo{width:26px;height:26px;flex:none;display:inline-flex}
 .brandname{font-weight:700;font-size:1rem;letter-spacing:-.01em;color:var(--ink)}
 .brandsep{color:var(--mut)}
 .brandproj{color:var(--ink2);font-family:var(--mono);font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.nav-right{display:flex;align-items:center;gap:9px;flex:none}
+.nav-right{display:flex;align-items:center;gap:9px;flex:none;margin-left:auto}
 .themebtn{font-family:var(--sans);font-size:.8rem;font-weight:500;background:var(--card);color:var(--ink);border:1px solid var(--rule);border-radius:8px;padding:7px 13px;cursor:pointer}
 .themebtn:hover{border-color:var(--mut)}
 .viewbtn{font-family:var(--sans);font-size:.8rem;font-weight:600;background:var(--brand);color:#04231a;border:1px solid transparent;border-radius:8px;padding:7px 15px;cursor:pointer}
 .viewbtn:hover{filter:brightness(1.05)}
-.tabs{display:flex;gap:2px;background:var(--card2);border:1px solid var(--rule);border-radius:9px;padding:3px}
+.tabs{display:flex;gap:2px;background:var(--card2);border:1px solid var(--rule);border-radius:9px;padding:3px;margin-left:28px}
 .tab{font-family:var(--sans);font-size:.8rem;font-weight:500;background:none;border:none;color:var(--ink2);border-radius:6px;padding:6px 13px;cursor:pointer}
 .tab:hover{color:var(--ink)}
 .tab.active{background:var(--paper);color:var(--ink);box-shadow:var(--shadow);font-weight:600}
@@ -463,7 +463,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
 </style></head><body>
 <header class="nav"><div class="nav-in">
 <div class="brand"><span class="logo"><svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><rect width="26" height="26" rx="7" fill="#3ecf8e"/><path d="M6.5 13.5l4 4L20 7.5" fill="none" stroke="#04231a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="brandname">YayLayer</span><span class="brandsep">/</span><span class="brandproj">${esc(project || 'project')}</span></div>
-<div class="nav-right"><nav class="tabs"><button class="tab active" data-tab="map">Map</button><button class="tab" data-tab="briefs">Briefs</button><button class="tab" data-tab="files">Files</button><button class="tab" data-tab="plan" id="tab-plan" style="display:none">System Plan</button><button class="tab" data-tab="tags" id="tab-tags" style="display:none">Tags</button><button class="tab" data-tab="policy" id="tab-policy" style="display:none">Policy</button><button class="tab" data-tab="signers">Signers</button><button class="tab" data-tab="commands">Commands</button></nav><button id="themebtn" class="themebtn" aria-label="Toggle theme">Dark</button><button id="navburger" class="navburger" aria-label="Menu" aria-expanded="false">☰</button></div>
+<nav class="tabs"><button class="tab active" data-tab="map">Map</button><button class="tab" data-tab="briefs">Briefs</button><button class="tab" data-tab="files">Files</button><button class="tab" data-tab="plan" id="tab-plan" style="display:none">System Plan</button><button class="tab" data-tab="tags" id="tab-tags" style="display:none">Tags</button><button class="tab" data-tab="policy" id="tab-policy" style="display:none">Policy</button><button class="tab" data-tab="signers">Signers</button><button class="tab" data-tab="commands">Commands</button></nav><div class="nav-right"><button id="themebtn" class="themebtn" aria-label="Toggle theme">Dark</button><button id="navburger" class="navburger" aria-label="Menu" aria-expanded="false">☰</button></div>
 </div>
 <div id="navmenu" class="navmenu"><button class="tab active" data-tab="map">Map</button><button class="tab" data-tab="briefs">Briefs</button><button class="tab" data-tab="files">Files</button><button class="tab" data-tab="plan" style="display:none">System Plan</button><button class="tab" data-tab="tags" style="display:none">Tags</button><button class="tab" data-tab="policy" style="display:none">Policy</button><button class="tab" data-tab="signers">Signers</button><button class="tab" data-tab="commands">Commands</button></div>
 </header>
