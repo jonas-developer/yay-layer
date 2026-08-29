@@ -953,7 +953,9 @@ async function cmdSign(flags, positional) {
       const ownerPubs = Object.keys(drv.roles || {}).filter((n) => drv.roles[n] === 'owner').reduce((a, n) => a.concat(drv.roster[n] || []), []);
       const grants = grantsMod.deriveGrants(glog, ownerPubs, lock.approvals);
       const cellsById = {}; Object.keys(items).forEach((id) => { if (manifest.cells[id]) cellsById[id] = manifest.cells[id]; });
-      const g = grantsMod.activeGrantFor(grants, Object.keys(items), cellsById);
+      // Owner-signed policy = the authoritative non-delegable backstop (outside the AI-writable surface).
+      const enforcedPolicy = (drv.policy && drv.policy.rules) ? drv.policy : { rules: [] };
+      const g = grantsMod.activeGrantFor(grants, Object.keys(items), cellsById, { policy: enforcedPolicy });
       if (g) {
         const rec = U.readJSON(grantKeyPath(p, g.id), null);
         if (rec && rec.priv) {

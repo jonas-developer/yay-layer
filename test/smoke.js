@@ -952,6 +952,68 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     ok(Rt.ratifyBundle(gm2, vAuto).hash !== rb1.hash, 'ratify: the bundle hash changes when the delegated code moves (TOCTOU guard trips → --sign refuses)');
     fs.rmSync(gdir, { recursive: true, force: true });
 
+    // ── P3: capability envelopes, owner-signed non-delegable backstop, grant violations ──
+    {
+      const pol = require('../src/policy');
+      const cellUI = { file: 'src/ui/button.js', spec: {} };
+      const cellAuth = { file: 'src/auth/login.js', spec: {} };
+      const cellHigh = { file: 'src/ui/x.js', spec: { risk: 'high' } };
+      // path envelope: allow src/ui/**, deny src/ui/secret/**
+      const envG = { envelope: { allow: ['src/ui/**'], deny: ['src/ui/secret/**'] } };
+      ok(G.grantCoversCell(envG, 'C', cellUI) === true, 'p3-envelope: a Cell inside allow paths is covered');
+      ok(G.grantCoversCell(envG, 'C', cellAuth) === false, 'p3-envelope: a Cell outside allow paths is refused');
+      ok(G.grantCoversCell(envG, 'C', { file: 'src/ui/secret/k.js', spec: {} }) === false, 'p3-envelope: a deny path overrides allow');
+      // max-risk
+      ok(G.grantCoversCell({ envelope: { maxRisk: 'medium' } }, 'C', cellHigh) === false, 'p3-envelope: a Cell above the grant max-risk is refused');
+      ok(G.grantCoversCell({ envelope: { maxRisk: 'high' } }, 'C', cellHigh) === true, 'p3-envelope: max-risk high covers a high-risk Cell');
+      // owner-signed non-delegable policy is the AUTHORITATIVE backstop (spec markers are cooperative)
+      const ndPolicy = { rules: [{ match: { path: '**/auth/**' }, delegable: false }] };
+      ok(pol.nonDelegable(ndPolicy, cellAuth) === true, 'p3-nondelegable: owner-signed policy marks matching paths non-delegable');
+      ok(G.grantCoversCell({ envelope: { allow: ['src/**'] } }, 'C', cellAuth, { policy: ndPolicy }) === false, 'p3-nondelegable: policy overrides an otherwise-in-scope grant');
+
+      // end-to-end grant VIOLATION backstop: a real grant-key signature over an out-of-envelope Cell
+      // → gate-blocking RED, not a silent drop. (Agent cannot widen its own grant.)
+      const vdir = fs.mkdtempSync(require('path').join(os.tmpdir(), 'yay-viol-'));
+      fs.mkdirSync(require('path').join(vdir, 'auth'), { recursive: true });
+      fs.writeFileSync(require('path').join(vdir, 'auth', 'a.js'), '//∷YAY⟨C-9⟩\n//  unit: tok\n//  intent: make a token\n//  pure: yes\n//  ensures: out === 1\n//∷YAY-END⟨C-9⟩\nfunction tok(){return 1;}\n');
+      const vm = buildManifest(vdir);
+      const sh9 = vm.cells['C-9'].specHash;
+      const gk2 = C.generateKeypair();
+      const narrowGrant = (() => { const g = { id: 'G-1', type: 'grant', grantPub: gk2.pubB64, envelope: { allow: ['ui/**'] }, expiresAt: '2099-01-01T00:00:00Z', maxCount: 5, by: 'Alex', prev: 'R-0001', nonce: 'gn', at: '2026-01-02T00:00:00Z' }; g.signature = C.sign(rmod.eventBytes(g), owner.privDer); return g; })();
+      const vAp = (() => { const a = { id: 'A-0001', project: 'g', prev: 'genesis', nonce: 'an', at: '2026-06-01T00:00:00Z', signer: 'Alex', autoApproved: true, grant: 'G-1', items: { 'C-9': sh9 } }; a.signature = C.sign(canonical(a), gk2.privDer); return a; })();
+      const vv = verifyManifest(vm, { approvals: [vAp] }, { signers: {} }, { roster: rosterLog, grants: { events: [narrowGrant] } });
+      ok(vv.results['C-9'].state === 'RED', 'p3-violation: an in-window grant-signed approval outside the envelope is RED (backstop), not a silent drop');
+      ok(vv.results['C-9'].trust.violation && /outside|allowed|deny|non-delegable/i.test(vv.results['C-9'].trust.violation.reason), 'p3-violation: the RED carries a grant-violation reason');
+      ok(vv.passed === false, 'p3-violation: a grant violation blocks the gate');
+      fs.rmSync(vdir, { recursive: true, force: true });
+
+      // ── child grants: strict attenuation; the verifier refuses a child exceeding its parent ──
+      const parentG = { id: 'G-1', type: 'grant', grantPub: 'PPUB', envelope: { allow: ['src/**'], childGrants: { allowed: true, maxDepth: 1 } }, expiresAt: '2099-01-01T00:00:00Z', maxCount: 8 };
+      ok(G.attenuates({ envelope: { allow: ['src/ui/**'] }, maxCount: 4, expiresAt: '2098-01-01T00:00:00Z' }, parentG).ok === true, 'p3-child: a strictly-narrower child attenuates its parent');
+      ok(G.attenuates({ envelope: { allow: ['other/**'] }, maxCount: 4 }, parentG).ok === false, 'p3-child: a child allowing paths outside the parent is refused');
+      ok(G.attenuates({ envelope: { allow: ['src/ui/**'] }, maxCount: 99 }, parentG).ok === false, 'p3-child: a child with a larger count is refused');
+      const noKids = { id: 'G-1', type: 'grant', grantPub: 'PPUB', envelope: { allow: ['src/**'] }, maxCount: 8 };
+      ok(G.attenuates({ envelope: { allow: ['src/ui/**'] }, maxCount: 4 }, noKids).ok === false, 'p3-child: a parent that does not permit child grants refuses all children');
+
+      // child grant validated through deriveGrants: signed by the PARENT grant key, chains to owner
+      const pk = C.generateKeypair();
+      const rootG = (() => { const g = { id: 'G-1', type: 'grant', grantPub: pk.pubB64, envelope: { allow: ['src/**'], childGrants: { allowed: true, maxDepth: 1 } }, expiresAt: '2099-01-01T00:00:00Z', maxCount: 8, by: 'Alex', prev: 'R-0001', nonce: 'g1', at: '2026-01-02T00:00:00Z' }; g.signature = C.sign(rmod.eventBytes(g), owner.privDer); return g; })();
+      const ck = C.generateKeypair();
+      const childG = (() => { const g = { id: 'G-2', type: 'grant', parent: 'G-1', issuedBy: pk.pubB64, grantPub: ck.pubB64, envelope: { allow: ['src/ui/**'] }, expiresAt: '2098-01-01T00:00:00Z', maxCount: 4, prev: 'G-1', nonce: 'g2', at: '2026-01-03T00:00:00Z' }; g.signature = C.sign(rmod.eventBytes(g), pk.privDer); return g; })();
+      const ownerPubs = [owner.pubB64];
+      const derived = G.deriveGrants({ events: [rootG, childG] }, ownerPubs, []);
+      ok(derived['G-2'].ownerOk === true && derived['G-2'].active === true, 'p3-child: a properly attenuating child signed by the parent grant key chains to the owner root');
+      // forged child: signed by a random key, not the parent's grant key → rejected
+      const forged = (() => { const g = { id: 'G-3', type: 'grant', parent: 'G-1', issuedBy: pk.pubB64, grantPub: ck.pubB64, envelope: { allow: ['src/ui/**'] }, expiresAt: '2098-01-01T00:00:00Z', maxCount: 4, prev: 'G-2', nonce: 'g3', at: '2026-01-03T00:00:00Z' }; g.signature = C.sign(rmod.eventBytes(g), C.generateKeypair().privDer); return g; })();
+      ok(G.deriveGrants({ events: [rootG, forged] }, ownerPubs, [])['G-3'].ownerOk === false, 'p3-child: a child NOT signed by the parent grant key is rejected');
+      // over-broad child: allows paths beyond the parent → rejected even if signed correctly
+      const broad = (() => { const g = { id: 'G-4', type: 'grant', parent: 'G-1', issuedBy: pk.pubB64, grantPub: ck.pubB64, envelope: { allow: ['/etc/**'] }, expiresAt: '2098-01-01T00:00:00Z', maxCount: 4, prev: 'G-2', nonce: 'g4', at: '2026-01-03T00:00:00Z' }; g.signature = C.sign(rmod.eventBytes(g), pk.privDer); return g; })();
+      ok(G.deriveGrants({ events: [rootG, broad] }, ownerPubs, [])['G-4'].ownerOk === false, 'p3-child: an over-broad child (paths beyond parent) is rejected even when correctly signed');
+      // revoked parent cascades → child inactive
+      const revP = (() => { const r = { id: 'G-5', type: 'grant-revoke', grant: 'G-1', by: 'Alex', prev: 'G-2', nonce: 'r1', at: '2026-02-01T00:00:00Z' }; r.signature = C.sign(rmod.eventBytes(r), owner.privDer); return r; })();
+      ok(G.deriveGrants({ events: [rootG, childG, revP] }, ownerPubs, [])['G-2'].active === false, 'p3-child: revoking the parent cascades — the child goes inactive');
+    }
+
     // The in-code AUTO stamp lives ABOVE the marker (outside the block), so it must not
     // change the specHash — otherwise stamping would break the very seal it describes.
     const sd = fs.mkdtempSync(require('path').join(os.tmpdir(), 'yay-stamp-'));

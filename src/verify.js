@@ -97,8 +97,9 @@ function effectSignalsFor(lang) {
 const SEV = { GREEN: 0, YELLOW: 1, UNSIGNED: 2, RED: 3 };
 const worst = (a, b) => (SEV[a] >= SEV[b] ? a : b);
 
-function trustOf(cell, lock, roster, grants) {
+function trustOf(cell, lock, roster, grants, policy) {
   let match = null;
+  let violation = null; // a delegated approval whose grant-key signature is real but broke its envelope
   let firstAt = null; // earliest approval that ever covered this Cell → "created in the system"
   for (const ap of lock.approvals || []) {
     if (!ap.items || !(cell.id in ap.items)) continue;
@@ -107,11 +108,20 @@ function trustOf(cell, lock, roster, grants) {
     const { signature, ...rest } = ap;
     if (ap.autoApproved && ap.grant) {
       // Autopilot: signed by the machine-held GRANT key, valid only if a good grant
-      // covers it (owner-signed, unexpired, unrevoked-before-this, in-count, in-scope).
+      // covers it (owner-signed, unexpired, unrevoked-before-this, in-envelope, in-count).
       const g = (grants || {})[ap.grant];
-      const chk = g && G.autoApprovalOk(g, ap, cell.id, cell);
-      if (g && chk.ok && sigVerify(canonical(rest), signature, g.grantPub)) {
+      const chk = g && G.autoApprovalOk(g, ap, cell.id, cell, { policy });
+      const sigOk = g && sigVerify(canonical(rest), signature, g.grantPub);
+      if (g && chk.ok && sigOk) {
         match = { signed: true, signer: ap.signer || null, auto: true, grant: ap.grant, at: ap.at || null };
+      } else if (sigOk && g && g.ownerOk) {
+        // BACKSTOP (P3): the grant is a VALID, owner-authorized delegation and its key really signed
+        // this — but the target is OUTSIDE the envelope (wrong path/cell/risk, or an owner-signed
+        // non-delegable area). That's an attempt to widen scope, not a lapsed grant, so we don't drop
+        // it silently: flag a GRANT VIOLATION that blocks the gate loudly, agent behaviour aside.
+        // (A merely expired/revoked/count-exhausted grant is a lapse → falls through to UNSIGNED.)
+        const cov = G.grantCoversCellR(g, cell.id, cell, { policy });
+        if (!cov.ok) violation = { grant: ap.grant, reason: cov.reason };
       }
       continue; // a human ratification (a later normal approval) will supersede this
     }
@@ -122,7 +132,8 @@ function trustOf(cell, lock, roster, grants) {
       match = { signed: true, signer: ap.signer, auto: false, grant: null, at: ap.at || null };
     }
   }
-  return match ? { ...match, firstAt } : { signed: false, firstAt };
+  if (match) return { ...match, firstAt };
+  return { signed: false, firstAt, violation };
 }
 
 function staticChecks(cell) {
@@ -230,11 +241,12 @@ function verifyManifest(manifest, lock, config, opts) {
 
   for (const id of Object.keys(manifest.cells)) {
     const cell = manifest.cells[id];
-    const trust = trustOf(cell, lock, roster, grants);
+    const trust = trustOf(cell, lock, roster, grants, rosterPolicy);
     const sc = staticChecks(cell);
 
     let state;
-    if (!trust.signed) state = 'UNSIGNED';
+    if (trust.violation) state = 'RED';       // grant-envelope violation → gate-blocking backstop
+    else if (!trust.signed) state = 'UNSIGNED';
     else if (sc.red) state = 'RED';
     else if (sc.yellow) state = 'YELLOW';
     else state = 'GREEN';
@@ -247,6 +259,9 @@ function verifyManifest(manifest, lock, config, opts) {
     }
     if (trust.auto) {
       sc.notes.push({ level: 'info', text: `DELEGATED under grant ${trust.grant} (Autopilot) — awaiting ratification, not human-reviewed. Run \`yay ratify\` to sign it for real.` });
+    }
+    if (trust.violation) {
+      sc.notes.push({ level: 'red', text: `GRANT VIOLATION — a delegated (Autopilot) approval under grant ${trust.violation.grant} covered this Cell, but it is outside that grant's envelope: ${trust.violation.reason}. The agent cannot widen its own grant; this needs a real human signature. (verifier backstop)` });
     }
 
     results[id] = {
