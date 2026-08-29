@@ -532,7 +532,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
 <div class="navgroup">Reference</div>
 <button class="tab" data-tab="commands"><span class="ti">${ICONS.commands}</span>Commands</button>
 <button class="tab" data-tab="capability"><span class="ti">${ICONS.capability}</span>Capabilities</button>
-<a class="tab navext" href="https://github.com/jonas-developer/yay-layer/tree/main/documentation" target="_blank" rel="noopener noreferrer"><span class="ti">${ICONS.manual}</span>Manual<span class="navext-ico">↗</span></a>
+<a class="tab navext" href="https://yaylayer.com/docs/manual.html" target="_blank" rel="noopener noreferrer"><span class="ti">${ICONS.manual}</span>Manual<span class="navext-ico">↗</span></a>
 </nav>
 <div id="yd-slot"></div>
 </aside>
@@ -786,7 +786,7 @@ ${statblocks}
       +'<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px">'
         +'<a class="viewbtn" href="https://yaylayer.com/verify" target="_blank" rel="noopener noreferrer" style="text-decoration:none">Verify an attestation ↗</a>'
         +'<a class="themebtn" href="https://yaylayer.com/capabilities.json" target="_blank" rel="noopener noreferrer" style="text-decoration:none">Canonical registry ↗</a>'
-        +'<a class="themebtn" href="https://github.com/jonas-developer/yay-layer/tree/main/documentation" target="_blank" rel="noopener noreferrer" style="text-decoration:none">Manual ↗</a>'
+        +'<a class="themebtn" href="https://yaylayer.com/docs/manual.html" target="_blank" rel="noopener noreferrer" style="text-decoration:none">Manual ↗</a>'
       +'</div>';
     el.innerHTML=html;
   }
