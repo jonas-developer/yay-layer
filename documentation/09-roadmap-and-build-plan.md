@@ -39,13 +39,13 @@ The whole architecture (all three advisor papers + our decisions) is adopted; th
 - [x] **Two-axis surface + meaningful ratify screen** — the dashboard ratify banner shows grant scope + boundary/deviation report (delegations consumed, expiry) + verifier-attestation coverage; delegated state shown distinctly from verification colour.
 - [x] Persist **Rejected** as first-class provenance events (`yay ratify --reject --reason [--category]`, signed, append-only `.yaylayer/rejections.json`) — the earned-autonomy substrate; surfaced in the dashboard.
 
-### P4 — Long-lived assurance *(in 1.0)*
+### P4 — Long-lived assurance *(in 1.0)* ✅
 - [x] **Durable mode**: encrypted (AES-256-GCM), **sha256-anchored** source archive + `yay archive install` post-commit hook. Key project-held ($YAY_ARCHIVE_KEY / passphrase), never stored. (`src/durable.js`; git-bundle bulk transport is a later storage optimization — the guarantees hold today.)
 - [x] Governance: project-controlled encrypted store + retention field + deletion **tombstones** (signed, honest erasure) + **pre-archive secret scan** (refuses to seal secrets). Clear signed metadata; sealed body.
 - [x] **Historical re-verification** (`yay reverify`): re-run at the current capability; a capability bump / verdict change / drift **appends** a new chained attestation, never rewrites old Green; prints an upgrade report.
 - [x] **Integrity witness** (`yay witness`): attestation chain + spec-archive completeness + git/tree-vs-ledger coverage.
 - [x] **Earned-autonomy metrics** (`yay metrics`) from delegation + ratification + rejection history (per-category rates + suggestions).
-- [~] **Cell semantic-timeline UI** — the Briefs **history lens** (As signed / Current / What changed) + two-axis ratify surface ship now; a dedicated per-Cell event timeline (created → signed → delegated → attested → ratified/rejected) is the remaining dashboard enhancement.
+- [x] **Cell semantic-timeline UI** — each Cell's provenance events stitched from the ledgers (created → signed → delegated → attested → ratified/rejected) in the static detail and as a **Timeline tab** in the live history modal, alongside the existing As-signed / Current / What-changed lens.
 
 ## What ships in 1.0
 
