@@ -26,20 +26,20 @@ The whole architecture (all three advisor papers + our decisions) is adopted; th
 - [x] Per-language **effect/purity nets** for all five (Ruby, PHP, Solidity, Rust, C#) — stop the JS-regex fallback; make all five first-class on the gate (correct Pink/Red/Yellow).
 - [x] **Behavioral proof adapters for Ruby + PHP** (Python subprocess pattern → pure funcs reach Green), with graceful toolchain degradation.
 
-### P2 — Verifier attestation *(the leap to "provenance system")*
+### P2 — Verifier attestation *(in 1.0 — the leap to "provenance system")*
 - [ ] Canonical Verification object (spec-set/code-tree/verifier-pkg/ruleset/config/evidence hashes + result + timestamp).
 - [ ] **Hash + sign** it with a **project/CI-scoped verifier key**; mint at commit/verify-pass.
 - [ ] Human ratification/approval references the verification attestation hash.
 - [ ] Start verifier **capability-versioning** (PATCH/MINOR/MAJOR).
 
-### P3 — Grants → envelopes, two-axis, rejections
+### P3 — Grants → envelopes, two-axis, rejections *(in 1.0)*
 - [ ] Expand grants into signed **capability envelopes** (scope constraints first; detection-gated constraints as detectors land — build detector + constraint together).
 - [ ] Non-delegable-by-default risk tiers (auth/payments/secrets/deploy/CI/trust-config) → forward-sign before execution; verifier backstop detects violations.
 - [ ] **Two-axis UI** (Authority × Verification) with progressive disclosure.
 - [ ] Meaningful ratify screen: grant scope + boundary/deviation report + effect/dep/perm summary + verifier attestation.
 - [ ] Persist **Rejected** as first-class provenance events (with reason).
 
-### P4 — Long-lived assurance
+### P4 — Long-lived assurance *(in 1.0)*
 - [ ] **Durable mode**: encrypted git-bundle code archive + `yay archive --install` commit hook.
 - [ ] Governance: encryptable project-controlled store + owner-signed retention policy + deletion **tombstones** + pre-archive secret scan.
 - [ ] **Historical re-verification** (`yay reverify`): append new results on verifier upgrades, never rewrite; org grandfathering policy; upgrade report.
@@ -49,15 +49,14 @@ The whole architecture (all three advisor papers + our decisions) is adopted; th
 
 ## What ships in 1.0
 
-P0 + P1 + P1.5. Result: correctly-worded, TOCTOU-safe, non-blanking release with **JS/TS + Python + Ruby + PHP behaviorally proven** and **Solidity/Rust/C# statically first-class** — a foundation the rest layers onto cleanly.
+**Decision reversed 2026-08-29:** 1.0 now ships the **whole architecture** — P0 + P1 + P1.5 **+ P2 + P3 + P4**. Rationale: the thesis is a *cryptographic provenance layer*; shipping without the **verifier attestation** (P2, the third crypto identity) would be the same category of overclaim that got `0.1.0` pulled, and P3/P4 are core to the vision rather than optional polish. Only genuinely-later **language** work is deferred (below). Result: a correctly-worded, TOCTOU-safe, non-blanking release with **JS/TS + Python + Ruby + PHP behaviorally proven**, **Solidity/Rust/C# statically first-class**, **signed verifier attestations**, **capability-envelope grants + two-axis authority + first-class rejections + child grants**, and **Durable mode + governance + reverification + integrity witness + timeline + metrics**.
 
 ## Explicitly deferred (post-1.0)
 
 - C# → Rust → Solidity **behavioral** proof (each a capability bump; Solidity is its own EVM-harness release).
 - **Class/instance-method proving** for the subprocess provers (Ruby/PHP, later others): today they resolve only **top-level/module functions**, so pure *class-based* code skips to Yellow. Extend the harness to call `Klass.method` / instance methods (receiver + args declared in the spec) → unlocks **proven-Green for pure Rails service objects and value objects**, where correctness bugs actually live. Highest-leverage language follow-up.
 - **Framework-boot provers** (much bigger, own release, like the Solidity EVM harness): boot Rails/ActiveRecord (or another framework) so effectful, framework-coupled methods can be exercised. Out of scope for the near term.
-- Verifier attestation (P2), grant envelopes/rejections (P3), Durable mode + governance + reverification + integrity witness + timeline + metrics (P4).
-- Hosted attestation service.
+- **Hosted attestation service** (the verifier key is project/CI-scoped in 1.0; a hosted signing/verification service comes later).
 
 ## Already shipped this session (the foundation to build on)
 

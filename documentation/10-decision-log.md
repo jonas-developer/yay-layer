@@ -32,8 +32,9 @@ Locked decisions with rationale, so we never re-litigate. Source: three advisor 
 
 ## Implementation choices (our calls, my four addenda)
 
-**D9. Deliver the complete vision incrementally; relaunch 1.0 on a foundation.**
-*Why:* building it all before shipping = months and re-couples "finish" to a deadline we just escaped by unpublishing. Incremental matches the "verifier improves over versions" ethos.
+**D9. ~~Deliver the complete vision incrementally; relaunch 1.0 on a foundation.~~ → REVERSED 2026-08-29: ship the whole architecture (P2+P3+P4) in 1.0.**
+*Original why:* building it all before shipping = months and re-couples "finish" to a deadline we just escaped by unpublishing.
+*Reversal why:* the product's own claim is a *cryptographic provenance layer*. Shipping without the **verifier attestation** (P2 — the third crypto identity) would repeat the overclaim that got `0.1.0` pulled; and P3 (envelopes/two-axis/rejections) and P4 (durable/governance/reverify) are core to the vision, not optional polish. The version machinery handles later bug-fixes cleanly (patch bumps, `npm deprecate`), so there's no need to ship a thin slice to de-risk. Only genuinely-later **language** work stays deferred (C#/Rust/Solidity behavioral proof, class/instance-method proving, framework-boot provers) — per D17, unchanged. (User call.)
 
 **D10. Storage = hybrid.** Tiny bespoke sha256 store (`.yaylayer/objects/`) for specs/attestations/evidence/grants/ratifications; **git (shared incremental pack) for bulk source** in Durable mode. **Trust anchor = our sha256 over archived bytes** (not git SHA-1). **Never per-approval bundles** (kills dedup).
 *Why:* reinventing git's packing/GC is high-stakes code for no gain on bulk blobs; pure-git can't anchor trust (SHA-1) or hold our attestation objects. The split takes the best of both.
