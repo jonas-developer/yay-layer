@@ -32,12 +32,12 @@ The whole architecture (all three advisor papers + our decisions) is adopted; th
 - [x] Human ratification/approval references the verification attestation hash — the seal carries `attest:{hash,capability}` when a signed attestation covers the exact code-tree (`yay sign`/ratify).
 - [x] Verifier **capability-versioning** (`CAPABILITY`, PATCH/MINOR/MAJOR) recorded in every attestation; append-only chained ledger (`.yaylayer/attest.json` + `.yaylayer/attestations/`); `yay attest list` / `yay attest verify`.
 
-### P3 — Grants → envelopes, two-axis, rejections *(in 1.0)*
-- [ ] Expand grants into signed **capability envelopes** (scope constraints first; detection-gated constraints as detectors land — build detector + constraint together).
-- [ ] Non-delegable-by-default risk tiers (auth/payments/secrets/deploy/CI/trust-config) → forward-sign before execution; verifier backstop detects violations.
-- [ ] **Two-axis UI** (Authority × Verification) with progressive disclosure.
-- [ ] Meaningful ratify screen: grant scope + boundary/deviation report + effect/dep/perm summary + verifier attestation.
-- [ ] Persist **Rejected** as first-class provenance events (with reason).
+### P3 — Grants → envelopes, two-axis, rejections *(in 1.0)* ✅
+- [x] Signed **capability envelopes** — `envelope:{allow,deny,cells,maxRisk,childGrants,deps,deployment}`. Scope constraints (allow/deny/cells/maxRisk) enforced now; content constraints (deps/deployment) recorded but detector-gated (D15). Flags on `yay grant`.
+- [x] Non-delegable via **owner-signed policy** (`{ "delegable": false }`, path/tag/module) — the authoritative backstop outside the AI-writable surface (closes the P0 grant-broadening gap). **Verifier backstop**: a real grant-key signature over an out-of-envelope Cell → gate-blocking RED with a reason (agent can't widen its own grant).
+- [x] **Child grants** — attenuating sub-grants signed by the parent grant key; verifier refuses any child exceeding its parent (allow/deny/count/expiry/risk/depth) and cascades parent revocation.
+- [x] **Two-axis surface + meaningful ratify screen** — the dashboard ratify banner shows grant scope + boundary/deviation report (delegations consumed, expiry) + verifier-attestation coverage; delegated state shown distinctly from verification colour.
+- [x] Persist **Rejected** as first-class provenance events (`yay ratify --reject --reason [--category]`, signed, append-only `.yaylayer/rejections.json`) — the earned-autonomy substrate; surfaced in the dashboard.
 
 ### P4 — Long-lived assurance *(in 1.0)*
 - [ ] **Durable mode**: encrypted git-bundle code archive + `yay archive --install` commit hook.
