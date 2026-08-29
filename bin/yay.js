@@ -18,6 +18,7 @@ const R = require('../src/ratify');
 const O = require('../src/objects');
 const A = require('../src/attest');
 const AS = require('../src/assurance');
+const D = require('../src/durable');
 const { buildManifest } = require('../src/manifest');
 const { verifyManifest } = require('../src/verify');
 const { renderMap } = require('../src/map');
@@ -336,6 +337,10 @@ async function cmdInit(flags, positional) {
     const nameFlag = (flags.project && flags.project !== true && !String(flags.project).includes('/')) ? flags.project : null;
     const project = nameFlag || path.basename(target);
     config = { project, created: new Date().toISOString(), signers: {}, owners: [] };
+    // Provenance mode (D10): Standard (default; specs/attestations kept, bulk source via git) vs
+    // Durable (also keeps an encrypted, sha256-anchored archive of signed source). Switchable later
+    // with `yay archive enable|disable`.
+    if (flags.durable) config.provenance = { mode: 'durable' };
     U.writeJSON(p.config, config);
     U.writeJSON(p.lock, { project, approvals: [] });
     fs.mkdirSync(p.keys, { recursive: true });
@@ -1682,6 +1687,120 @@ function cmdAttest(flags, positional) {
   console.log('  ' + U.c.dim('append-only ledger → ') + U.c.bold('.yaylayer/attest.json') + U.c.dim(' + full object in .yaylayer/attestations/ (commit both). Key stays in gitignored keys/.'));
 }
 
+// `yay archive` (P4 — Durable mode + governance). Keeps an encrypted, sha256-anchored copy of the
+// SIGNED source so "what the code was when signed" survives git loss. Subcommands: enable/disable,
+// (default) archive the covered files, --forget (signed tombstone), --restore, --verify, --install.
+async function cmdArchive(flags, positional) {
+  const { p, config, lock } = loadState();
+  if (!config) return fail('run `yay init` first');
+  const sub = positional[0];
+
+  if (sub === 'enable' || flags.enable) {
+    config.provenance = { mode: 'durable' };
+    if (flags.retention && flags.retention !== true) config.provenance.retention = String(flags.retention);
+    U.writeJSON(p.config, config);
+    ensureGitignored(p.root, '.yaylayer/keys/'); // (already ignored) — the archive KEY is never on disk
+    console.log(U.c.green('✓ Durable mode ON') + U.c.dim(' — `yay archive` now keeps an encrypted, sha256-anchored copy of signed source.'));
+    console.log('  ' + U.c.dim('the archive KEY is project-held (') + U.c.bold('$YAY_ARCHIVE_KEY') + U.c.dim(' or a passphrase) and NEVER stored by YayLayer. Archive with ') + U.c.bold('yay archive') + U.c.dim('.'));
+    return;
+  }
+  if (sub === 'disable' || flags.disable) { config.provenance = { mode: 'standard' }; U.writeJSON(p.config, config); console.log(U.c.dim('Durable mode off — back to Standard (specs/attestations kept; bulk source via git).')); return; }
+
+  if (sub === 'install' || flags.install) {
+    const hookDir = path.join(p.root, '.git', 'hooks');
+    if (!fs.existsSync(hookDir)) return fail('no .git/hooks — is this a git repo? Run `git init` first.');
+    const hook = path.join(hookDir, 'post-commit');
+    const line = 'yay archive --quiet || true';
+    let txt = ''; try { txt = fs.readFileSync(hook, 'utf8'); } catch (_) {}
+    if (!txt) txt = '#!/bin/sh\n';
+    if (txt.includes(line)) { console.log(U.c.dim('post-commit hook already archives — nothing to do.')); return; }
+    fs.writeFileSync(hook, txt + (txt.endsWith('\n') ? '' : '\n') + '# YayLayer Durable archive\n' + line + '\n', { mode: 0o755 });
+    console.log(U.c.green('✓ installed post-commit hook') + U.c.dim(' — each commit archives the signed source (needs $YAY_ARCHIVE_KEY in the environment).'));
+    return;
+  }
+
+  const arc = D.loadArchive(p) || { project: config.project, salt: C.randomNonce(), files: {}, tombstones: [], retention: (config.provenance && config.provenance.retention) || null };
+
+  if (sub === 'forget' || flags.forget) {
+    const hash = (flags.forget && flags.forget !== true) ? flags.forget : positional[1];
+    if (!hash) return fail('which blob? pass the content hash: `yay archive --forget <hash> --reason "…"`.');
+    const reason = (flags.reason && flags.reason !== true) ? String(flags.reason) : null;
+    if (!reason) return fail('a deletion needs a reason (recorded in the tombstone) — pass --reason "<why>".');
+    const signer = localSignerName(p, config) || 'owner';
+    const ts = D.tombstone(p, hash, reason, signer);
+    arc.tombstones.push(ts);
+    for (const f of Object.keys(arc.files)) if (arc.files[f].hash === hash) arc.files[f].status = 'tombstoned';
+    D.saveArchive(p, arc);
+    console.log(U.c.yellow('⧗ tombstoned') + U.c.dim(` ${String(hash).slice(0, 12)} — ciphertext deleted; a signed tombstone remains (honest erasure). Reason: ${reason}`));
+    return;
+  }
+
+  if (sub === 'restore' || flags.restore) {
+    const hash = (flags.restore && flags.restore !== true) ? flags.restore : positional[1];
+    if (!hash) return fail('which blob? `yay archive --restore <hash>` (writes plaintext to stdout).');
+    let key; try { key = D.resolveKey(await getArchivePass(flags), arc.salt); } catch (e) { return fail(e.message); }
+    let pt; try { pt = D.getBlob(p, hash, key); } catch (e) { return fail(e.message); }
+    if (pt == null) return fail('no such blob (or it was tombstoned).');
+    process.stdout.write(pt);
+    return;
+  }
+
+  if (sub === 'verify' || flags.verify) {
+    let key; try { key = D.resolveKey(await getArchivePass(flags), arc.salt); } catch (e) { return fail(e.message); }
+    const files = Object.keys(arc.files); let bad = 0, ok = 0, tomb = 0;
+    for (const f of files) {
+      const rec = arc.files[f];
+      if (rec.status === 'tombstoned') { tomb++; continue; }
+      try { const pt = D.getBlob(p, rec.hash, key); if (pt == null) { bad++; console.log('  ' + U.c.red('✗ ') + f + U.c.dim(' — blob missing')); } else ok++; }
+      catch (e) { bad++; console.log('  ' + U.c.red('✗ ') + f + U.c.dim(' — ' + e.message)); }
+    }
+    console.log('\n  ' + (bad ? U.c.red(`${bad} bad`) : U.c.green('all blobs decrypt + anchor')) + U.c.dim(` · ${ok} ok · ${tomb} tombstoned`));
+    if (flags.strict) process.exit(bad ? 1 : 0);
+    return;
+  }
+
+  // Default: archive the covered (signed) source files.
+  const quiet = !!flags.quiet;
+  const manifest = buildManifest(flags.dir || p.root);
+  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: loadRoster(p), grants: loadGrants(p), root: trustRootPin(flags) });
+  // Files that hold at least one signed Cell — "the source as signed."
+  const coveredFiles = {};
+  for (const id of Object.keys(verified.results)) { const r = verified.results[id]; const c = manifest.cells[id]; if (r.trust && r.trust.signed && c && c.file) (coveredFiles[c.file] = coveredFiles[c.file] || []).push(id); }
+  const fileList = Object.keys(coveredFiles);
+  if (!fileList.length) { if (!quiet) console.log(U.c.dim('nothing signed to archive yet — sign some Cells first.')); return; }
+
+  let key; try { key = D.resolveKey(await getArchivePass(flags), arc.salt); } catch (e) { return fail(e.message); }
+  // Pre-archive SECRET SCAN — refuse to seal secrets into a permanent archive.
+  const flagged = [];
+  const contents = {};
+  for (const f of fileList) {
+    let txt = ''; try { txt = fs.readFileSync(path.join(p.root, f), 'utf8'); } catch (_) { continue; }
+    contents[f] = txt;
+    const hits = D.secretScan(txt);
+    if (hits.length) flagged.push({ file: f, hits });
+  }
+  if (flagged.length && !flags['allow-secrets']) {
+    console.log(U.c.red('✗ refusing to archive — possible secrets found (they would be preserved forever):'));
+    for (const fl of flagged) for (const h of fl.hits) console.log('  ' + U.c.red('• ') + fl.file + ':' + h.line + U.c.dim(' — ' + h.kind));
+    return fail('remove the secrets, or override with --allow-secrets (NOT recommended).');
+  }
+  let stored = 0, deduped = 0;
+  for (const f of fileList) {
+    if (!(f in contents)) continue;
+    const res = D.putBlob(p, contents[f], key);
+    arc.files[f] = { hash: res.hash, size: res.size, cells: coveredFiles[f], at: new Date().toISOString(), status: 'stored' };
+    if (res.existed) deduped++; else stored++;
+  }
+  arc.retention = (config.provenance && config.provenance.retention) || arc.retention || null;
+  D.saveArchive(p, arc);
+  if (!quiet) {
+    console.log(U.c.green(`✓ archived ${fileList.length} signed file(s)`) + U.c.dim(` — ${stored} new · ${deduped} unchanged${flagged.length ? ' · ' + U.c.yellow(flagged.length + ' had secrets (forced)') : ''}`));
+    console.log('  ' + U.c.dim('encrypted (AES-256-GCM), sha256-anchored → ') + U.c.bold('.yaylayer/archive/') + U.c.dim(' + clear signed metadata in .yaylayer/archive.json (commit both). Key never stored.'));
+  }
+}
+function getArchivePass(flags) { return process.env.YAY_ARCHIVE_KEY ? Promise.resolve(null) : getPassphrase(flags, 'Enter the project archive passphrase (never stored)'); }
+function localSignerName(p, config) { try { const owners = (config && config.owners) || []; return owners.find((n) => fs.existsSync(path.join(p.keys, `${n}.keystore`))) || owners[0] || null; } catch (_) { return null; } }
+
 // `yay reverify` (P4) — re-run verification at the CURRENT verifier capability and, if anything
 // changed (a capability bump, a verdict moving Yellow→Green as a prover lands, or code drift),
 // APPEND a new attestation that chains to the prior one. Never rewrites old attestations: a better
@@ -2638,6 +2757,11 @@ const HELP = `yay — a protocol for provable, signed AI code
                              whether the latest attestation still covers the code (git/tree vs ledger vs archive)
   yay metrics                earned-autonomy metrics from the delegation + ratification + rejection history
                              (per-category rejection rates; suggests categories to stop delegating)
+  yay archive [enable|…]     Durable mode: keep an encrypted, sha256-anchored copy of SIGNED source so it
+                             survives git loss. enable/disable · (default) archive covered files · --forget
+                             <hash> --reason (signed tombstone) · --restore <hash> · --verify · install (git
+                             post-commit hook). Key is project-held ($YAY_ARCHIVE_KEY or a passphrase),
+                             NEVER stored by YayLayer; a pre-archive secret scan refuses to seal secrets
   yay plan [--provider anthropic|openai|custom] [--model m] [--base-url url]
                              AI-synthesize a high-level System Plan → .yaylayer/plan.json
                              key from .env (ANTHROPIC_API_KEY / OPENAI_API_KEY); custom = any OpenAI-compatible
@@ -2677,6 +2801,7 @@ async function main() {
     case 'reverify': return cmdReverify(flags);
     case 'witness': return cmdWitness(flags);
     case 'metrics': return cmdMetrics(flags);
+    case 'archive': return cmdArchive(flags, positional);
     case 'map': return cmdMap(flags);
     case 'dashboard': case 'serve': return cmdDashboard(flags);
     case 'test': case 'tests': return cmdTest(flags);

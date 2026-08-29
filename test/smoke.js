@@ -1425,5 +1425,38 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     ok(m.suggestions.length === 1 && /dependency/.test(m.suggestions[0]), 'p4-metrics: suggests excluding a category rejected ≥3×');
   }
 
+  // 22) P4 — Durable mode: encrypted, sha256-anchored archive; secret scan; honest tombstones.
+  {
+    const D = require('../src/durable');
+    const os = require('os'), fs = require('fs');
+    const tmp = fs.mkdtempSync(require('path').join(os.tmpdir(), 'yay-durable-'));
+    const p = { root: tmp, yay: require('path').join(tmp, '.yaylayer'), keys: require('path').join(tmp, '.yaylayer', 'keys') };
+    const key = D.resolveKey('archive-pass-123', 'salt-1');
+    ok(Buffer.isBuffer(key) && key.length === 32, 'p4-durable: resolveKey derives a 32-byte key from a passphrase');
+    // encrypt/decrypt roundtrip
+    const src = 'function add(a,b){ return a+b; } // signed source';
+    const put = D.putBlob(p, src, key);
+    ok(put.hash === C.sha256(src), 'p4-durable: a blob is anchored by the sha256 of its PLAINTEXT (our trust anchor, not git SHA-1)');
+    ok(D.getBlob(p, put.hash, key) === src, 'p4-durable: getBlob decrypts back to the exact source (AES-256-GCM roundtrip)');
+    // wrong key fails (confidentiality)
+    let wrong = false; try { D.getBlob(p, put.hash, D.resolveKey('other-pass', 'salt-1')); } catch (_) { wrong = true; }
+    ok(wrong, 'p4-durable: a wrong archive key cannot decrypt the blob');
+    // dedup: same content → same anchor, write-once
+    ok(D.putBlob(p, src, key).existed === true, 'p4-durable: identical content is stored once (content-addressed dedup)');
+    // tamper: corrupt the ciphertext file → anchor/auth check fails on read
+    fs.writeFileSync(D.blobPath(p, put.hash), JSON.stringify(D.encryptBlob('DIFFERENT source', key)));
+    let tamper = false; try { D.getBlob(p, put.hash, key); } catch (_) { tamper = true; }
+    ok(tamper, 'p4-durable: a blob whose plaintext no longer matches its anchor is rejected (tamper-evident)');
+    // secret scan
+    ok(D.secretScan('const k = "AKIAIOSFODNN7EXAMPLE";').length >= 1, 'p4-durable: secret scan catches an AWS key');
+    ok(D.secretScan('-----BEGIN RSA PRIVATE KEY-----').length === 1, 'p4-durable: secret scan catches a private key block');
+    ok(D.secretScan('const total = a + b;').length === 0, 'p4-durable: secret scan does not false-positive on ordinary code');
+    // tombstone = honest erasure (ciphertext gone, signed record remains)
+    const ts = D.tombstone(p, put.hash, 'contained a secret', 'Alex');
+    ok(ts.status === 'deliberately removed' && ts.reason === 'contained a secret' && ts.by === 'Alex', 'p4-durable: a tombstone records status/reason/who (never a silent delete)');
+    ok(fs.existsSync(D.blobPath(p, put.hash)) === false, 'p4-durable: tombstoning deletes the ciphertext');
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+
   console.log(`\nAll ${n} checks passed.`);
 })().catch((e) => { console.error('smoke failed:', e); process.exit(1); });
