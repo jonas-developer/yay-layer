@@ -962,6 +962,22 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     const m2 = buildManifest(sd);
     ok(m2.cells['C-1'] && m2.cells['C-1'].specHash === h1, 'delegated-stamp: a //∷YAY-DELEGATED line above the marker does NOT change the specHash (the seal survives stamping)');
     fs.rmSync(sd, { recursive: true, force: true });
+
+    // P1 spec archive: content-addressed store roundtrip + tamper-evidence, and the invariant that
+    // lets "as signed" reconstruction be git-independent — sha256(specBlock) === specHash.
+    const O = require('../src/objects');
+    const od = fs.mkdtempSync(require('path').join(os.tmpdir(), 'yay-obj-'));
+    fs.mkdirSync(require('path').join(od, '.yaylayer'), { recursive: true });
+    const oh = O.putObject(od, 'a spec block');
+    ok(O.getObject(od, oh) === 'a spec block', 'objects: put → get roundtrip');
+    ok(O.getObject(od, 'deadbeef') === null, 'objects: a missing hash returns null');
+    fs.writeFileSync(O.objPath(od, oh), 'tampered');
+    ok(O.getObject(od, oh) === null, 'objects: tampered content fails the hash check (returns null)');
+    const cd2 = fs.mkdtempSync(require('path').join(os.tmpdir(), 'yay-cellhash-'));
+    fs.writeFileSync(require('path').join(cd2, 'm.js'), '//∷YAY⟨C-1⟩\n// unit: add\n// ensures: out === a + b\n//∷YAY-END⟨C-1⟩\nfunction add(a,b){return a+b;}\n');
+    const cc = buildManifest(cd2).cells['C-1'];
+    ok(C.sha256(cc.specBlock) === cc.specHash, 'objects: sha256(specBlock) === specHash — a signed spec is retrievable from the archive by its signedHash (no git needed)');
+    fs.rmSync(od, { recursive: true, force: true }); fs.rmSync(cd2, { recursive: true, force: true });
   }
 
   // spec-only adversary: an LLM sees ONLY the spec (never the code) and tries to break it.

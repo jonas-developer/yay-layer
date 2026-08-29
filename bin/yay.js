@@ -15,6 +15,7 @@ const path = require('path');
 const U = require('../src/util');
 const C = require('../src/crypto');
 const R = require('../src/ratify');
+const O = require('../src/objects');
 const { buildManifest } = require('../src/manifest');
 const { verifyManifest } = require('../src/verify');
 const { renderMap } = require('../src/map');
@@ -846,6 +847,10 @@ async function cmdSign(flags, positional) {
   for (const id of ids) {
     if (!manifest.cells[id]) { console.log(U.c.yellow(`  skip ${id}: not found`)); continue; }
     items[id] = manifest.cells[id].specHash;
+    // P1: archive the spec block AS SIGNED, content-addressed by its specHash, so the
+    // "as signed" spec is always reconstructable independent of git. Shared by the normal,
+    // Autopilot, and ratify sign paths (they all flow through this `items`).
+    if (manifest.cells[id].specBlock) O.putObject(p.root, manifest.cells[id].specBlock);
   }
   // ── Tag-plan gate (Standard §5) ── the AI picks a Brief's tags FROM the human's tag
   // plan, so signing is refused while the plan is unfinished: unrelabeled "Custom N"
@@ -1946,9 +1951,18 @@ async function cmdDashboard(flags) {
           const nowBlock = cur ? cur.specBlock : null, nowCode = cur ? (cur.unitBody || null) : null, nowFile = cur ? cur.file : null;
           const drifted = !cur || cur.specHash !== signedHash;
           let then;
-          if (cur && !drifted) then = { found: true, current: true, commit: null, at: ap.at, block: nowBlock, code: nowCode };
-          else if (nowFile) then = H.cellAsSigned(p.root, nowFile, cellId, signedHash, 200);
-          else then = { found: false, reason: 'this Cell is no longer in the codebase' };
+          if (cur && !drifted) {
+            then = { found: true, current: true, source: 'current', commit: null, at: ap.at, block: nowBlock, code: nowCode };
+          } else {
+            // P1: the spec AS SIGNED comes from the content-addressed archive first (git-independent,
+            // never blanks); git is a fallback (legacy pre-archive Briefs) and the source of the
+            // then-CODE + commit (code isn't archived until Durable mode, P4).
+            const archBlock = O.getObject(p.root, signedHash);
+            const g = nowFile ? H.cellAsSigned(p.root, nowFile, cellId, signedHash, 200) : { found: false };
+            if (archBlock != null) then = { found: true, source: 'archive', block: archBlock, code: g.found ? g.code : null, commit: g.commit || null, at: g.at || ap.at };
+            else if (g.found) then = { ...g, source: 'git' };
+            else then = { found: false, reason: cur ? 'the signed version wasn’t archived and could not be reconstructed from git' : 'this Cell is no longer in the codebase' };
+          }
           let diff = null, nowState = null;
           if (cur) { try { const v = verifyManifest(manifest, lk, config, { mutate: false, roster: loadRoster(p), grants: loadGrants(p) }); nowState = (v.results[cellId] || {}).state || null; } catch (_) {} }
           if (then.found && cur) diff = S.lineDiff(S.normalizedToSpecLines(then.block), S.normalizedToSpecLines(nowBlock));
