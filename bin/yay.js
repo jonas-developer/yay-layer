@@ -1904,6 +1904,38 @@ function cmdAttestList(flags, positional) {
 //   1. lock chain — the most recent signed approval that included the Cell
 //   2. git — last commit that touched the Cell's file
 //   3. filesystem mtime — last resort
+// P4 — per-Cell SEMANTIC TIMELINE: one chronological strip of a Cell's provenance events, stitched
+// from the append-only ledgers (approvals, attestations, rejections). Events: signed / delegated /
+// ratified (a human sign after a delegation) / attested (a verifier attestation whose evidence
+// includes the Cell) / rejected. Returns { cellId: [{at, kind, text}] } sorted oldest→newest.
+function buildCellTimelines(p, config, manifest, lock) {
+  const out = Object.create(null);
+  const push = (id, at, kind, text) => { if (!id) return; (out[id] = out[id] || []).push({ at: at || null, kind, text }); };
+  const delegatedBefore = Object.create(null); // id → earliest delegation time (to detect ratification)
+  for (const ap of (lock && lock.approvals) || []) {
+    const ids = Object.keys(ap.items || {});
+    for (const id of ids) {
+      if (ap.autoApproved) { push(id, ap.at, 'delegated', `delegated under grant ${ap.grant || '?'}`); if (!delegatedBefore[id] || Date.parse(ap.at) < delegatedBefore[id]) delegatedBefore[id] = Date.parse(ap.at) || 0; }
+      else {
+        const ratifying = delegatedBefore[id] && (Date.parse(ap.at) || 0) >= delegatedBefore[id];
+        push(id, ap.at, ratifying ? 'ratified' : 'signed', (ratifying ? 'ratified (signed for real) by ' : 'signed by ') + (ap.signer || '?'));
+      }
+    }
+  }
+  // rejections (P3)
+  try { const rj = loadRejections(p); for (const e of ((rj && rj.events) || [])) { if (e.type !== 'reject') continue; for (const id of (e.cells || [])) push(id, e.at, 'rejected', `rejected (${e.category || 'other'}) by ${e.signer || e.by || '?'} — ${e.reason || ''}`); } } catch (_) {}
+  // attestations (P2): load each once, index the cells it vouches for
+  try {
+    const led = A.loadLedger(p, config);
+    for (const ent of (led.entries || [])) {
+      const att = A.loadAttestation(p, config, ent.hash); if (!att || !att.evidence) continue;
+      for (const id of Object.keys(att.evidence)) push(id, att.at, 'attested', `verifier attestation ${String(ent.hash).slice(0, 10)} — ${att.evidence[id].state}${att.evidence[id].proven ? ' (proven)' : ''}`);
+    }
+  } catch (_) {}
+  for (const id of Object.keys(out)) out[id].sort((a, b) => (Date.parse(a.at) || 0) - (Date.parse(b.at) || 0));
+  return out;
+}
+
 // Timestamps are epoch ms; `source` says which signal won.
 function cellChanges(root, lock, cells) {
   const signedLast = Object.create(null);
@@ -2050,6 +2082,9 @@ function buildMapHTML(p, config, lock, flags) {
   for (const id of Object.keys(manifest.cells)) { manifest.cells[id].diff = specDiffForCell(p.root, manifest.cells[id]); }
   const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), grants: loadGrants(p), root: trustRootPin(flags) });
   const { changes, times } = cellChanges(manifest.root, lock, manifest.cells);
+  // P4: attach each Cell's semantic timeline (approvals/attestations/rejections) to its times entry.
+  const timelines = buildCellTimelines(p, config, manifest, lock);
+  for (const id of Object.keys(timelines)) { times[id] = times[id] || {}; times[id].timeline = timelines[id]; }
   const planDoc = flags['no-plan'] ? null : U.readJSON(path.join(path.dirname(p.config), 'plan.json'), null);
   // governance for the Signers tab: authoritative roster + device kind + approvals.
   const rlog = loadRoster(p);
@@ -2099,7 +2134,7 @@ function buildMapHTML(p, config, lock, flags) {
       const last = A.latestEntry(p, config);
       if (last) { const covered = last.codeTreeHash === A.codeTreeHashOf(manifest); attest = { hash: last.hash, at: last.at, passed: last.passed, capability: last.capability, covered, fp: (config.verifier && config.verifier.fp) || null }; }
     } catch (_) {}
-    return { grants, rejections, attest };
+    return { grants, rejections, attest, timelines };
   })();
   return { html: renderMap(manifest, verified, config && config.project, changes, times, planDoc, gov, briefs, tagsMod.loadTags(p), policyInfo, tagSets, batchConfig(config), extra), count: Object.keys(verified.results).length };
 }

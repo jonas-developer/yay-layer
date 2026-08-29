@@ -124,13 +124,25 @@ function detailInner(cell, res, t) {
   const checks = (res.notes || []).length
     ? `<div class="dh">Checks</div><ul class="checks">${res.notes.map((n) => `<li class="ck-${n.level}">${sym[n.level] || '•'} ${esc(n.text)}</li>`).join('')}</ul>`
     : `<div class="dh">Checks</div><div class="allok" style="color:${col}">✓ all checks passed</div>`;
-  // History — when it was created and signed. Derived (lock + git), not stored in the spec.
-  const hist = [];
-  if (t.createdCode) hist.push(`created in code · ${fmtWhen(t.createdCode)}`);
-  if (res.trust && res.trust.firstAt) hist.push(`first signed · ${fmtWhen(res.trust.firstAt)}`);
-  if (res.trust && res.trust.signed && res.trust.at) hist.push(`signed by ${esc(res.trust.signer)} · ${fmtWhen(res.trust.at)}`);
-  if (t.changedCode && t.changedCode !== t.createdCode) hist.push(`code last changed · ${fmtWhen(t.changedCode)}`);
-  const history = hist.length ? `<div class="dh">History</div><ul class="checks">${hist.map((x) => `<li class="ck-info">• ${x}</li>`).join('')}</ul>` : '';
+  // History / semantic timeline — a Cell's provenance events over time (P4). Prefer the stitched
+  // timeline (approvals/attestations/rejections from the ledgers); fall back to the derived
+  // created/signed/changed markers (lock + git) when no ledger events exist.
+  let history = '';
+  const TLSYM = { signed: '✍', delegated: '⚡', ratified: '✅', attested: '◆', rejected: '✗' };
+  const TLCLS = { signed: 'ck-info', delegated: 'ck-yellow', ratified: 'ck-info', attested: 'ck-info', rejected: 'ck-red' };
+  if (t.timeline && t.timeline.length) {
+    const evs = [];
+    if (t.createdCode) evs.push(`<li class="ck-info">• created in code · ${fmtWhen(t.createdCode)}</li>`);
+    for (const e of t.timeline) evs.push(`<li class="${TLCLS[e.kind] || 'ck-info'}">${TLSYM[e.kind] || '•'} ${esc(e.text)}${e.at ? ` · ${fmtWhen(e.at)}` : ''}</li>`);
+    history = `<div class="dh">Timeline</div><ul class="checks">${evs.join('')}</ul>`;
+  } else {
+    const hist = [];
+    if (t.createdCode) hist.push(`created in code · ${fmtWhen(t.createdCode)}`);
+    if (res.trust && res.trust.firstAt) hist.push(`first signed · ${fmtWhen(res.trust.firstAt)}`);
+    if (res.trust && res.trust.signed && res.trust.at) hist.push(`signed by ${esc(res.trust.signer)} · ${fmtWhen(res.trust.at)}`);
+    if (t.changedCode && t.changedCode !== t.createdCode) hist.push(`code last changed · ${fmtWhen(t.changedCode)}`);
+    history = hist.length ? `<div class="dh">History</div><ul class="checks">${hist.map((x) => `<li class="ck-info">• ${x}</li>`).join('')}</ul>` : '';
+  }
   // Impact — computed from the call graph, not narrated. "What breaks if this is wrong."
   const impact = isMod ? '' : `<div class="dh">Impact</div><ul class="checks">
     <li>▲ <b>${res.blast || 0}</b> Cell(s) depend on this${res.dependents ? ` — ${res.dependents} directly` : ''}${(res.blast || 0) === 0 ? ' (nothing breaks downstream)' : ''}</li>
@@ -241,7 +253,7 @@ function renderMap(manifest, verified, project, changes, times, planDoc, gov, br
   // of signed Specs + Briefs over time (a Brief's weight = its own chars + its Cells' specs).
   const specChars = {};
   for (const id of Object.keys(manifest.cells)) { const c = manifest.cells[id]; if (c) specChars[id] = (c.specBlock || '').length; }
-  const meta = { project: project || 'project', counts: verified.counts, passed: verified.passed, totalUnits, plan: planDoc || null, gov: gov || null, files: FILES, briefs: briefs || [], specChars, tags: (tagCfg && tagCfg.tags) || [], tagSet: (tagCfg && tagCfg.set) || null, tagDescriptions: (tagCfg && tagCfg.descriptions) || {}, tagSets: tagSets || [], batch: batchCfg || { enabled: true, barrier: 5 }, policy: policyInfo || { enforced: [], draft: [], violations: [], signers: [] }, signMethod: (policyInfo && policyInfo.signMethod) || 'phone', ratify: (function(){ try { var b = ratifyBundle(manifest, verified); return { hash: b.hash, count: b.ids.length }; } catch (_) { return { hash: null, count: 0 }; } })(), grants: extra.grants || [], rejections: extra.rejections || [], attest: extra.attest || null };
+  const meta = { project: project || 'project', counts: verified.counts, passed: verified.passed, totalUnits, plan: planDoc || null, gov: gov || null, files: FILES, briefs: briefs || [], specChars, tags: (tagCfg && tagCfg.tags) || [], tagSet: (tagCfg && tagCfg.set) || null, tagDescriptions: (tagCfg && tagCfg.descriptions) || {}, tagSets: tagSets || [], batch: batchCfg || { enabled: true, barrier: 5 }, policy: policyInfo || { enforced: [], draft: [], violations: [], signers: [] }, signMethod: (policyInfo && policyInfo.signMethod) || 'phone', ratify: (function(){ try { var b = ratifyBundle(manifest, verified); return { hash: b.hash, count: b.ids.length }; } catch (_) { return { hash: null, count: 0 }; } })(), grants: extra.grants || [], rejections: extra.rejections || [], attest: extra.attest || null, timelines: extra.timelines || {} };
   const payload = JSON.stringify({ root: 'system', nodes: YLnodes, edges: { system: modEdges }, details, changes: changes || [], needs, meta })
     .replace(/</g, '\\u003c');
 
@@ -704,6 +716,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
         +'<button class="hist-t" data-p="signed" style="'+htStyle(true)+'">As signed</button>'
         +'<button class="hist-t" data-p="current" style="'+htStyle(false)+'">Current</button>'
         +(hasDiff?('<button class="hist-t" data-p="diff" style="'+htStyle(false)+'">What changed</button>'):'')
+        +(tlEvents(j.cell).length?('<button class="hist-t" data-p="timeline" style="'+htStyle(false)+'">Timeline</button>'):'')
         +'</div>';
       var signedPanel=then.found
         ?('<div class="dh">Sealed spec'+(then.current?' (still current)':'')+'</div><pre class="code">'+esc2(then.block||'')+'</pre>'+(then.code?('<div class="dh">Code'+((cellAuto['u:'+j.cell])?' it built':'')+'</div><pre class="code">'+esc2(then.code)+'</pre>'):''))
@@ -717,7 +730,17 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
       return head+meta+tabs
         +'<div class="hist-panel" data-p="signed">'+signedPanel+'</div>'
         +'<div class="hist-panel" data-p="current" style="display:none">'+curPanel+'</div>'
-        +'<div class="hist-panel" data-p="diff" style="display:none">'+diffPanel+'</div>';
+        +'<div class="hist-panel" data-p="diff" style="display:none">'+diffPanel+'</div>'
+        +'<div class="hist-panel" data-p="timeline" style="display:none">'+timelinePanel(j.cell)+'</div>';
+    }
+    // A Cell's semantic timeline (P4): provenance events stitched from the ledgers (signed / delegated
+    // / ratified / attested / rejected), oldest→newest. Structured data comes from DATA.meta.timelines.
+    function tlEvents(cellId){ return ((DATA.meta&&DATA.meta.timelines)||{})[cellId]||[]; }
+    function timelinePanel(cellId){
+      var evs=tlEvents(cellId); if(!evs.length) return '<div class="snote">No recorded provenance events for this Cell yet.</div>';
+      var sym={signed:'✍',delegated:'⚡',ratified:'✅',attested:'◆',rejected:'✗'};
+      var col={signed:'var(--ink-2)',delegated:'#c9860f',ratified:'#1f9d57',attested:'var(--accent)',rejected:'#cf4436'};
+      return '<div class="dh">Provenance timeline</div><ul class="checks">'+evs.map(function(e){ var when=e.at?(' · '+esc2(String(e.at).replace('T',' ').slice(0,16))):''; return '<li style="color:'+(col[e.kind]||'var(--ink)')+'">'+(sym[e.kind]||'•')+' '+esc2(e.text)+when+'</li>'; }).join('')+'</ul>';
     }
     function wireHistory(mo){
       var tabs=mo.querySelectorAll('.hist-t'), panels=mo.querySelectorAll('.hist-panel');
