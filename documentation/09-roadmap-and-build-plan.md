@@ -26,11 +26,11 @@ The whole architecture (all three advisor papers + our decisions) is adopted; th
 - [x] Per-language **effect/purity nets** for all five (Ruby, PHP, Solidity, Rust, C#) — stop the JS-regex fallback; make all five first-class on the gate (correct Pink/Red/Yellow).
 - [x] **Behavioral proof adapters for Ruby + PHP** (Python subprocess pattern → pure funcs reach Green), with graceful toolchain degradation.
 
-### P2 — Verifier attestation *(in 1.0 — the leap to "provenance system")*
-- [ ] Canonical Verification object (spec-set/code-tree/verifier-pkg/ruleset/config/evidence hashes + result + timestamp).
-- [ ] **Hash + sign** it with a **project/CI-scoped verifier key**; mint at commit/verify-pass.
-- [ ] Human ratification/approval references the verification attestation hash.
-- [ ] Start verifier **capability-versioning** (PATCH/MINOR/MAJOR).
+### P2 — Verifier attestation *(in 1.0 — the leap to "provenance system")* ✅
+- [x] Canonical Verification object (spec-set/code-tree/verifier-pkg/ruleset/evidence hashes + result + env + timestamp) — `src/attest.js` `buildVerification`.
+- [x] **Hash + sign** it with a **project/CI-scoped verifier key** (machine-held, gitignored; public key pinned in `config.verifier`, committed; never in the npm package); mint via `yay attest` at commit/verify-pass. Refuses a blocked gate unless `--force`.
+- [x] Human ratification/approval references the verification attestation hash — the seal carries `attest:{hash,capability}` when a signed attestation covers the exact code-tree (`yay sign`/ratify).
+- [x] Verifier **capability-versioning** (`CAPABILITY`, PATCH/MINOR/MAJOR) recorded in every attestation; append-only chained ledger (`.yaylayer/attest.json` + `.yaylayer/attestations/`); `yay attest list` / `yay attest verify`.
 
 ### P3 — Grants → envelopes, two-axis, rejections *(in 1.0)*
 - [ ] Expand grants into signed **capability envelopes** (scope constraints first; detection-gated constraints as detectors land — build detector + constraint together).

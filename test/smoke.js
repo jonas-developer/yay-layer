@@ -1275,5 +1275,54 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     ok(!C.verify(canonical(tt), sig, kp.pubB64), 'brief: changing the title after signing breaks the signature (tamper-evident)');
   }
 
+  // 20) P2 — verifier attestation (the third crypto identity: the verifier signs its own verdict).
+  {
+    const A = require('../src/attest');
+    const os = require('os'), fs = require('fs');
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'yay-attest-'));
+    const p = { root: tmp, yay: path.join(tmp, '.yaylayer'), keys: path.join(tmp, '.yaylayer', 'keys') };
+    const config = { project: 'attx' };
+    const manifest = { cells: {
+      'C-1': { specHash: 'aaa', unitBody: 'function f(){return 1}' },
+      'C-2': { specHash: 'bbb', unitBody: 'function g(){return 2}' },
+      'M-1': { contains: ['C-1', 'C-2'], specHash: 'm' },
+    } };
+    const verified = { results: { 'C-1': { state: 'GREEN', proven: true }, 'C-2': { state: 'GREEN', proven: false } }, counts: { GREEN: 2, proven: 1 }, passed: true, rootFp: 'fp:1', policy: { rules: [] } };
+
+    const id = A.verifierIdentity(p, config);
+    ok(fs.existsSync(A.verifierKeyPath(p)), 'attest: verifier key created machine-side (in gitignored keys/)');
+    const changed = A.pinVerifier(config, id);
+    ok(changed && config.verifier && config.verifier.pub === id.pub, 'attest: pinVerifier records the public verifier of record in config');
+
+    const v = A.buildVerification(manifest, verified, { config, policy: verified.policy });
+    ok(v.cells === 2 && v.capability === A.CAPABILITY, 'attest: verification object counts leaf Cells + records the capability version');
+    ok(v.codeTreeHash === A.codeTreeHashOf(manifest), 'attest: codeTreeHashOf(manifest) matches the verification object (cheap coverage check)');
+    ok(v.result.passed === true && v.result.counts.GREEN === 2, 'attest: verification object carries the gate result');
+
+    const att = A.signAttestation(v, id);
+    ok(A.verifyAttestation(att, id.pub).ok, 'attest: a freshly signed attestation verifies under its verifier key');
+
+    // tamper: flip the result → hash no longer matches the core
+    const bad = JSON.parse(JSON.stringify(att)); bad.result.passed = false;
+    ok(!A.verifyAttestation(bad, id.pub).ok, 'attest: tampering with the verdict breaks the attestation (hash mismatch)');
+    // wrong verifier of record
+    const other = A.verifierIdentity({ root: path.join(tmp, 'o'), yay: path.join(tmp, 'o', '.yaylayer'), keys: path.join(tmp, 'o', '.yaylayer', 'keys') }, {});
+    ok(!A.verifyAttestation(att, other.pub).ok, 'attest: an attestation from a different verifier is rejected against the pinned key');
+
+    // append-only ledger + content-addressed load
+    A.appendAttestation(p, config, att);
+    const v2 = A.buildVerification(manifest, verified, { config, policy: verified.policy, at: '2030-01-01T00:00:00.000Z' });
+    const att2 = A.signAttestation(v2, id);
+    A.appendAttestation(p, config, att2);
+    const led = A.loadLedger(p, config);
+    ok(led.entries.length === 2 && led.entries[1].prev === led.entries[0].hash, 'attest: ledger is append-only + chained (each entry references the previous hash)');
+    ok(!!A.loadAttestation(p, config, att.hash), 'attest: stored attestation loads back + re-validates by hash');
+    // a tampered stored object is refused on load
+    fs.writeFileSync(A.attFile(p, att.hash), fs.readFileSync(A.attFile(p, att.hash), 'utf8').replace('"passed": true', '"passed": false'));
+    ok(A.loadAttestation(p, config, att.hash) === null, 'attest: a tampered stored attestation is refused on load');
+
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+
   console.log(`\nAll ${n} checks passed.`);
 })().catch((e) => { console.error('smoke failed:', e); process.exit(1); });

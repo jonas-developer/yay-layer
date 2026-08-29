@@ -424,7 +424,9 @@ function verifyManifest(manifest, lock, config, opts) {
   // A tampered / unauthorized / root-mismatched roster blocks the gate: if we can't
   // trust WHO may sign, we can't trust any signature.
   const passed = counts.RED === 0 && counts.UNSIGNED === 0 && counts.PINK === 0 && rosterOk;
-  return { results, counts, passed, grants, rosterProblems, rootFp, rosterOk, signedRoster };
+  // `policy` is the EFFECTIVE ruleset the verdicts were produced under — exposed so an attestation
+  // (P2) can hash exactly what the verifier used (rulesetHash), not re-guess it.
+  return { results, counts, passed, grants, rosterProblems, rootFp, rosterOk, signedRoster, policy };
 }
 
 module.exports = { verifyManifest, worst };

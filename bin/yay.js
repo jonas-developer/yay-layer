@@ -16,6 +16,7 @@ const U = require('../src/util');
 const C = require('../src/crypto');
 const R = require('../src/ratify');
 const O = require('../src/objects');
+const A = require('../src/attest');
 const { buildManifest } = require('../src/manifest');
 const { verifyManifest } = require('../src/verify');
 const { renderMap } = require('../src/map');
@@ -878,6 +879,17 @@ async function cmdSign(flags, positional) {
     signer: name,
     items,
   };
+  // D3: tie the human signature to the exact MACHINE VERDICT it was made against, when a signed
+  // verifier attestation covers this exact code-tree. Recorded inside the seal (so it's part of what
+  // the human signs), not asserted — absent when no current attestation exists (e.g. a forward
+  // spec-sign before the code was attested). "I approve this intent AND this is the verified result
+  // I saw."
+  {
+    const last = A.latestEntry(p, config);
+    if (last && last.codeTreeHash === A.codeTreeHashOf(manifest)) {
+      approval.attest = { hash: last.hash, capability: last.capability };
+    }
+  }
   // BRIEF (Standard §5): a short prose record of what the human ordered, signed
   // together with the specs → attributed + tamper-evident. It is the DEFAULT: a human
   // at a TTY is prompted for it; automation (the AI) passes --brief; --no-brief is
@@ -1551,11 +1563,82 @@ function cmdVerify(flags) {
   if (verified.signedRoster) console.log('  ' + U.c.dim('trust root ' + verified.rootFp));
   else console.log('  ' + U.c.yellow('⚠ roster is unsigned') + U.c.dim(' — no signed trust root; run `yay init`/`yay keygen` to establish one.'));
   for (const pb of verified.rosterProblems || []) console.log('  ' + U.c.red('✗ roster: ') + pb);
+  // Verifier attestation status (P2): is the current tree covered by a signed attestation?
+  reportAttestStatus(p, config, manifest, verified);
   const blocked = !verified.passed || manifest.problems.length;
   console.log('\n  ' + (blocked ? U.c.red('GATE: BLOCKED') + U.c.dim(' (red, unsigned, or unspecified/pink code cannot reach main)')
     : U.c.green('GATE: PASS')));
   if (!flags.dir && process.argv.includes('--strict')) process.exit(blocked ? 1 : 0);
   if (flags.strict) process.exit(blocked ? 1 : 0);
+}
+
+// One line under `yay verify`: whether a signed verifier attestation covers the EXACT current tree.
+// Drift (code/spec changed since the last attestation) is surfaced so the human knows the signed
+// verdict no longer describes what's on disk — re-mint with `yay attest`.
+function reportAttestStatus(p, config, manifest, verified) {
+  const last = A.latestEntry(p, config);
+  if (!last) { console.log('  ' + U.c.dim('no verifier attestation yet — mint one with ') + U.c.bold('yay attest') + U.c.dim(' (signs this verdict).')); return; }
+  const cur = A.buildVerification(manifest, verified, { config, policy: verified.policy });
+  const covered = cur.codeTreeHash === last.codeTreeHash;
+  if (covered) console.log('  ' + U.c.dim('verifier attestation ' + U.c.green(last.hash.slice(0, 12)) + U.c.dim(` · ${last.passed ? 'PASS' : 'BLOCKED'} · capability ${last.capability}`)));
+  else console.log('  ' + U.c.yellow('⚠ attestation stale') + U.c.dim(` — code changed since ${last.hash.slice(0, 12)}; re-mint with `) + U.c.bold('yay attest'));
+}
+
+// `yay attest` — mint a signed VERIFIER ATTESTATION over the current verified tree (P2). This is
+// the third cryptographic identity: the machine verifier signs its own verdict with its own key,
+// so "Green" becomes a portable, checkable object. Run at commit / after a green verify. Append-only
+// (chained to the previous attestation); the verifier PRIVATE key stays machine-side (gitignored),
+// the PUBLIC key is pinned in config (committed) so anyone can verify without being able to forge.
+function cmdAttest(flags, positional) {
+  if (positional[0] === 'list' || positional[0] === 'verify' || flags.list) return cmdAttestList(flags, positional);
+  const { p, config, lock } = loadState();
+  if (!config) return fail('run `yay init` first');
+  const manifest = buildManifest(flags.dir || p.root);
+  if (!Object.keys(manifest.cells).length) return fail('no Cells to attest — write/adopt specs first.');
+  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), grants: loadGrants(p), root: trustRootPin(flags) });
+
+  // Refuse to sign a verdict that doesn't pass, unless explicitly told to record a failing one.
+  if (!verified.passed && !flags.force) {
+    return fail('gate is BLOCKED — refusing to attest a failing verdict. Fix the reds, or pass --force to record a failing attestation on purpose.');
+  }
+  const id = A.verifierIdentity(p, config); // creates the machine verifier key on first use
+  const changed = A.pinVerifier(config, id);
+  if (changed) U.writeJSON(p.config, config);
+  const verObj = A.buildVerification(manifest, verified, { config, policy: verified.policy });
+  const att = A.signAttestation(verObj, id);
+  A.appendAttestation(p, config, att);
+  console.log(U.c.green('✓ attestation minted') + U.c.dim(` — verifier ${id.fp}`));
+  console.log('  ' + U.c.bold(att.hash.slice(0, 16)) + U.c.dim(`  · ${att.result.passed ? 'PASS' : U.c.red('BLOCKED')} · ${att.result.counts.GREEN} green (${att.result.proven} proven) · capability ${att.capability}`));
+  console.log('  ' + U.c.dim('code-tree ' + att.codeTreeHash.slice(0, 12) + ' · spec-set ' + att.specSetHash.slice(0, 12) + ' · ' + att.env.node + ' ' + att.env.platform));
+  if (changed) console.log('  ' + U.c.dim('pinned this verifier as the project verifier of record → ') + U.c.bold('.yaylayer/config.json') + U.c.dim(' (commit it).'));
+  console.log('  ' + U.c.dim('append-only ledger → ') + U.c.bold('.yaylayer/attest.json') + U.c.dim(' + full object in .yaylayer/attestations/ (commit both). Key stays in gitignored keys/.'));
+}
+
+// `yay attest list` / `yay attest verify` — read the ledger; re-check every stored attestation.
+function cmdAttestList(flags, positional) {
+  const { p, config } = loadState();
+  if (!config) return fail('run `yay init` first');
+  const sub = positional[0];
+  const led = A.loadLedger(p, config);
+  if (sub === 'verify') {
+    const pub = A.verifierPub(p, config);
+    if (!led.entries.length) { console.log(U.c.dim('no attestations to verify.')); return; }
+    let bad = 0;
+    for (const e of led.entries) {
+      let raw = null; try { raw = JSON.parse(fs.readFileSync(A.attFile(p, e.hash), 'utf8')); } catch (_) { raw = null; }
+      const chk = raw ? A.verifyAttestation(raw, pub) : { ok: false, reason: 'attestation object missing' };
+      if (!chk.ok) bad++;
+      console.log('  ' + (chk.ok ? U.c.green('✓') : U.c.red('✗')) + ' ' + e.hash.slice(0, 16) + U.c.dim(` · ${e.at.slice(0, 16).replace('T', ' ')} · ${e.passed ? 'PASS' : 'BLOCKED'}`) + (chk.ok ? '' : U.c.red(' — ' + chk.reason)));
+    }
+    console.log('\n  ' + (bad ? U.c.red(`${bad} invalid`) : U.c.green('all attestations valid')) + U.c.dim(` · verifier of record ${(config.verifier && config.verifier.fp) || '(unpinned)'}`));
+    if (flags.strict) process.exit(bad ? 1 : 0);
+    return;
+  }
+  if (!led.entries.length) { console.log(U.c.dim('no attestations yet — mint one with ') + U.c.bold('yay attest') + U.c.dim('.')); return; }
+  console.log(U.c.bold(`${led.entries.length} attestation(s)`) + U.c.dim(` · capability ${led.capability} · verifier ${(config.verifier && config.verifier.fp) || '(unpinned)'}`));
+  for (const e of led.entries.slice().reverse()) {
+    console.log('  ' + U.c.bold(e.hash.slice(0, 16)) + U.c.dim(` · ${e.at.slice(0, 16).replace('T', ' ')} · ${e.passed ? U.c.green('PASS') : U.c.red('BLOCKED')} · code-tree ${e.codeTreeHash.slice(0, 12)} · cap ${e.capability}`));
+  }
 }
 
 // Per-Cell "last changed" timeline, DERIVED (not stored in the spec):
@@ -2376,6 +2459,12 @@ const HELP = `yay — a protocol for provable, signed AI code
                              "yay batch 8" raises it; "off" = a Brief per change. Batches are per-concern (tag).
   yay verify [--strict] [-d]  the gate — paint every Cell; -d/--details prints each spec, code & checks
                              --problems shows only non-green Cells · --no-mutate skips prover mutation grading
+  yay attest [list|verify]   mint a SIGNED verifier attestation over the current verdict (the verifier's own
+                             key vouches for "Green" — the third crypto identity). Run at commit / after a green
+                             verify. Refuses a blocked gate (--force records a failing one). Append-only, chained,
+                             capability-versioned. "list" shows the ledger; "verify" re-checks every attestation
+                             (--strict exits non-zero on any invalid). Key stays machine-side (gitignored); the
+                             public verifier of record is pinned in config (committed) so anyone can verify.
   yay plan [--provider anthropic|openai|custom] [--model m] [--base-url url]
                              AI-synthesize a high-level System Plan → .yaylayer/plan.json
                              key from .env (ANTHROPIC_API_KEY / OPENAI_API_KEY); custom = any OpenAI-compatible
@@ -2411,6 +2500,7 @@ async function main() {
     case 'grant': case 'autopilot': return cmdGrant(flags, positional);
     case 'ratify': return cmdRatify(flags);
     case 'verify': case 'check': return cmdVerify(flags);
+    case 'attest': case 'attestation': return cmdAttest(flags, positional);
     case 'map': return cmdMap(flags);
     case 'dashboard': case 'serve': return cmdDashboard(flags);
     case 'test': case 'tests': return cmdTest(flags);
