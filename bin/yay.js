@@ -80,6 +80,7 @@ function saveLocalSigner(p, name) { try { if (name) { U.writeJSON(localPath(p), 
 // Autopilot: the append-only, owner-signed grants log (committed) + the machine-held
 // grant private keys (in the gitignored keys/, used for UNATTENDED auto-signing).
 function grantsPath(p) { return path.join(path.dirname(p.config), 'grants.json'); }
+function rejectionsPath(p) { return path.join(path.dirname(p.config), 'rejections.json'); }
 function loadGrants(p) { return U.readJSON(grantsPath(p), null); }
 function grantKeyPath(p, id) { return path.join(p.keys, `grant-${id}.json`); }
 function parseDuration(s) {
@@ -1201,7 +1202,16 @@ function listGrants(p, config, lock) {
   for (const id of Object.keys(grants)) {
     const g = grants[id];
     const status = g.active ? U.c.green('● active') : g.revoked ? U.c.red('revoked') : g.expired ? U.c.dim('expired ') : U.c.dim('spent  ');
-    console.log('  ' + status + ' ' + U.c.bold(id) + U.c.dim(` · ${g.scope && g.scope.cells ? g.scope.cells.length + ' Cell(s)' : 'non-sensitive'} · ${g.spent}/${g.maxCount || '∞'} used · expires ${String(g.expiresAt).slice(0, 16).replace('T', ' ')}`));
+    const env = grantsMod.envelopeOf(g);
+    const scopeBits = [];
+    if (env.cells.length) scopeBits.push(env.cells.length + ' Cell(s)');
+    if (env.allow.length) scopeBits.push('allow ' + env.allow.join(','));
+    if (env.deny.length) scopeBits.push('deny ' + env.deny.join(','));
+    if (env.maxRisk) scopeBits.push('≤' + env.maxRisk + ' risk');
+    const scopeStr = scopeBits.length ? scopeBits.join(' · ') : 'non-sensitive';
+    const indent = g.parent ? '    └─ ' : '  ';
+    const parentTag = g.parent ? U.c.dim(`child of ${g.parent} `) + (g.chain && !g.chain.attenuates ? U.c.red('⚠ ' + (g.chain.reason || 'bad chain') + ' ') : '') : '';
+    console.log(indent + status + ' ' + U.c.bold(id) + ' ' + parentTag + U.c.dim(`· ${scopeStr} · ${g.spent}/${g.maxCount || '∞'} used · expires ${String(g.expiresAt).slice(0, 16).replace('T', ' ')}`) + (env.childGrants.allowed ? U.c.dim(` · child-grants✓(d${env.childGrants.maxDepth})`) : ''));
   }
 }
 async function grantRevoke(p, config, rlog, flags, positional) {
@@ -1230,17 +1240,41 @@ async function cmdGrant(flags, positional) {
   if (!durMs) return fail('bad --for duration — use e.g. 2h, 90m, 1d.');
   const count = (flags.count && flags.count !== true) ? parseInt(flags.count, 10) : 20;
   if (!(count > 0)) return fail('--count must be a positive number.');
-  const scope = (flags.cell && flags.cell !== true) ? { cells: String(flags.cell).split(',').map((s) => s.trim()).filter(Boolean) } : {};
+  const list = (v) => (v && v !== true) ? String(v).split(',').map((s) => s.trim()).filter(Boolean) : [];
+  // P3 capability envelope. Scope constraints (cells/allow/deny/max-risk) are enforced now; content
+  // constraints (deps/deployment) are recorded but DETECTOR-GATED — shown, enforced where a detector
+  // exists (D15). --child-grants opts INTO attenuating sub-grants (off by default).
+  const envelope = {};
+  const cells = list(flags.cell);
+  if (cells.length) envelope.cells = cells;
+  if (list(flags.allow).length) envelope.allow = list(flags.allow);
+  if (list(flags.deny).length) envelope.deny = list(flags.deny);
+  if (flags['max-risk'] && flags['max-risk'] !== true) {
+    const mr = String(flags['max-risk']).toLowerCase();
+    if (!['low', 'medium', 'high'].includes(mr)) return fail('--max-risk must be low, medium or high.');
+    envelope.maxRisk = mr;
+  }
+  if (flags.deps && flags.deps !== true) envelope.deps = String(flags.deps);
+  if (flags.deploy && flags.deploy !== true) envelope.deployment = String(flags.deploy);
+  if (flags['child-grants']) envelope.childGrants = { allowed: true, maxDepth: (flags['max-depth'] && flags['max-depth'] !== true) ? parseInt(flags['max-depth'], 10) : 1 };
   const gk = C.generateKeypair();
   const glog = loadGrants(p) || { project: config.project, events: [] };
   const id = 'G-' + String(glog.events.filter((e) => e.type === 'grant').length + 1).padStart(3, '0');
   const prev = glog.events.length ? glog.events[glog.events.length - 1].id : 'genesis';
   const expiresAt = new Date(Date.now() + durMs).toISOString();
-  const ev = { id, type: 'grant', grantPub: gk.pubB64, scope, expiresAt, maxCount: count, prev, nonce: C.randomNonce(), at: new Date().toISOString() };
-  const scopeStr = scope.cells ? `${scope.cells.length} named Cell(s)` : 'all non-sensitive Cells';
-  const summary = { title: 'Grant Autopilot (delegated execution)', rows: [
+  const ev = { id, type: 'grant', grantPub: gk.pubB64, envelope, expiresAt, maxCount: count, prev, nonce: C.randomNonce(), at: new Date().toISOString() };
+  const parts = [];
+  if (envelope.cells) parts.push(`${envelope.cells.length} named Cell(s)`);
+  if (envelope.allow) parts.push('allow ' + envelope.allow.join(', '));
+  if (envelope.deny) parts.push('deny ' + envelope.deny.join(', '));
+  if (envelope.maxRisk) parts.push('max-risk ' + envelope.maxRisk);
+  const scopeStr = parts.length ? parts.join(' · ') : 'all non-sensitive Cells';
+  const rows = [
     { k: 'scope', v: scopeStr }, { k: 'expires', v: expiresAt.slice(0, 16).replace('T', ' ') }, { k: 'max', v: `${count} delegated approvals` },
-  ], warn: 'While active, the AI approves in-scope changes under the grant (delegated, awaiting ratification) WITHOUT contacting your phone. Sensitive / code-pinned Cells still need a real signature. Stop anytime with `yay grant revoke`.' };
+  ];
+  if (envelope.childGrants) rows.push({ k: 'child grants', v: `allowed (max depth ${envelope.childGrants.maxDepth})` });
+  if (envelope.deps || envelope.deployment) rows.push({ k: 'recorded (not yet enforced)', v: [envelope.deps && ('deps: ' + envelope.deps), envelope.deployment && ('deploy: ' + envelope.deployment)].filter(Boolean).join(' · ') });
+  const summary = { title: 'Grant Autopilot (delegated execution)', rows, warn: 'While active, the AI approves in-scope changes under the grant (delegated, awaiting ratification) WITHOUT contacting your phone. Sensitive / code-pinned / policy-non-delegable Cells still need a real signature. Stop anytime with `yay grant revoke`.' };
   const signed = await authorizeRosterEvent(p, config, rlog, ev, flags, summary);
   if (!signed) return; // authorizeRosterEvent already reported why
   glog.events.push(signed); U.writeJSON(grantsPath(p), glog);
@@ -1256,6 +1290,7 @@ async function cmdRatify(flags) {
   const manifest = buildManifest(flags.dir || p.root);
   const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: loadRoster(p), grants: loadGrants(p), root: trustRootPin(flags) });
   const auto = R.autoCellIds(verified);
+  if (flags.reject) return ratifyReject(p, config, lock, manifest, verified, auto, flags);
   if (!auto.length) { console.log(U.c.green('✓ nothing to ratify') + U.c.dim(' — no delegated Cells awaiting your signature.')); return; }
   const bundle = R.ratifyBundle(manifest, verified, auto);
   const reviewPath = path.join(path.dirname(p.lock), '.ratify-review.json');
@@ -1285,6 +1320,36 @@ async function cmdRatify(flags) {
   try { if (fs.existsSync(reviewPath)) fs.unlinkSync(reviewPath); } catch (_) {}
   return res;
 }
+
+// Persist a REJECTION as a first-class, human-signed, append-only provenance event (P3). A rejection
+// is where agent autonomy failed human judgment — the substrate for future "earned autonomy" metrics
+// (which categories get rejected, how often). It is never erased and never rewrites history: the
+// delegated seal stays in the record; the rejection sits beside it, and the code stays UNSIGNED
+// (unratified) until fixed and re-signed. Owner-authorized (local key or phone), so it's attributable.
+async function ratifyReject(p, config, lock, manifest, verified, auto, flags) {
+  const rlog = loadRoster(p);
+  if (!rlog) return fail('rejection needs a signed trust root — pair your phone or run `yay keygen` first.');
+  const want = (flags.cell && flags.cell !== true) ? String(flags.cell).split(',').map((s) => s.trim()).filter(Boolean) : auto;
+  const cells = want.filter((id) => auto.includes(id));
+  if (!cells.length) return fail(auto.length ? `none of those Cells are awaiting ratification — pending: ${auto.join(', ')}.` : 'nothing to reject — no delegated Cells awaiting ratification.');
+  const reason = (flags.reason && flags.reason !== true) ? String(flags.reason) : null;
+  if (!reason) return fail('a rejection needs a reason — pass --reason "<why>" (recorded, tamper-evident). Optionally --category <dependency|security|scope|quality|other>.');
+  const category = (flags.category && flags.category !== true) ? String(flags.category).toLowerCase() : 'other';
+  const specHashes = {}; const grantsHit = new Set();
+  for (const id of cells) { specHashes[id] = (manifest.cells[id] || {}).specHash || null; const t = (verified.results[id] || {}).trust || {}; if (t.grant) grantsHit.add(t.grant); }
+  const rj = loadRejections(p) || { project: config.project, events: [] };
+  const id = 'X-' + String(rj.events.length + 1).padStart(4, '0');
+  const ev = { id, type: 'reject', project: config.project, cells, specHashes, grants: [...grantsHit], reason, category, prev: rj.events.length ? rj.events[rj.events.length - 1].id : 'genesis', nonce: C.randomNonce(), at: new Date().toISOString() };
+  const summary = { title: `Reject ${cells.length} delegated Cell(s)`, rows: [
+    { k: 'cells', v: cells.join(', ') }, { k: 'category', v: category }, { k: 'reason', v: reason },
+  ], warn: 'This records a signed REJECTION (append-only). The delegated code stays UNSIGNED until fixed and re-signed; the rejection is kept forever as provenance (and feeds earned-autonomy metrics).' };
+  const signed = await authorizeRosterEvent(p, config, rlog, ev, flags, summary);
+  if (!signed) return; // authorizeRosterEvent already reported why
+  signed.signer = signed.by; // the human who rejected
+  rj.events.push(signed); U.writeJSON(rejectionsPath(p), rj);
+  console.log('\n' + U.c.red(`✗ rejected ${cells.length} Cell(s)`) + U.c.dim(` — ${id} · ${category} · by ${signed.by}. Recorded in `) + U.c.bold('.yaylayer/rejections.json') + U.c.dim(' (commit it). The code stays unsigned until fixed.'));
+}
+function loadRejections(p) { return U.readJSON(rejectionsPath(p), null); }
 
 async function cmdPair(flags) {
   const { p, config } = loadState();
@@ -2438,10 +2503,15 @@ const HELP = `yay — a protocol for provable, signed AI code
                              authorize with a local owner key, or --phone to approve on an owner's phone
   yay revoke --name X [--pubkey <b64>]  revoke one key (or the whole identity) via an owner-signed event (--phone)
   yay reroot [--phone]        retire the current trust root and establish a new one (key lost/compromised)
-  yay grant [--for 2h] [--count 20]  Autopilot: owner-signed grant → the AI approves in-scope (delegated),
-                             non-sensitive Cells unattended (no phone) until it expires. --cell to narrow scope.
-                             yay grant list · yay grant revoke [id] (stop it) · sensitive/code-pinned always need a real sign
+  yay grant [--for 2h] [--count 20]  Autopilot: owner-signed capability ENVELOPE → the AI approves in-scope
+                             (delegated), non-sensitive Cells unattended (no phone) until it expires.
+                             envelope: --cell IDs · --allow "src/ui/**" · --deny "src/auth/**" · --max-risk low|medium|high
+                             --child-grants [--max-depth N] (permit attenuating sub-grants) · --deps/--deploy (recorded)
+                             yay grant list · yay grant revoke [id] (stop it) · sensitive / code-pinned / policy
+                             non-delegable ({ "delegable": false } in an owner-signed policy) always need a real sign
   yay ratify [--sign]        list delegated Cells awaiting ratification; --sign signs them for real (human)
+                             --reject --reason "<why>" [--category …] [--cell IDs] records a signed, append-only
+                             REJECTION (kept as provenance; the code stays unsigned until fixed)
   yay sign [--cell IDs]       approve specs using THIS project's method (phone or local) — no flag needed
                              override with --phone / --local · SSL on by default (--no-https) · --cell to sign a subset
                              a Brief is required by default (Standard §5): --brief "<what you ordered>" supplies it,
