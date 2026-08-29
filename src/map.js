@@ -769,7 +769,8 @@ ${statblocks}
     var chip=function(t){ return '<span class="pm">'+esc2(t)+'</span>'; };
     var provLabel={ 'pure-call':'JS/TS functions', 'render':'React components (JSX/TSX)', 'python':'Python', 'ruby':'Ruby', 'php':'PHP' };
     var provers=(d.provers||[]).map(function(p){ return chip(provLabel[p]||p); }).join('');
-    var nets=(Object.keys(d.effectNets||{})).map(function(l){ return chip(l); }).join('');
+    var langLabel={ js:'JavaScript / TS', python:'Python', ruby:'Ruby', php:'PHP', solidity:'Solidity', rust:'Rust', csharp:'C#' };
+    var nets=(Object.keys(d.effectNets||{})).map(function(l){ return chip(langLabel[l]||l); }).join('');
     var checks=(d.checks||[]).map(function(c){ return chip(c.replace(/-/g,' ')); }).join('');
     var kinds=(d.policyKinds||[]).map(function(k){ return chip(k.replace(/-/g,' ')); }).join('');
     var sec=function(h,body,note){ return '<div style="border:1px solid var(--rule);border-radius:14px;background:var(--card);box-shadow:var(--shadow);padding:16px 18px;margin:0 0 14px"><div class="dh" style="margin:0 0 9px">'+h+'</div>'+body+(note?('<div class="snote" style="margin-top:9px;font-family:var(--sans)">'+note+'</div>'):'')+'</div>'; }
