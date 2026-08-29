@@ -12,15 +12,15 @@ The whole architecture (all three advisor papers + our decisions) is adopted; th
 ## Phases
 
 ### P0 — Relaunch hygiene *(in 1.0 — small, security-relevant)*
-- [ ] Rename **"auto-approved" → "Delegated · Awaiting ratification"** everywhere (badge, banner, the `//∷YAY-AUTO` code stamp, docs, site). Reserve "approved/approval" for human signatures.
-- [ ] Rename **"Freedom mode" → "Autopilot"** (friendly) / "Delegated execution" (formal) across UI, CLI help, docs, site.
-- [ ] **Fix the `yay ratify --sign` TOCTOU hole** — reviewed-bundle hash; recompute at sign; refuse on drift. Batch default: refuse-whole-batch on any drift. **Not-optional for the relaunch.**
-- [ ] Audit "agent can't broaden its own grant" — confirm grant-scope config (incl. sensitivity) lives outside the delegated surface.
+- [x] Rename **"auto-approved" → "Delegated · Awaiting ratification"** everywhere (badge, banner, the `//∷YAY-AUTO` code stamp, docs, site). Reserve "approved/approval" for human signatures.
+- [x] Rename **"Freedom mode" → "Autopilot"** (friendly) / "Delegated execution" (formal) across UI, CLI help, docs, site.
+- [x] **Fix the `yay ratify --sign` TOCTOU hole** — reviewed-bundle hash; recompute at sign; refuse on drift. Batch default: refuse-whole-batch on any drift. **Not-optional for the relaunch.**
+- [x] Audit "agent can't broaden its own grant" — confirm grant-scope config (incl. sensitivity) lives outside the delegated surface.
 
 ### P1 — Spec provenance *(in 1.0 — kills the "history comes back blank")*
-- [ ] Append-only content-addressed store `.yaylayer/objects/` for normalized spec blocks keyed by specHash; write at sign.
-- [ ] History lens reads **store-first**; git is fallback/cross-check. (Replaces today's git-only `src/history.js`, which blanks on rename/squash.)
-- [ ] Formalize immutable Cell **revisions**; approvals reference a revision id.
+- [x] Append-only content-addressed store `.yaylayer/objects/` for normalized spec blocks keyed by specHash; write at sign.
+- [x] History lens reads **store-first**; git is fallback/cross-check. (Replaces today's git-only `src/history.js`, which blanks on rename/squash.)
+- [x] Formalize immutable Cell **revisions**; approvals reference a revision id. *(Realized by content-addressing: a Cell's specHash **is** its immutable revision identity, approvals already reference it via `items[id]=specHash`, and each is now archived. An explicit ordered revision index — "revision 1, 2, 3" labels — is deferred as cosmetic.)*
 
 ### P1.5 — Languages *(in 1.0)*
 - [ ] Per-language **effect/purity nets** for all five (Ruby, PHP, Solidity, Rust, C#) — stop the JS-regex fallback; make all five first-class on the gate (correct Pink/Red/Yellow).
