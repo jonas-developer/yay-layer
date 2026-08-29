@@ -1693,7 +1693,11 @@ function cmdAttest(flags, positional) {
   console.log('  ' + U.c.dim('code-tree ' + att.codeTreeHash.slice(0, 12) + ' · spec-set ' + att.specSetHash.slice(0, 12) + ' · ' + att.env.node + ' ' + att.env.platform));
   if (changed) console.log('  ' + U.c.dim('pinned this verifier as the project verifier of record → ') + U.c.bold('.yaylayer/config.json') + U.c.dim(' (commit it).'));
   console.log('  ' + U.c.dim('append-only ledger → ') + U.c.bold('.yaylayer/attest.json') + U.c.dim(' + full object in .yaylayer/attestations/ (commit both). Key stays in gitignored keys/.'));
+  console.log('  ' + U.c.dim('verify anywhere (no upload, checks in-browser) → ') + U.c.bold('https://verify.yaylayer.com') + U.c.dim(' · registry cross-check: ') + U.c.bold('yay attest verify --registry'));
 }
+
+// Base URL of the public verifier-capability registry (verify.yaylayer.com), overridable for testing.
+function registryBase(flags) { return (flags.registry && flags.registry !== true) ? String(flags.registry).replace(/\/$/, '') : 'https://verify.yaylayer.com'; }
 
 // `yay archive` (P4 — Durable mode + governance). Keeps an encrypted, sha256-anchored copy of the
 // SIGNED source so "what the code was when signed" survives git loss. Subcommands: enable/disable,
@@ -1901,7 +1905,7 @@ function cmdMetrics(flags) {
 }
 
 // `yay attest list` / `yay attest verify` — read the ledger; re-check every stored attestation.
-function cmdAttestList(flags, positional) {
+async function cmdAttestList(flags, positional) {
   const { p, config } = loadState();
   if (!config) return fail('run `yay init` first');
   const sub = positional[0];
@@ -1909,15 +1913,29 @@ function cmdAttestList(flags, positional) {
   if (sub === 'verify') {
     const pub = A.verifierPub(p, config);
     if (!led.entries.length) { console.log(U.c.dim('no attestations to verify.')); return; }
-    let bad = 0;
+    // Optional: cross-check each attestation's declared capability against the public registry at
+    // verify.yaylayer.com, so a fingerprint that claims more than the canonical version is caught.
+    let registry = null;
+    if (flags.registry) {
+      try { const r = await fetch(registryBase(flags) + '/capabilities.json'); registry = (await r.json()).capabilities || {}; }
+      catch (e) { console.log(U.c.yellow('  ⚠ could not reach the capability registry') + U.c.dim(' — ' + ((e && e.message) || 'offline') + '; checking signatures only.')); }
+    }
+    let bad = 0, capBad = 0;
     for (const e of led.entries) {
       let raw = null; try { raw = JSON.parse(fs.readFileSync(A.attFile(p, e.hash), 'utf8')); } catch (_) { raw = null; }
       const chk = raw ? A.verifyAttestation(raw, pub) : { ok: false, reason: 'attestation object missing' };
       if (!chk.ok) bad++;
-      console.log('  ' + (chk.ok ? U.c.green('✓') : U.c.red('✗')) + ' ' + e.hash.slice(0, 16) + U.c.dim(` · ${e.at.slice(0, 16).replace('T', ' ')} · ${e.passed ? 'PASS' : 'BLOCKED'}`) + (chk.ok ? '' : U.c.red(' — ' + chk.reason)));
+      let capNote = '';
+      if (registry && raw) {
+        const reg = registry[raw.capability];
+        if (!reg) capNote = U.c.yellow(' · capability ' + raw.capability + ' not in registry');
+        else if (raw.capabilityFingerprint && reg.fingerprint !== raw.capabilityFingerprint) { capBad++; capNote = U.c.red(' · ✗ capability fingerprint ≠ registry (over-claim!)'); }
+        else if (raw.capabilityFingerprint) capNote = U.c.green(' · ✓ capability matches registry');
+      }
+      console.log('  ' + (chk.ok ? U.c.green('✓') : U.c.red('✗')) + ' ' + e.hash.slice(0, 16) + U.c.dim(` · ${e.at.slice(0, 16).replace('T', ' ')} · ${e.passed ? 'PASS' : 'BLOCKED'}`) + (chk.ok ? '' : U.c.red(' — ' + chk.reason)) + capNote);
     }
-    console.log('\n  ' + (bad ? U.c.red(`${bad} invalid`) : U.c.green('all attestations valid')) + U.c.dim(` · verifier of record ${(config.verifier && config.verifier.fp) || '(unpinned)'}`));
-    if (flags.strict) process.exit(bad ? 1 : 0);
+    console.log('\n  ' + ((bad || capBad) ? U.c.red(`${bad} invalid${capBad ? ', ' + capBad + ' capability-mismatched' : ''}`) : U.c.green('all attestations valid' + (registry ? ' + capability matches the registry' : ''))) + U.c.dim(` · verifier of record ${(config.verifier && config.verifier.fp) || '(unpinned)'}`));
+    if (flags.strict) process.exit((bad || capBad) ? 1 : 0);
     return;
   }
   if (!led.entries.length) { console.log(U.c.dim('no attestations yet — mint one with ') + U.c.bold('yay attest') + U.c.dim('.')); return; }
@@ -2810,8 +2828,10 @@ const HELP = `yay — a protocol for provable, signed AI code
                              key vouches for "Green" — the third crypto identity). Run at commit / after a green
                              verify. Refuses a blocked gate (--force records a failing one). Append-only, chained,
                              capability-versioned. "list" shows the ledger; "verify" re-checks every attestation
-                             (--strict exits non-zero on any invalid). Key stays machine-side (gitignored); the
-                             public verifier of record is pinned in config (committed) so anyone can verify.
+                             (--strict exits non-zero on any invalid) · "verify --registry" also cross-checks each
+                             attestation's capability against verify.yaylayer.com (catches over-claim). Key stays
+                             machine-side (gitignored); the public verifier of record is pinned in config. Anyone
+                             can also verify an attestation in-browser at https://verify.yaylayer.com (no upload).
   yay capability [--json]    the verifier's DERIVED capability descriptor + fingerprint (provers, effect
                              nets, checks, policy kinds); flags DRIFT if detectors changed without a version bump
   yay reverify               re-run verification at the current verifier capability; if a capability bump,
