@@ -330,6 +330,12 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);l
 .tab.active .ti{opacity:1}
 .tab.navext{text-decoration:none}
 .navext-ico{margin-left:auto;font-size:.78rem;opacity:.45}
+/* smooth auto-save indicator (e.g. Batch settings): a soft pill that fades in on save and out after */
+.savepill{font-size:.76rem;font-weight:600;padding:3px 11px;border-radius:100px;opacity:0;transition:opacity .4s ease;white-space:nowrap}
+.savepill.show{opacity:1}
+.savepill.saving{color:var(--mut);background:color-mix(in srgb,var(--ink) 7%,transparent)}
+.savepill.saved{color:var(--accent);background:color-mix(in srgb,var(--brand) 16%,transparent)}
+.savepill.err{color:var(--red);background:color-mix(in srgb,var(--red) 13%,transparent)}
 .themebtn{font-family:var(--sans);font-size:.8rem;font-weight:500;background:var(--card);color:var(--ink);border:1px solid var(--rule);border-radius:9px;padding:7px 13px;cursor:pointer}
 .themebtn:hover{border-color:var(--mut)}
 .viewbtn{font-family:var(--sans);font-size:.8rem;font-weight:600;background:var(--brand);color:#04231a;border:1px solid transparent;border-radius:9px;padding:7px 15px;cursor:pointer}
@@ -1014,12 +1020,12 @@ ${statblocks}
       +'<div style="display:flex;flex-wrap:wrap;gap:9px;align-items:center">'
         +'<span style="font-family:var(--sans);font-size:.6rem;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--accent)">⚙ Project setting</span>'
         +'<b style="color:var(--ink);font-size:.9rem">Batch</b>'
-        +'<label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:.85rem;color:var(--ink-2)"><input type="checkbox" id="bf-batch-en"'+(bcfg.enabled?' checked':'')+'>on</label>'
+        +'<label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:.85rem;color:var(--ink2)"><input type="checkbox" id="bf-batch-en"'+(bcfg.enabled?' checked':'')+'>on</label>'
         +'<span style="color:var(--mut)">·</span>'
-        +'<span style="font-size:.85rem;color:var(--ink-2)">sign after <input id="bf-batch-n" type="number" min="1" max="100" value="'+bcfg.barrier+'" style="width:52px;padding:4px 6px;border-radius:7px;border:1px solid var(--rule);background:var(--paper);color:var(--ink)"> small changes</span>'
-        +'<span id="bf-batch-msg" style="color:var(--mut);font-size:.8rem;margin-left:auto"></span>'
+        +'<span style="font-size:.85rem;color:var(--ink2)">sign after <input id="bf-batch-n" type="number" min="1" max="100" value="'+bcfg.barrier+'" style="width:52px;padding:4px 6px;border-radius:7px;border:1px solid var(--rule);background:var(--paper);color:var(--ink)"> small changes</span>'
+        +'<span id="bf-batch-msg" class="savepill" style="margin-left:auto"></span>'
       +'</div>'
-      +'<div style="font-size:.77rem;color:var(--mut);margin-top:7px">Controls how the <b style="color:var(--ink-2)">AI groups changes into Briefs</b> before you sign — and is shared with your team. It does <b style="color:var(--ink-2)">not</b> affect how Briefs are displayed here.</div>'
+      +'<div style="font-size:.77rem;color:var(--mut);margin-top:7px">Controls how the <b style="color:var(--ink2)">AI groups changes into Briefs</b> before you sign — and is shared with your team. It does <b style="color:var(--ink2)">not</b> affect how Briefs are displayed here.</div>'
       +'</div>'):'';
     var hint=briefView==='clouds'?'Each tag is a cloud; inside, its Briefs newest-first. A Brief with several tags appears in every matching cloud — tap one to see its parts.':briefView==='chart'?'How much you’ve signed over time. <b>Count</b> = approved units (each Brief + the Cells it covers); <b>Chars</b> = the same growth by depth (Brief prose + covered specs). Filter by tag and/or signer.':'Click a tag to filter; “Group by tag” orders by tag first, date second.';
     // Order: description → project setting (batch) → view controls + their hint → the Briefs.
@@ -1111,7 +1117,8 @@ ${statblocks}
     var crs=document.getElementById('bf-creset'); if(crs) crs.onclick=function(){ briefChartTag=null; briefChartSigner=null; briefChartRatify=false; renderBriefs(); };
     if(briefView==='chart') setupChartLens();
     var ben=document.getElementById('bf-batch-en'), bn=document.getElementById('bf-batch-n'), bmsg=document.getElementById('bf-batch-msg');
-    function saveBatch(){ fetch('/api/batch',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({enabled:ben.checked,barrier:parseInt(bn.value,10)||5})}).then(function(r){return r.json();}).then(function(j){ if(bmsg){ bmsg.textContent=(j&&j.ok)?'✓ saved':'✗ '+((j&&j.error)||'failed'); bmsg.style.color=(j&&j.ok)?'#1f9d57':'#cf4436'; } }); }
+    function batchPill(state,text){ if(!bmsg) return; clearTimeout(bmsg._t); bmsg.className='savepill show '+state; bmsg.textContent=text; if(state==='saved'){ bmsg._t=setTimeout(function(){ bmsg.classList.remove('show'); },1500); } }
+    function saveBatch(){ batchPill('saving','Saving…'); fetch('/api/batch',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({enabled:ben.checked,barrier:parseInt(bn.value,10)||5})}).then(function(r){return r.json();}).then(function(j){ batchPill((j&&j.ok)?'saved':'err',(j&&j.ok)?'✓ Saved':'✗ '+((j&&j.error)||'failed')); }).catch(function(){ batchPill('err','✗ Save failed'); }); }
     if(ben) ben.onchange=saveBatch; if(bn) bn.onchange=saveBatch;
     var g=document.getElementById('bf-group'); if(g) g.onclick=function(){ briefGroupBy=!briefGroupBy; renderBriefs(); };
     var clr=document.getElementById('bf-clear'); if(clr) clr.onclick=function(){ briefTagFilter=null; renderBriefs(); };
