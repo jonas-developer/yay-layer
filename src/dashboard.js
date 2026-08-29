@@ -349,6 +349,14 @@ function startDashboard(deps, opts) {
       try { return sendJSON(res, 200, await deps.ratifyApply()); }
       catch (e) { return sendJSON(res, 200, { ok: false, error: String((e && e.message) || e) }); }
     }
+    // Briefs history lens: a Cell as a given Brief signed it (git), + current + a then→now diff.
+    if (req.method === 'POST' && url === '/api/cell-history') {
+      if (!isLocal(req)) return sendJSON(res, 403, { error: 'local only' });
+      if (!deps.cellAsOf) return sendJSON(res, 200, { ok: false, error: 'history not available' });
+      const b = await readBody(req);
+      try { return sendJSON(res, 200, deps.cellAsOf(String(b.brief || ''), String(b.cell || ''))); }
+      catch (e) { return sendJSON(res, 200, { ok: false, error: String((e && e.message) || e) }); }
+    }
     if (req.method === 'GET' && (url === '/' || url === '/index.html' || url === '/map')) {
       try { const m = deps.buildMapHTML(); return sendHTML(res, withLiveControls(m.html, deps.version())); }
       catch (e) { return sendHTML(res, '<pre style="font-family:monospace;padding:24px;color:#d92d20">map build error:\n' + String((e && e.stack) || e).replace(/[<&]/g, '_') + '</pre>'); }

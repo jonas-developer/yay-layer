@@ -1912,6 +1912,30 @@ async function cmdDashboard(flags) {
           ? { ok: true, output: out.replace(/\x1b\[[0-9;]*m/g, '').trim() }
           : { ok: false, error: (out.replace(/\x1b\[[0-9;]*m/g, '').trim() || ('ratify --sign exited ' + code)) }));
       }),
+      // Briefs-tab history lens: reconstruct a Cell AS THE BRIEF SIGNED IT (from git, matched by
+      // the stored specHash), plus its current version and a then→now spec diff. Read-only.
+      cellAsOf: (briefId, cellId) => {
+        try {
+          const lk = U.readJSON(p.lock, { approvals: [] });
+          const ap = (lk.approvals || []).find((a) => a.id === briefId);
+          if (!ap || !ap.items || !(cellId in ap.items)) return { ok: false, error: 'this Brief does not cover that Cell' };
+          const signedHash = ap.items[cellId];
+          const S = require('../src/specdiff'), H = require('../src/history');
+          const manifest = buildManifest(p.root);
+          const cur = manifest.cells[cellId];
+          const nowBlock = cur ? cur.specBlock : null, nowCode = cur ? (cur.unitBody || null) : null, nowFile = cur ? cur.file : null;
+          const drifted = !cur || cur.specHash !== signedHash;
+          let then;
+          if (cur && !drifted) then = { found: true, current: true, commit: null, at: ap.at, block: nowBlock, code: nowCode };
+          else if (nowFile) then = H.cellAsSigned(p.root, nowFile, cellId, signedHash, 200);
+          else then = { found: false, reason: 'this Cell is no longer in the codebase' };
+          let diff = null, nowState = null;
+          if (cur) { try { const v = verifyManifest(manifest, lk, config, { mutate: false, roster: loadRoster(p), grants: loadGrants(p) }); nowState = (v.results[cellId] || {}).state || null; } catch (_) {} }
+          if (then.found && cur) diff = S.lineDiff(S.normalizedToSpecLines(then.block), S.normalizedToSpecLines(nowBlock));
+          return { ok: true, brief: briefId, cell: cellId, signedHash, at: ap.at, signer: ap.signer || null, drifted: !!drifted,
+            then, current: cur ? { block: nowBlock, code: nowCode, file: nowFile, line: cur.line || 0, state: nowState } : null, diff };
+        } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
+      },
       // Live tag-pool editing from the dashboard (add / remove / rename / describe). Renaming
       // a tag already used in a signed Brief is refused — it would split the history.
       tagsEdit: (op) => {

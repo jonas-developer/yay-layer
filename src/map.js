@@ -687,8 +687,54 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
     function ratifyBadge(cells){ var a=briefAutoCells(cells); if(!a.length) return ''; return '<span style="font-size:.72rem;font-weight:800;color:#c9860f" title="Auto-approved under a grant (Freedom mode) — delegated, NOT human-reviewed. A human should look back and sign for real: yay ratify --sign">⚡ '+a.length+' awaiting ratification</span>'; }
     function briefWorst(cells){ var w='GREEN'; (cells||[]).forEach(function(c){ var st=cellState['u:'+c]; if(st && (CRANK[st]||0)>(CRANK[w]||0)) w=st; }); return w; }
     function briefHealthBadge(cells){ var by={}; (cells||[]).forEach(function(c){ var st=cellState['u:'+c]; if(st && st!=='GREEN') by[st]=(by[st]||0)+1; }); var parts=[]; ['RED','PINK','UNSIGNED','YELLOW'].forEach(function(s){ if(by[s]) parts.push(by[s]+' '+s); }); if(!parts.length) return ''; var w=briefWorst(cells); return '<span style="font-size:.72rem;font-weight:800;color:'+CST[w]+'" title="A Cell this Brief covers no longer verifies GREEN — yay re-derived it as '+w+'. The seal is intact; the code drifted from what was signed.">⚠ '+parts.join(' · ')+'</span>'; }
-    function cellChips(cells){ return (cells||[]).map(function(c){ var uid='u:'+c; var known=!!DETAILS[uid]; var st=cellState[uid]; var auto=!!cellAuto[uid]; var col=known?(auto?'#c9860f':(CST[st]||'var(--accent)')):null;
-      return '<span class="mcell'+(known?' known':'')+'"'+(known?(' data-uid="'+esc2(uid)+'"'):'')+(col?(' style="color:'+col+';border-color:'+col+'"'):'')+' title="'+(known?('Open this Cell'+(st?(' — '+st):'')+(auto?' · ⚡ auto-approved under grant, awaiting ratification':'')):'This Cell is no longer in the codebase')+'">'+(auto?'⚡ ':'')+esc2(c)+((st&&st!=='GREEN')?(' · '+esc2(st)):'')+'</span>'; }).join(''); }
+    function cellChips(cells,briefId){ return (cells||[]).map(function(c){ var uid='u:'+c; var known=!!DETAILS[uid]; var st=cellState[uid]; var auto=!!cellAuto[uid]; var col=known?(auto?'#c9860f':(CST[st]||'var(--accent)')):null;
+      return '<span class="mcell'+(known?' known':'')+'"'+(known?(' data-uid="'+esc2(uid)+'"'):'')+(briefId?(' data-brief="'+esc2(briefId)+'"'):'')+(col?(' style="color:'+col+';border-color:'+col+'"'):'')+' title="'+(known?((briefId?'See this Cell as this Brief signed it':'Open this Cell')+(st?(' — '+st):'')+(auto?' · ⚡ auto-approved under grant, awaiting ratification':'')):'This Cell is no longer in the codebase')+'">'+(auto?'⚡ ':'')+esc2(c)+((st&&st!=='GREEN')?(' · '+esc2(st)):'')+'</span>'; }).join(''); }
+    // Briefs are a history lens: open a Cell THROUGH a Brief and you see it as that Brief signed it
+    // (reconstructed from git via the stored specHash), with Current and What-changed tabs. Live only;
+    // on a static snapshot it falls back to the current Cell detail.
+    function htStyle(on){ return 'border:none;padding:6px 14px;font-weight:600;cursor:pointer;font-family:inherit;font-size:.8rem;'+(on?'background:var(--accent);color:#fff':'background:transparent;color:var(--ink)'); }
+    function historyHTML(j){
+      var then=j.then||{}, cur=j.current||{};
+      var head='<div class="mhead"><span class="mid">'+esc2(j.cell)+'</span><span class="mname">as signed in Brief '+esc2(j.brief)+'</span><span class="mpill" style="color:'+(j.drifted?'#c9860f':'#1f9d57')+'">'+(j.drifted?'changed since':'unchanged')+'</span></div>';
+      var meta='<div class="dmeta"><span>signed '+esc2(String(j.at||'').replace('T',' ').slice(0,16))+(j.signer?(' by '+esc2(j.signer)):'')+'</span><span>spec '+esc2(String(j.signedHash||'').slice(0,12))+'…</span>'+(then.commit?('<span>commit '+esc2(then.commit)+'</span>'):'')+'</div>';
+      var hasDiff=j.diff&&j.diff.length;
+      var tabs='<div style="display:inline-flex;border:1px solid var(--rule);border-radius:9px;overflow:hidden;margin:12px 0 12px">'
+        +'<button class="hist-t" data-p="signed" style="'+htStyle(true)+'">As signed</button>'
+        +'<button class="hist-t" data-p="current" style="'+htStyle(false)+'">Current</button>'
+        +(hasDiff?('<button class="hist-t" data-p="diff" style="'+htStyle(false)+'">What changed</button>'):'')
+        +'</div>';
+      var signedPanel=then.found
+        ?('<div class="dh">Sealed spec'+(then.current?' (still current)':'')+'</div><pre class="code">'+esc2(then.block||'')+'</pre>'+(then.code?('<div class="dh">Code'+((cellAuto['u:'+j.cell])?' it built':'')+'</div><pre class="code">'+esc2(then.code)+'</pre>'):''))
+        :('<div class="snote">'+esc2(then.reason||'The signed version could not be reconstructed')+'. Signed spec-hash <code>'+esc2(String(j.signedHash||'').slice(0,16))+'…</code> — the exact text lives in your git history.</div>');
+      var curPanel=(cur&&cur.block!=null)
+        ?('<div class="dh">Sealed spec'+(cur.state?(' · '+esc2(cur.state)):'')+'</div><pre class="code">'+esc2(cur.block)+'</pre>'+(cur.code?('<div class="dh">Code</div><pre class="code">'+esc2(cur.code)+'</pre>'):''))
+        :'<div class="snote">This Cell is no longer in the codebase.</div>';
+      var diffPanel=hasDiff
+        ?('<div class="dh">Spec — signed → current</div><pre class="code diff">'+j.diff.map(function(d){ var cl=d.t==='+'?'dl-add':(d.t==='-'?'dl-del':'dl-ctx'); var pre=d.t==='+'?'+ ':(d.t==='-'?'- ':'  '); return '<span class="'+cl+'">'+esc2(pre+d.text)+'</span>'; }).join('\\n')+'</pre>')
+        :'<div class="snote">No spec changes since it was signed.</div>';
+      return head+meta+tabs
+        +'<div class="hist-panel" data-p="signed">'+signedPanel+'</div>'
+        +'<div class="hist-panel" data-p="current" style="display:none">'+curPanel+'</div>'
+        +'<div class="hist-panel" data-p="diff" style="display:none">'+diffPanel+'</div>';
+    }
+    function wireHistory(mo){
+      var tabs=mo.querySelectorAll('.hist-t'), panels=mo.querySelectorAll('.hist-panel');
+      Array.prototype.forEach.call(tabs,function(t){ t.onclick=function(){ var p=t.getAttribute('data-p');
+        Array.prototype.forEach.call(tabs,function(x){ var on=x===t; x.style.background=on?'var(--accent)':'transparent'; x.style.color=on?'#fff':'var(--ink)'; });
+        Array.prototype.forEach.call(panels,function(pl){ pl.style.display=(pl.getAttribute('data-p')===p)?'block':'none'; });
+      }; });
+    }
+    function openCellHistory(uid,briefId){
+      var cellId=String(uid).replace(/^u:/,'');
+      if(!isLive()){ if(typeof openDetail==='function') openDetail(uid); return; } // static snapshot → current only
+      var mo=document.getElementById('modal'); if(!mo) return; var body=mo.querySelector('.modal-body');
+      body.innerHTML='<div class="snote">Reconstructing '+esc2(cellId)+' as Brief '+esc2(briefId)+' signed it…</div>';
+      mo.classList.add('open'); document.body.style.overflow='hidden';
+      fetch('/api/cell-history',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({brief:briefId,cell:cellId})}).then(function(r){return r.json();}).then(function(j){
+        if(!j||!j.ok){ body.innerHTML='<div class="snote">Could not load history: '+esc2((j&&j.error)||'failed')+'</div>'; return; }
+        body.innerHTML=historyHTML(j); wireHistory(mo);
+      }).catch(function(){ body.innerHTML='<div class="snote">History request failed.</div>'; });
+    }
     function briefCard(m){
       var when=m.at?String(m.at).slice(0,10):'';
       var cells=m.cells||[]; var valid=m.valid!==false; var worst=valid?briefWorst(cells):'RED';
@@ -701,7 +747,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
         +(m.title?('<div style="font-size:1.06rem;font-weight:800;color:var(--ink);margin-bottom:3px">'+esc2(m.title)+'</div>'):'')
         +'<div style="font-size:'+(m.title?'.92rem':'1.02rem')+';line-height:1.45;color:'+(m.title?'var(--mut)':'var(--ink)')+';margin-bottom:8px">'+esc2(m.text||'')+'</div>'+tagline
         +'<div style="font-size:.8rem;color:var(--mut);display:flex;flex-wrap:wrap;gap:10px;align-items:baseline"><span>covers '+cells.length+' part'+(cells.length===1?'':'s')+(cells.length?' — click to open:':'')+'</span>'+hb+ratifyBadge(cells)+'</div>'
-        +(cells.length?('<div style="margin-top:2px">'+cellChips(cells)+'</div>'):'')
+        +(cells.length?('<div style="margin-top:2px">'+cellChips(cells,m.id)+'</div>'):'')
         +(function(){ var a=briefAutoCells(cells); if(!a.length) return ''; var g=m.grant||cellAuto['u:'+a[0]]||''; return '<div style="margin-top:10px;border:1px solid #c9860f;border-radius:9px;padding:9px 11px;background:var(--paper);font-size:.8rem;color:var(--ink-2)"><b style="color:#c9860f">⚡ Delegated'+((g&&g!==true)?(' · grant '+esc2(g)):'')+'</b> — auto-approved in Freedom mode, <b>not human-reviewed</b>. Ratify (sign for real) '+(isLive()?'with the <b>⚡ Ratify now</b> button at the top of the Briefs tab':'from a live dashboard’s ⚡ Ratify button, or run <code>yay ratify --sign</code>')+'.</div>'; })()
         +'</div>';
     }
@@ -780,7 +826,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
       // Open the Brief in the shared modal — full text, tags, and its exact Cells (each chip opens the Cell).
       function openBrief(id){ var b=((DATA.meta&&DATA.meta.briefs)||[]).filter(function(x){ return String(x.id)===String(id); })[0]; if(!b) return;
         var mo=document.getElementById('modal'); if(!mo) return; mo.querySelector('.modal-body').innerHTML=briefCard(b); mo.classList.add('open'); document.body.style.overflow='hidden'; overSvg=false; overTip=false; reallyHide();
-        Array.prototype.forEach.call(mo.querySelectorAll('.mcell.known'),function(ch){ ch.addEventListener('click',function(){ openDetail(ch.getAttribute('data-uid')); }); });
+        Array.prototype.forEach.call(mo.querySelectorAll('.mcell.known'),function(ch){ ch.addEventListener('click',function(){ var br=ch.getAttribute('data-brief'); if(br) openCellHistory(ch.getAttribute('data-uid'),br); else openDetail(ch.getAttribute('data-uid')); }); });
         Array.prototype.forEach.call(mo.querySelectorAll('.btag'),function(ch){ ch.addEventListener('click',function(){ briefChartTag=ch.getAttribute('data-tag'); var cl=mo.querySelector('.modal-close'); if(cl) cl.click(); renderBriefs(); }); }); }
       // The bubble is a live element: hovering it keeps it up, and clicking it opens the Brief — same as clicking the point.
       tip.addEventListener('mouseenter',function(){ overTip=true; if(hideT){ clearTimeout(hideT); hideT=null; } });
@@ -870,7 +916,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
             +'<div class="cbdetail" style="display:none;margin-top:7px;padding-top:7px;border-top:1px solid var(--rule)">'
               +'<div style="font-size:.88rem;color:var(--ink);margin-bottom:6px">'+esc2(b.text||'')+'</div>'
               +'<div style="font-size:.72rem;color:var(--mut);margin-bottom:5px">'+esc2(b.id||'')+' · '+((b.valid!==false)?'✓ signed':'⚠ seal invalid')+(b.signer?(' · '+esc2(b.signer)):'')+(hb2?(' · '+hb2):'')+(function(){var rb=ratifyBadge(b.cells);return rb?(' · '+rb):'';})()+'</div>'
-              +((b.cells&&b.cells.length)?('<div style="font-size:.72rem;color:var(--mut);margin-bottom:3px">covers '+b.cells.length+' part'+(b.cells.length===1?'':'s')+':</div><div>'+cellChips(b.cells)+'</div>'):'<div style="font-size:.72rem;color:var(--mut)">no parts</div>')
+              +((b.cells&&b.cells.length)?('<div style="font-size:.72rem;color:var(--mut);margin-bottom:3px">covers '+b.cells.length+' part'+(b.cells.length===1?'':'s')+':</div><div>'+cellChips(b.cells,b.id)+'</div>'):'<div style="font-size:.72rem;color:var(--mut)">no parts</div>')
               +((b.tags&&b.tags.length>1)?('<div style="font-size:.7rem;color:var(--mut);margin-top:5px">also in: '+b.tags.filter(function(t){return lc(t)!==k;}).map(esc2).join(', ')+'</div>'):'')
             +'</div></div>';
         }).join('');
@@ -905,7 +951,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
     var clr=document.getElementById('bf-clear'); if(clr) clr.onclick=function(){ briefTagFilter=null; renderBriefs(); };
     Array.prototype.forEach.call(el.querySelectorAll('.btag'),function(ch){ ch.onclick=function(){ briefTagFilter=ch.getAttribute('data-tag'); renderBriefs(); }; });
     Array.prototype.forEach.call(el.querySelectorAll('.cbrief'),function(row){ row.onclick=function(e){ if(e.target.classList&&e.target.classList.contains('mcell')) return; var d=row.querySelector('.cbdetail'); if(d) d.style.display=(d.style.display==='none'?'block':'none'); }; });
-    Array.prototype.forEach.call(el.querySelectorAll('.mcell.known'),function(ch){ ch.addEventListener('click',function(){ openDetail(ch.getAttribute('data-uid')); }); });
+    Array.prototype.forEach.call(el.querySelectorAll('.mcell.known'),function(ch){ ch.addEventListener('click',function(){ var br=ch.getAttribute('data-brief'); if(br) openCellHistory(ch.getAttribute('data-uid'),br); else openDetail(ch.getAttribute('data-uid')); }); });
   }
 
   // ── Tags tab — the project vocabulary + what was built, sorted by tag over time. Under
