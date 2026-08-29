@@ -1888,7 +1888,28 @@ function buildMapHTML(p, config, lock, flags) {
     signMethod: signMethodOf(config), // 'local' (keystore on this machine) or 'phone' (mobile) — tunes the Apply-button wording
   };
   const tagSets = tagsMod.TAG_SETS.map((s) => ({ id: s.id, name: s.name, desc: s.desc, tags: s.tags || [] }));
-  return { html: renderMap(manifest, verified, config && config.project, changes, times, planDoc, gov, briefs, tagsMod.loadTags(p), policyInfo, tagSets, batchConfig(config)), count: Object.keys(verified.results).length };
+  // P2/P3 provenance surfaces for the dashboard: active grants (with envelopes) for the meaningful
+  // ratify screen, the append-only rejection ledger, and the current verifier-attestation status.
+  const extra = (function () {
+    let grants = [];
+    try {
+      const glog = loadGrants(p);
+      if (glog && glog.events) {
+        const ownerPubs = Object.keys(drv.roles || {}).filter((n) => drv.roles[n] === 'owner').reduce((a, n) => a.concat(drv.roster[n] || []), []);
+        const g = grantsMod.deriveGrants(glog, ownerPubs, lock.approvals);
+        grants = Object.values(g).map((x) => ({ id: x.id, active: x.active, revoked: x.revoked, expired: x.expired, spent: x.spent, maxCount: x.maxCount, remaining: x.remaining, expiresAt: x.expiresAt, parent: x.parent || null, envelope: grantsMod.envelopeOf(x), chain: x.chain || null }));
+      }
+    } catch (_) {}
+    let rejections = [];
+    try { const rj = loadRejections(p); if (rj && rj.events) rejections = rj.events.filter((e) => e.type === 'reject').map((e) => ({ id: e.id, cells: e.cells || [], reason: e.reason, category: e.category, grants: e.grants || [], signer: e.signer || e.by, at: e.at })); } catch (_) {}
+    let attest = null;
+    try {
+      const last = A.latestEntry(p, config);
+      if (last) { const covered = last.codeTreeHash === A.codeTreeHashOf(manifest); attest = { hash: last.hash, at: last.at, passed: last.passed, capability: last.capability, covered, fp: (config.verifier && config.verifier.fp) || null }; }
+    } catch (_) {}
+    return { grants, rejections, attest };
+  })();
+  return { html: renderMap(manifest, verified, config && config.project, changes, times, planDoc, gov, briefs, tagsMod.loadTags(p), policyInfo, tagSets, batchConfig(config), extra), count: Object.keys(verified.results).length };
 }
 
 // A cheap fingerprint of the state the map depends on, so the dashboard can tell

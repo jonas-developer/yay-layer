@@ -161,7 +161,8 @@ function detailInner(cell, res, t) {
     ${checks}`;
 }
 
-function renderMap(manifest, verified, project, changes, times, planDoc, gov, briefs, tagCfg, policyInfo, tagSets, batchCfg) {
+function renderMap(manifest, verified, project, changes, times, planDoc, gov, briefs, tagCfg, policyInfo, tagSets, batchCfg, extra) {
+  extra = extra || {};
   // Build the hierarchy: system → module → sub-group → unit.
   const nodes = {}; const details = {};
   const ensure = (id, label, kind, parent) => {
@@ -240,7 +241,7 @@ function renderMap(manifest, verified, project, changes, times, planDoc, gov, br
   // of signed Specs + Briefs over time (a Brief's weight = its own chars + its Cells' specs).
   const specChars = {};
   for (const id of Object.keys(manifest.cells)) { const c = manifest.cells[id]; if (c) specChars[id] = (c.specBlock || '').length; }
-  const meta = { project: project || 'project', counts: verified.counts, passed: verified.passed, totalUnits, plan: planDoc || null, gov: gov || null, files: FILES, briefs: briefs || [], specChars, tags: (tagCfg && tagCfg.tags) || [], tagSet: (tagCfg && tagCfg.set) || null, tagDescriptions: (tagCfg && tagCfg.descriptions) || {}, tagSets: tagSets || [], batch: batchCfg || { enabled: true, barrier: 5 }, policy: policyInfo || { enforced: [], draft: [], violations: [], signers: [] }, signMethod: (policyInfo && policyInfo.signMethod) || 'phone', ratify: (function(){ try { var b = ratifyBundle(manifest, verified); return { hash: b.hash, count: b.ids.length }; } catch (_) { return { hash: null, count: 0 }; } })() };
+  const meta = { project: project || 'project', counts: verified.counts, passed: verified.passed, totalUnits, plan: planDoc || null, gov: gov || null, files: FILES, briefs: briefs || [], specChars, tags: (tagCfg && tagCfg.tags) || [], tagSet: (tagCfg && tagCfg.set) || null, tagDescriptions: (tagCfg && tagCfg.descriptions) || {}, tagSets: tagSets || [], batch: batchCfg || { enabled: true, barrier: 5 }, policy: policyInfo || { enforced: [], draft: [], violations: [], signers: [] }, signMethod: (policyInfo && policyInfo.signMethod) || 'phone', ratify: (function(){ try { var b = ratifyBundle(manifest, verified); return { hash: b.hash, count: b.ids.length }; } catch (_) { return { hash: null, count: 0 }; } })(), grants: extra.grants || [], rejections: extra.rejections || [], attest: extra.attest || null };
   const payload = JSON.stringify({ root: 'system', nodes: YLnodes, edges: { system: modEdges }, details, changes: changes || [], needs, meta })
     .replace(/</g, '\\u003c');
 
@@ -893,8 +894,36 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
     var ratCells=0, ratBriefs=0; ms.forEach(function(b){ var a=briefAutoCells(b.cells); if(a.length){ ratBriefs++; ratCells+=a.length; } });
     var onPhone=((DATA.meta&&DATA.meta.signMethod)!=='local');
     var ratBtn=isLive()?('<div style="margin-top:11px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button id="bf-ratify" style="padding:8px 15px;border-radius:8px;border:none;background:#c9860f;color:#fff;font-weight:700;cursor:pointer">⚡ Ratify now — '+(onPhone?'sign on your phone':'sign')+'</button><span style="font-size:.82rem;color:var(--mut)">reviews & signs all delegated Cells for real</span><span id="bf-ratmsg" style="font-size:.82rem;color:var(--mut)"></span></div>'):'';
-    var ratNote=ratCells?('<div style="border:1px solid #c9860f;border-left:3px solid #c9860f;border-radius:12px;padding:11px 14px;margin:0 0 16px;background:var(--card2)"><div style="font-weight:800;color:#c9860f;font-size:.9rem">⚡ '+ratCells+' Cell'+(ratCells===1?'':'s')+' across '+ratBriefs+' Brief'+(ratBriefs===1?'':'s')+' await ratification</div><div style="font-size:.82rem;color:var(--mut);margin-top:4px">Delegated under a grant (<b>Autopilot</b>) — <b>awaiting ratification</b>, not human-reviewed. Look back, then sign them for real'+(isLive()?' with the button below':' with <code>yay ratify --sign</code> (list them with <code>yay ratify</code>)')+'. Filter the Chart to just these with the <b>⚡ Awaiting ratification</b> toggle.</div>'+ratBtn+'</div>'):'';
-    var html='<h1>Briefs</h1><div class="snote" style="margin:0 0 14px">What was ordered, in plain language.</div>'+ratNote+batchbar+toolbar+'<div class="snote" style="margin:2px 0 14px;font-size:.82rem">'+hint+'</div>';
+    // Meaningful ratify screen (P3): the GRANT SCOPE + a BOUNDARY / DEVIATION report + the verifier
+    // attestation, so ratification is real review — humans review exceptions far better than they
+    // re-read everything. Only the grants that actually authorized the pending delegations are shown.
+    function ratifyDetail(){
+      var g=(DATA.meta&&DATA.meta.grants)||[]; if(!g.length) return '';
+      // which grants are referenced by the delegated Cells still awaiting ratification?
+      var used={}; ms.forEach(function(b){ briefAutoCells(b.cells).forEach(function(c){ var gr=cellAuto['u:'+c]; if(gr&&gr!==true) used[gr]=true; }); });
+      var rows=g.filter(function(x){ return used[x.id]||(x.active&&x.spent>0); }).map(function(x){
+        var e=x.envelope||{}; var sc=[];
+        if(e.cells&&e.cells.length) sc.push(e.cells.length+' named Cell(s)');
+        if(e.allow&&e.allow.length) sc.push('allow '+e.allow.join(', '));
+        if(e.deny&&e.deny.length) sc.push('deny '+e.deny.join(', '));
+        if(e.maxRisk) sc.push('≤'+e.maxRisk+' risk');
+        if(!sc.length) sc.push('all non-sensitive Cells');
+        var used=x.spent||0, max=x.maxCount||0; var pct=max?Math.round(used/max*100):0;
+        var dev=max?(used+' of '+max+' delegations consumed ('+pct+'%)'):(used+' delegations');
+        var childBit=(e.childGrants&&e.childGrants.allowed)?(' · child grants allowed (depth '+e.childGrants.maxDepth+')'):'';
+        var parentBit=x.parent?(' · child of '+esc2(x.parent)):'';
+        return '<div style="margin-top:7px;padding-top:7px;border-top:1px solid var(--rule)"><b>Grant '+esc2(x.id)+'</b>'+parentBit+childBit+'<div style="font-size:.8rem;color:var(--ink-2);margin-top:2px"><b>scope:</b> '+esc2(sc.join(' · '))+'</div><div style="font-size:.8rem;color:var(--mut);margin-top:2px"><b>boundary:</b> '+esc2(dev)+' · expires '+esc2(String(x.expiresAt||'').replace('T',' ').slice(0,16))+(x.revoked?' · <b style="color:#cf4436">revoked</b>':'')+'</div></div>';
+      }).join('');
+      var at=DATA.meta&&DATA.meta.attest;
+      var atLine=at?('<div style="font-size:.8rem;margin-top:7px;padding-top:7px;border-top:1px solid var(--rule)"><b>verifier attestation:</b> '+(at.covered?('<span style="color:#1f9d57">✓ '+esc2(at.hash.slice(0,12))+'</span> covers the current code — '+(at.passed?'PASS':'BLOCKED')+' · capability '+esc2(at.capability)):'<span style="color:#c9860f">⚠ stale</span> — code changed since the last attestation ('+esc2(at.hash.slice(0,12))+'); re-mint with <code>yay attest</code>')+'</div>'):('<div style="font-size:.8rem;color:var(--mut);margin-top:7px;padding-top:7px;border-top:1px solid var(--rule)">No verifier attestation yet — mint one with <code>yay attest</code> so ratification references a signed machine verdict.</div>');
+      if(!rows&&!at) return '';
+      return '<details style="margin-top:9px"><summary style="cursor:pointer;font-weight:700;font-size:.82rem;color:var(--ink-2)">What was delegated — grant scope, boundary & verification</summary><div style="margin-top:4px">'+rows+atLine+'</div></details>';
+    }
+    var ratNote=ratCells?('<div style="border:1px solid #c9860f;border-left:3px solid #c9860f;border-radius:12px;padding:11px 14px;margin:0 0 16px;background:var(--card2)"><div style="font-weight:800;color:#c9860f;font-size:.9rem">⚡ '+ratCells+' Cell'+(ratCells===1?'':'s')+' across '+ratBriefs+' Brief'+(ratBriefs===1?'':'s')+' await ratification</div><div style="font-size:.82rem;color:var(--mut);margin-top:4px">Delegated under a grant (<b>Autopilot</b>) — <b>awaiting ratification</b>, not human-reviewed. Look back, then sign them for real'+(isLive()?' with the button below':' with <code>yay ratify --sign</code> (list them with <code>yay ratify</code>)')+'. Filter the Chart to just these with the <b>⚡ Awaiting ratification</b> toggle.</div>'+ratifyDetail()+ratBtn+'</div>'):'';
+    // Rejections (P3): first-class provenance — where agent autonomy failed human judgment. Kept, never erased.
+    var rj=(DATA.meta&&DATA.meta.rejections)||[];
+    var rejNote=rj.length?('<div style="border:1px solid var(--rule);border-left:3px solid #cf4436;border-radius:12px;padding:11px 14px;margin:0 0 16px;background:var(--card2)"><div style="font-weight:800;color:#cf4436;font-size:.9rem">✗ '+rj.length+' rejected delegation'+(rj.length===1?'':'s')+' on record</div><div style="font-size:.8rem;color:var(--mut);margin-top:3px">A human reviewed delegated work and did not accept it. Kept as provenance (feeds earned-autonomy).</div>'+rj.slice().reverse().map(function(x){ return '<div style="margin-top:6px;font-size:.8rem;color:var(--ink-2)"><b>'+esc2(x.id)+'</b> · '+esc2((x.category||'other'))+' · '+esc2((x.cells||[]).join(', '))+' — “'+esc2(x.reason||'')+'”'+(x.signer?(' <span style="color:var(--mut)">by '+esc2(x.signer)+'</span>'):'')+'</div>'; }).join('')+'</div>'):'';
+    var html='<h1>Briefs</h1><div class="snote" style="margin:0 0 14px">What was ordered, in plain language.</div>'+ratNote+rejNote+batchbar+toolbar+'<div class="snote" style="margin:2px 0 14px;font-size:.82rem">'+hint+'</div>';
 
     if(briefView==='chart'){
       html+=chartControls();
