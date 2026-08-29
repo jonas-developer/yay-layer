@@ -114,6 +114,9 @@ function buildVerification(manifest, verified, opts) {
     codeTree[id] = C.sha256(String(c.unitBody || ''));
     const r = results[id] || {};
     evidence[id] = { state: r.state || 'UNSIGNED', proven: !!r.proven };
+    // Record the branch-coverage boundary of a proof, so the signed verdict is honest about
+    // how much of the code its inputs actually exercised (not just "proven").
+    if (r.coverage && r.coverage.total) evidence[id].branches = { exercised: r.coverage.exercised, total: r.coverage.total };
   }
   const counts = (verified && verified.counts) || {};
   const result = {

@@ -159,11 +159,16 @@ function detailInner(cell, res, t) {
   const provBadge = (res.state === 'GREEN' && res.hasEnsures)
     ? `<span class="mpill" style="color:${res.proven ? 'var(--accent)' : 'var(--amber)'};margin-left:6px" title="${res.proven ? 'ensures machine-proven' : 'signed, but its ensures is not machine-checked — strengthen it'}">${res.proven ? '✓ proven' : '● unproven'}</span>`
     : '';
+  // Branch-exercise honesty: show the coverage boundary of a proof (only when some branch was
+  // missed — full coverage needs no badge). Never a colour change; policy decides gate impact.
+  const covBadge = (res.coverage && res.coverage.total && res.coverage.missed && res.coverage.missed.length)
+    ? `<span class="mpill" style="color:var(--amber);margin-left:6px" title="Proven, but only ${res.coverage.exercised} of ${res.coverage.total} branches were exercised by spec-derived inputs — unexercised branches (where a dormant branch hides) at ${esc(res.coverage.missed.slice(0, 4).map((m) => 'line ' + m.line).join(', '))}.">◧ ${res.coverage.exercised}/${res.coverage.total} branches</span>`
+    : '';
   // Autopilot: mark Cells approved by a delegation grant (not a human) — awaiting ratification.
   const autoBadge = (res.trust && res.trust.auto)
     ? `<span class="mpill" style="color:var(--amber);margin-left:6px" title="Delegated under grant ${esc(res.trust.grant || '')} (Autopilot) — awaiting ratification, NOT human-reviewed. Run \`yay ratify\` to sign it for real.">⚡ Delegated</span>`
     : '';
-  return `<div class="mhead"><span class="mid">${esc(cell.id)}</span><span class="mname">${esc(cell.unitName || cell.spec.unit || cell.id)}</span><span class="mpill" style="color:${col}">${label}</span>${provBadge}${autoBadge}</div>
+  return `<div class="mhead"><span class="mid">${esc(cell.id)}</span><span class="mname">${esc(cell.unitName || cell.spec.unit || cell.id)}</span><span class="mpill" style="color:${col}">${label}</span>${provBadge}${covBadge}${autoBadge}</div>
     <div class="dmeta">${meta.map((m) => `<span>${m}</span>`).join('')}</div>
     <div class="dh">Sealed spec</div><pre class="code">${colorizeSpec(cell.specBlock)}</pre>
     ${diffSection}

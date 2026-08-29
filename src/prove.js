@@ -19,6 +19,7 @@ const vm = require('node:vm');
 const cp = require('child_process');
 const { mutants, deletions, harvestLiterals } = require('./mutate');
 const { makeRecorder } = require('./record');
+const { instrument: instrumentBranches } = require('./coverage');
 const { isJsLang, looseTopLevelNonJs, normLangName } = require('./util');
 
 function stripTS(code) {
@@ -77,7 +78,7 @@ function reactShim() {
   return { hooks, React: Object.assign({ createElement: hyperscript, Fragment: '#fragment' }, hooks) };
 }
 
-function makeSandbox(names, registry) {
+function makeSandbox(names, registry, extras) {
   const rs = reactShim();
   const real = {
     Math, JSON, String, Number, Boolean, Array, Object, RegExp, Date, Symbol,
@@ -89,6 +90,7 @@ function makeSandbox(names, registry) {
     __mkrec: makeRecorder, // effect recorder factory (for `records:` Cells)
     __h: hyperscript, __Fragment: '#fragment', // JSX pragma targets (for `renders:` Cells)
     React: rs.React, ...rs.hooks, // React.createElement/hooks AND bare hooks (imports are stripped)
+    ...(extras || {}), // e.g. __ylcov (a real branch-coverage array the instrumented probes increment)
   };
   const sandbox = new Proxy(real, {
     has: () => true, // tell the VM every identifier is "global" → no ReferenceError
@@ -768,6 +770,34 @@ function runSeeded(adapter, ctx, cell, fn) {
   return null;
 }
 
+// BRANCH-EXERCISE HONESTY (in-VM JS only). Instrument the unit's branches, run the SAME
+// spec-derived inputs, and report which branches were exercised. Returns { total, exercised,
+// missed:[{line,kind}] } or null (no branches, or Babel absent → no badge, never an error).
+// Coverage is a HONESTY BADGE, not a verdict: it never turns a pass into a fail here — policy
+// decides whether unexercised branches block the gate (see verify.js `coverage: full`).
+function runCoverageForCell(cell, source, inputs, opts) {
+  opts = opts || {};
+  const file = opts.file || '';
+  const startLine = (cell.unitBodyStart || 0) + 1;                       // 1-based
+  const endLine = startLine + (cell.unitBody || '').split('\n').length;  // inclusive-ish
+  const inst = instrumentBranches(source, startLine, endLine, {
+    ts: /\.tsx?$/.test(file), tsx: /\.tsx$/.test(file), jsx: !!opts.jsx, file,
+  });
+  if (!inst || !inst.probes.length) return null; // straight-line code or Babel missing → no badge
+  const cov = new Array(inst.probes.length).fill(0);
+  const registry = {};
+  const ctx = makeSandbox([cell.unitName], registry, { __ylcov: cov });
+  const code = neutralizeModules(inst.code); // inst.code is already TS/JSX-lowered by the coverage pass
+  const cap = '\n;try{__ylreg({' + JSON.stringify(cell.unitName) + ':(typeof ' + safeIdent(cell.unitName) + "!=='undefined'?" + safeIdent(cell.unitName) + ":undefined)});}catch(e){}";
+  try { vm.runInContext(code + cap, ctx, { timeout: 2000 }); } catch (_) { return null; }
+  const fn = registry[cell.unitName];
+  if (typeof fn !== 'function') return null;
+  for (const A of inputs) { try { fn.apply(null, A); } catch (_) { /* branch may throw; the hit still counted */ } }
+  const exercised = cov.reduce((a, c) => a + (c > 0 ? 1 : 0), 0);
+  const missed = inst.probes.map((p, i) => ({ line: p.line, kind: p.kind, hit: cov[i] > 0 })).filter((x) => !x.hit).map((x) => ({ line: x.line, kind: x.kind }));
+  return { total: inst.probes.length, exercised, missed };
+}
+
 // The driver — dispatch each Cell to an adapter, load once per file, run cases, grade.
 // opts.mutate (default true) also grades each passing Cell's ensures by mutation.
 // opts.adapters overrides the registry (used by tests). Returns { [cellId]: result }.
@@ -820,6 +850,12 @@ function proveManifest(manifest, opts) {
             else if (mutate) {
               res.mutation = runMutation(it.adapter, source, it.cell, { jsx: wantsJSX, file });
               res.inertness = runInertness(it.adapter, source, it.cell, { jsx: wantsJSX, file });
+              // Branch-exercise honesty (pure-call/JS): does the green cover every branch, or only some?
+              if (it.adapter.name === 'pure-call') {
+                const params = it.adapter.inputs(it.cell);
+                const tuples = cartesian(params.map((p) => valuesFor(p.type)), 40);
+                res.coverage = runCoverageForCell(it.cell, source, tuples.length ? tuples : [[]], { jsx: wantsJSX, file });
+              }
             }
           }
         }

@@ -12,7 +12,7 @@
 const { canonical, pubKeysOf, isJsLang, normLangName } = require('./util');
 const { verify: sigVerify } = require('./crypto');
 const { proveManifest } = require('./prove');
-const { requiredSigners, inertLevel, ignoreAllowed } = require('./policy');
+const { requiredSigners, inertLevel, ignoreAllowed, coverageRequired } = require('./policy');
 const { deriveRoster } = require('./roster');
 const G = require('./grants');
 
@@ -300,6 +300,19 @@ function verifyManifest(manifest, lock, config, opts) {
         }
       }
       results[id].notes.push({ level: 'info', text });
+      // Branch-exercise honesty: show the coverage boundary of the proof instead of hiding it.
+      // A badge only — it never downgrades the green here (a legit `throws:` guard is often
+      // unexercised on purpose); policy (`coverage: full`) decides if that's gate-blocking.
+      const cov = pr.coverage;
+      if (cov && cov.total) {
+        results[id].coverage = cov;
+        if (cov.missed && cov.missed.length) {
+          const where = cov.missed.slice(0, 3).map((m) => 'line ' + m.line).join(', ') + (cov.missed.length > 3 ? '…' : '');
+          results[id].notes.push({ level: 'info', text: `proven — but ${cov.exercised}/${cov.total} branches exercised by spec-derived inputs; unexercised: ${where}. A dormant branch is an unexercised branch — check these are intended (guards/edge cases), spec them, or require full exercise via policy.` });
+        } else {
+          results[id].notes.push({ level: 'info', text: `proven — all ${cov.total} branches exercised by spec-derived inputs (full branch coverage)` });
+        }
+      }
     } else if (pr.status === 'skip') {
       // Couldn't check it (prose, exotic type, won't load) — say so, but don't
       // punish honest code for the prover's limits. Only a real contradiction is Red.
@@ -366,7 +379,11 @@ function verifyManifest(manifest, lock, config, opts) {
     if (!inert.flagged || !inert.flagged.length) continue;
     const level = inertLevel(policy, manifest.cells[id]);
     const ex = inert.flagged[0];
-    const msg = `inert code — ${inert.flagged.length} branch(es) removable with every spec-derived test still passing (e.g. line ${ex.line}: \`${ex.snippet}\`): unpromised behaviour riding under the signature. Prune it, spec it (add the ensures case or its own Cell), or declare it (\`throws:\` for guards, \`perf:\` for optimizations).`;
+    // Sharpen with branch-exercise data: an inert branch that was ALSO never exercised by any
+    // spec-derived input is the highest-confidence dormancy signal — call it out explicitly.
+    const missedLines = new Set(((r.coverage && r.coverage.missed) || []).map((m) => m.line));
+    const alsoUnexercised = (inert.flagged || []).some((f) => missedLines.has(f.line));
+    const msg = `inert code — ${inert.flagged.length} branch(es) removable with every spec-derived test still passing (e.g. line ${ex.line}: \`${ex.snippet}\`)${alsoUnexercised ? ' — and never exercised by any spec-derived input (strongest dormancy signal)' : ''}: unpromised behaviour riding under the signature. Prune it, spec it (add the ensures case or its own Cell), or declare it (\`throws:\` for guards, \`perf:\` for optimizations).`;
     if (level === 'note') {
       r.notes.push({ level: 'info', text: msg + ' (policy: inert → note)' });
     } else if (level === 'block') {
@@ -375,6 +392,22 @@ function verifyManifest(manifest, lock, config, opts) {
     } else {
       r.state = worst(r.state, 'YELLOW');
       r.notes.push({ level: 'yellow', text: msg });
+    }
+  }
+
+  // ── Coverage strictness (owner-signed policy `coverage: full`) ──
+  // Default is a badge, never a downgrade. But for crown-jewel scopes a policy rule can DEMAND that
+  // every branch of a proven Cell was exercised — an unexercised branch (where a dormant payload
+  // hides) then blocks the gate until it's exercised, spec'd, or pruned.
+  for (const id of Object.keys(manifest.cells)) {
+    const cell = manifest.cells[id];
+    const r = results[id];
+    if (!r || (cell.contains && cell.contains.length) || !r.coverage) continue;
+    if (!coverageRequired(policy, cell)) continue;
+    const missed = (r.coverage.missed || []);
+    if (missed.length) {
+      r.state = worst(r.state, 'RED');
+      r.notes.push({ level: 'red', text: `policy: coverage full — ${missed.length} branch(es) never exercised by spec-derived inputs (${missed.slice(0, 3).map((m) => 'line ' + m.line).join(', ')}${missed.length > 3 ? '…' : ''}); this scope requires every branch exercised. Exercise them (strengthen the ensures/inputs), spec them, or prune them.` });
     }
   }
 

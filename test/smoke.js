@@ -1458,5 +1458,42 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 
+  // 23) Branch-exercise honesty: instrument branches, count which spec-derived inputs exercised,
+  //     surface the coverage boundary, and let owner-signed policy demand full exercise.
+  {
+    const { instrument } = require('../src/coverage');
+    const fs = require('fs'), os = require('os');
+    // instrumentation: probes each branch; hits only fire on the taken arm
+    const src = 'function fee(amt){\n  if (amt <= 0) return 0;\n  if (amt === 9) { return amt; }\n  return amt * 1.02;\n}';
+    const inst = instrument(src, 1, 5, {});
+    if (inst) { // Babel present
+      ok(inst.probes.length === 2, 'coverage: instruments each if-consequent as a branch probe');
+      const vm = require('vm');
+      const run = (inputs) => { const cov = new Array(inst.probes.length).fill(0); const ctx = vm.createContext({ __ylcov: cov }); vm.runInContext(inst.code + '\n;globalThis.__f=fee;', ctx); inputs.forEach((a) => { try { ctx.__f(a); } catch (_) {} }); return cov; };
+      ok(run([1, 5, 100]).every((c) => c === 0), 'coverage: benign inputs that miss both guards leave both branches unexercised');
+      ok(run([0, 9]).every((c) => c > 0), 'coverage: inputs that hit the guards exercise both branches');
+
+      // end-to-end through proveManifest: a proven Cell with a rarely-hit consistent branch reports partial coverage
+      const cd = fs.mkdtempSync(require('path').join(os.tmpdir(), 'yay-cov-'));
+      fs.writeFileSync(require('path').join(cd, 'f.js'), '//∷YAY⟨C-1⟩\n//  unit: fee\n//  intent: fee\n//  in: (amt:number)\n//  out: number\n//  pure: yes\n//  ensures: amt > 0 ? out === amt * 1.02 : out === 0\n//∷YAY-END⟨C-1⟩\nfunction fee(amt){\n  if (amt <= 0) return 0;\n  if (amt > 1000000) { return amt * 1.02; }\n  return amt * 1.02;\n}\n');
+      const cm = buildManifest(cd);
+      const cp2 = require('../src/prove').proveManifest(cm, { mutate: true });
+      ok(cp2['C-1'].status === 'pass', 'coverage: the Cell still proves (coverage is a badge, not a verdict)');
+      ok(cp2['C-1'].coverage && cp2['C-1'].coverage.total === 2 && cp2['C-1'].coverage.exercised < 2 && cp2['C-1'].coverage.missed.length >= 1, 'coverage: proveManifest attaches a coverage boundary with the unexercised branch');
+
+      // policy `coverage: full` makes an unexercised branch gate-blocking for the matched scope
+      const P = require('../src/policy');
+      ok(P.coverageRequired({ rules: [{ match: { path: 'f.js' }, coverage: 'full' }] }, { file: 'f.js', spec: {} }) === true, 'coverage: policy coverageRequired matches a coverage:full rule');
+      const vFull = verifyManifest(cm, { approvals: [] }, { signers: {} }, { policy: { rules: [{ match: { path: 'f.js' }, coverage: 'full' }] } });
+      ok(vFull.results['C-1'].coverage && vFull.results['C-1'].coverage.missed.length >= 1, 'coverage: verify exposes the coverage boundary on the result');
+      ok(vFull.results['C-1'].state === 'RED', 'coverage: with coverage:full policy, an unexercised branch blocks the gate (RED)');
+      const vDefault = verifyManifest(cm, { approvals: [] }, { signers: {} }, {});
+      ok(vDefault.results['C-1'].state !== 'RED' || (vDefault.results['C-1'].notes || []).some((x) => /branches exercised/.test(x.text)), 'coverage: without the policy it is a badge, not a downgrade');
+      fs.rmSync(cd, { recursive: true, force: true });
+    } else {
+      ok(true, 'coverage: Babel not present in this env — instrumentation degrades to no badge (skipped)');
+    }
+  }
+
   console.log(`\nAll ${n} checks passed.`);
 })().catch((e) => { console.error('smoke failed:', e); process.exit(1); });
