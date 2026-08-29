@@ -381,6 +381,7 @@ Ratified                   Green</code></pre>
           <tr><td>C#</td><td><strong>Static</strong> <span class="pill v1">v1</span></td><td>Effect net now; proof needs a compile-harness — <span class="pill later">Later</span>.</td></tr>
         </tbody>
       </table></div>
+      <p><strong>Proving limits (Ruby/PHP) &amp; Rails:</strong> the subprocess provers currently resolve only <strong>top-level / module functions</strong>, so class/instance methods and framework-coupled code (ActiveRecord, <code>params</code>, Rails constants) skip to <strong>Yellow</strong> — honestly. So <strong>Rails can adopt YayLayer now</strong> for governance + the gate + provenance across the app; machine-proof lands on the pure, top-level slice (e.g. <code>lib/</code> helpers), and the effect net still turns a <code>pure: yes</code> method that hits the DB/IO Red anywhere. Class/instance-method proving (→ pure Rails service objects / value objects) is the top post-1.0 language follow-up. <code>.ex/.exs</code> (Elixir) are scanned only.</p>
       <p><strong>Graceful degradation:</strong> behavioral proof detects the toolchain — present → prove; absent → honest Yellow, never an error. <strong>Determinism:</strong> the prover has no RNG (enumerated inputs, fixed mutants, synchronous) — same machine ⇒ identical verdict. The only nondeterminism is wall-clock timeouts + cross-environment drift, so an attestation records the environment and claims "Green under this verifier + environment at this time."</p>
     </section>
 
@@ -489,7 +490,7 @@ yay gate                <span class="cm"># write the CI workflow protecting main
         <li><strong>P4 — Long-lived assurance</strong> <span class="pill later">Later</span> — Durable mode + governance/tombstones; historical re-verification; integrity witness; Cell timeline; earned-autonomy metrics.</li>
       </ul>
       <h3>What ships in 1.0</h3>
-      <p>P0 + P1 + P1.5: a correctly-worded, TOCTOU-safe, non-blanking release with <strong>JS/TS + Python + Ruby + PHP behaviorally proven</strong> and <strong>Solidity/Rust/C# statically first-class</strong>. Deferred: C#/Rust/Solidity behavioral proof, attestations (P2), envelopes/rejections (P3), Durable + governance + reverification + timeline + metrics (P4), hosted attestation service.</p>
+      <p>P0 + P1 + P1.5: a correctly-worded, TOCTOU-safe, non-blanking release with <strong>JS/TS + Python + Ruby + PHP behaviorally proven</strong> and <strong>Solidity/Rust/C# statically first-class</strong>. Deferred: C#/Rust/Solidity behavioral proof, <strong>class/instance-method proving</strong> (→ pure Rails service objects / value objects) and framework-boot provers, attestations (P2), envelopes/rejections (P3), Durable + governance + reverification + timeline + metrics (P4), hosted attestation service.</p>
     </section>
 
     <section id="decisions">

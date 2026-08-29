@@ -35,6 +35,17 @@ Legend: ✅ shipped · 🔜 v1 (building) · 🔭 later.
 2. **Behavioral proof adapters for Ruby + PHP** — the same out-of-process subprocess pattern as Python (detect the runtime, evaluate `ensures`, pure functions reach Green). 🔜 v1.
 3. **Deferred:** C# → Rust → Solidity behavioral proof, each a `1.x` capability bump. Solidity is the hardest (EVM harness) and gets its own release. 🔭 Later.
 
+## Current proving limits (Ruby/PHP) & Rails
+
+The subprocess provers today resolve only **top-level / module functions** — they run the file and call `method(:name)` / `function_exists`. So:
+
+- **Class and instance methods aren't proven yet** — a `class PriceCalc; def self.total …` or an instance method skips to **Yellow** (signed + statically checked, not machine-Green). Extending the harness to call `Klass.method` / instance methods (receiver + args from the spec) is the [top language follow-up](09-roadmap-and-build-plan.md#explicitly-deferred-post-10) — it's what unlocks proven-Green for pure **Rails service objects / value objects**.
+- **Framework-coupled code isn't proven** — the prover doesn't boot Rails, so anything touching `ActiveRecord`, `params`, associations, or Rails constants skips to Yellow (honestly). A "boot the framework" harness is a separate, much larger effort.
+
+So **Rails can adopt YayLayer now** for governance + the gate + provenance across the whole app; **machine-proof** currently lands on the pure, top-level slice (e.g. helpers in `lib/`). The effect net still correctly turns a `pure: yes` method that hits the DB/IO **Red** anywhere.
+
+> `.ex/.exs` (Elixir) share Ruby's `def…end` body-grabbing but are classified `elixir` — **scanned only**, no Ruby effect net or prover. Pure Ruby is the supported target.
+
 ## Graceful toolchain degradation
 
 Behavioral proof needs the language runtime on the machine/CI. This is never a hard dependency: the adapter **detects** the toolchain (`ruby`, `php`, `python3`, later `dotnet`/`cargo`/`forge`) — if present it proves; if absent it **honestly caps at Yellow**, never errors. (This is how the Python adapter already behaves.)

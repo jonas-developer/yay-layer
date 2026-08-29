@@ -54,6 +54,8 @@ P0 + P1 + P1.5. Result: correctly-worded, TOCTOU-safe, non-blanking release with
 ## Explicitly deferred (post-1.0)
 
 - C# → Rust → Solidity **behavioral** proof (each a capability bump; Solidity is its own EVM-harness release).
+- **Class/instance-method proving** for the subprocess provers (Ruby/PHP, later others): today they resolve only **top-level/module functions**, so pure *class-based* code skips to Yellow. Extend the harness to call `Klass.method` / instance methods (receiver + args declared in the spec) → unlocks **proven-Green for pure Rails service objects and value objects**, where correctness bugs actually live. Highest-leverage language follow-up.
+- **Framework-boot provers** (much bigger, own release, like the Solidity EVM harness): boot Rails/ActiveRecord (or another framework) so effectful, framework-coupled methods can be exercised. Out of scope for the near term.
 - Verifier attestation (P2), grant envelopes/rejections (P3), Durable mode + governance + reverification + integrity witness + timeline + metrics (P4).
 - Hosted attestation service.
 
