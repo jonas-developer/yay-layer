@@ -67,8 +67,8 @@ function trustHTML() {
 // Inject the live controls (Refresh + Run tests + Regenerate plan) + a results panel
 // + an auto-poller that reloads the page when the underlying state version changes.
 function withLiveControls(mapHTML, version) {
-  const bar = '<div id="yd-bar" style="position:fixed;right:16px;bottom:16px;z-index:99999;display:flex;flex-direction:column;gap:7px;align-items:stretch;font-family:ui-monospace,Menlo,monospace">'
-    + '<span id="yd-live" style="align-self:center;padding:4px 12px;border-radius:100px;background:#1f9d57;color:#fff;font-size:11px;letter-spacing:.02em;box-shadow:0 6px 20px -8px rgba(0,0,0,.4);margin-bottom:2px">● live</span>'
+  const bar = '<div id="yd-bar" class="yd-float">'
+    + '<div id="yd-live" class="yd-live">● live</div>'
     + '<button class="yd-btn yd-primary" id="yd-req" title="Describe a change you want, in plain words. It is queued as a request your AI picks up (it runs `yay requests`) and turns into a polished Brief + specs for you to sign on your phone. You never write the Brief here."><span class="yd-icon">➕</span>Request a change</button>'
     + '<button class="yd-btn" id="yd-diffs"><span class="yd-icon">≷</span>Changes</button>'
     + '<button class="yd-btn" id="yd-prev" title="Preview: run a package.json script (dev server, build, …) through the dashboard — see its URL + output and stop it."><span class="yd-icon">▷</span>Preview</button>'
@@ -76,16 +76,31 @@ function withLiveControls(mapHTML, version) {
     + '<button class="yd-btn" id="yd-adv"><span class="yd-icon">⚔</span>Adversary</button>'
     + '<button class="yd-btn" id="yd-plan"><span class="yd-icon">⟲</span>System Plan</button>'
     + '<button class="yd-btn yd-primary" id="yd-refresh"><span class="yd-icon">⟳</span>Refresh</button></div>'
-    + '<div id="yd-panel" style="display:none;position:fixed;left:16px;right:230px;bottom:16px;max-height:64vh;overflow:auto;z-index:99998;background:#0f1115;color:#e6e6e6;border:1px solid #2b2b2b;border-radius:12px;box-shadow:0 24px 60px -20px rgba(0,0,0,.6);font-family:ui-monospace,Menlo,monospace;font-size:12.5px">'
-    + '<div id="yd-phead" style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid #2b2b2b;position:sticky;top:0;background:#0f1115"><b id="yd-ptitle">Output</b><button class="yd-btn yd-panel-btn" id="yd-close" style="padding:3px 10px">✕ close</button></div>'
+    + '<div id="yd-panel" style="display:none"><div id="yd-phead" style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid #2b2b2b;position:sticky;top:0;background:#0f1115"><b id="yd-ptitle">Output</b><button class="yd-btn yd-panel-btn" id="yd-close" style="padding:3px 10px">✕ close</button></div>'
     + '<pre id="yd-pout" style="margin:0;padding:12px 14px;white-space:pre-wrap;word-break:break-word"></pre></div>'
-    + '<style>.yd-btn{padding:6px 12px;border-radius:9px;border:1px solid #3ecf8e;background:#fff;color:#159a63;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px}.yd-btn.yd-primary{background:#3ecf8e;color:#04231a;border-color:#3ecf8e}.yd-btn:active{filter:brightness(.93)}'
-    + '#yd-bar .yd-btn{display:flex;align-items:center;gap:9px;width:188px;box-sizing:border-box;padding:10px 14px;border-radius:11px;font-size:12.5px;text-align:left;box-shadow:0 3px 12px -6px rgba(0,0,0,.3);transition:background .13s,box-shadow .13s,transform .04s}'
-    + '#yd-bar .yd-btn:hover{background:#f1fbf6;box-shadow:0 9px 22px -8px rgba(0,0,0,.34)}#yd-bar .yd-btn.yd-primary:hover{background:#35c58a}#yd-bar .yd-btn:active{transform:translateY(1px)}'
-    + '#yd-bar .yd-icon{flex:0 0 18px;text-align:center;font-size:14px;opacity:.92}'
-    + '@media(max-width:700px){#yd-bar{left:8px;right:8px;bottom:8px;flex-direction:row;flex-wrap:wrap;justify-content:flex-end;align-items:center}#yd-bar .yd-btn{width:auto;padding:8px 12px;font-size:11.5px}#yd-panel{left:8px!important;right:8px!important;bottom:auto!important;top:8px;max-height:62vh}}</style>';
+    + '<style>'
+    // docked into the sidebar (the default: the dashboard shell provides #yd-slot)
+    + '.yd-dock{display:flex;flex-direction:column;gap:2px;padding:11px 12px}'
+    + '.yd-dock .yd-live{display:inline-flex;align-items:center;gap:6px;font-family:var(--sans);font-size:.62rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#1f9d57;padding:0 2px 6px}'
+    + '.yd-dock .yd-btn{display:flex;align-items:center;gap:11px;width:100%;text-align:left;background:none;border:none;color:var(--ink2);border-radius:9px;padding:8px 12px;font-family:var(--sans);font-size:.84rem;font-weight:500;cursor:pointer;transition:background .14s,color .14s}'
+    + '.yd-dock .yd-btn:hover{background:color-mix(in srgb,var(--ink) 6%,transparent);color:var(--ink)}'
+    + '.yd-dock .yd-btn.yd-primary{color:var(--accent);font-weight:600}'
+    + '.yd-dock .yd-icon{flex:0 0 18px;display:inline-flex;align-items:center;justify-content:center;font-size:13px;opacity:.85}'
+    // floating fallback (only if no sidebar slot exists)
+    + '.yd-float{position:fixed;right:16px;bottom:16px;z-index:99999;display:flex;flex-direction:column;gap:7px;align-items:stretch;font-family:ui-monospace,Menlo,monospace}'
+    + '.yd-float .yd-live{align-self:center;padding:4px 12px;border-radius:100px;background:#1f9d57;color:#fff;font-size:11px;margin-bottom:2px}'
+    + '.yd-float .yd-btn{display:flex;align-items:center;gap:9px;width:188px;box-sizing:border-box;padding:10px 14px;border-radius:11px;border:1px solid #3ecf8e;background:#fff;color:#159a63;font-weight:700;font-size:12.5px;text-align:left;cursor:pointer;box-shadow:0 3px 12px -6px rgba(0,0,0,.3)}'
+    + '.yd-float .yd-btn.yd-primary{background:#3ecf8e;color:#04231a}.yd-float .yd-btn:hover{background:#f1fbf6}.yd-float .yd-icon{flex:0 0 18px;text-align:center;font-size:14px}'
+    // output panel: overlays the main column, clear of the left sidebar
+    + '#yd-panel{position:fixed;left:258px;right:16px;bottom:16px;max-height:64vh;overflow:auto;z-index:99998;background:#0f1115;color:#e6e6e6;border:1px solid #2b2b2b;border-radius:12px;box-shadow:0 24px 60px -20px rgba(0,0,0,.6);font-family:ui-monospace,Menlo,monospace;font-size:12.5px}'
+    + '.yd-panel-btn{border:1px solid #3ecf8e;background:#fff;color:#159a63;border-radius:8px;font-weight:700;cursor:pointer}'
+    + '@media(max-width:900px){#yd-panel{left:8px;right:8px;bottom:auto;top:8px;max-height:62vh}}</style>';
   const js = '<script>(function(){var V=' + JSON.stringify(version) + ';'
     + 'var live=document.getElementById("yd-live"),panel=document.getElementById("yd-panel"),pout=document.getElementById("yd-pout"),ptitle=document.getElementById("yd-ptitle");'
+    // Dock the controls into the sidebar slot when the dashboard shell provides one (the norm);
+    // otherwise leave them floating (fallback for any non-shell page).
+    + 'var ydSlot=document.getElementById("yd-slot"),ydBar=document.getElementById("yd-bar");'
+    + 'if(ydSlot&&ydBar){ydBar.className="yd-dock";ydSlot.appendChild(ydBar);}else if(panel){panel.style.left="16px";}'
     + 'function esc(s){return String(s==null?"":s).replace(/[&<>]/g,function(m){return m==="&"?"&amp;":m==="<"?"&lt;":"&gt;";});}'
     + 'function show(t,txt,cls){ptitle.textContent=t;pout.textContent=txt;pout.style.color=cls==="ok"?"#3fbf77":cls==="err"?"#ff6b6b":"#e6e6e6";panel.style.display="block";}'
     + 'document.getElementById("yd-close").onclick=function(){panel.style.display="none";};'

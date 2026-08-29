@@ -257,6 +257,7 @@ function renderMap(manifest, verified, project, changes, times, planDoc, gov, br
   // Matched inline line-icons (Feather set, MIT) for the sidebar nav — stroke:currentColor so they
   // tint with the tab (muted → accent when active). Uniform 24×24, no fill.
   const ICONS = {
+    project: '<svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>',
     map: '<svg viewBox="0 0 24 24"><polygon points="1 6 8 3 16 6 23 3 23 18 16 21 8 18 1 21"/><line x1="8" y1="3" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="21"/></svg>',
     briefs: '<svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>',
     plan: '<svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>',
@@ -318,6 +319,10 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);l
 .tab{display:flex;align-items:center;gap:11px;width:100%;text-align:left;font-family:var(--sans);font-size:.88rem;font-weight:500;letter-spacing:-.005em;background:none;border:none;color:var(--ink2);border-radius:9px;padding:9px 12px;cursor:pointer;transition:color .15s ease,background .15s ease}
 .tab .ti{width:18px;height:18px;flex:none;display:inline-flex;align-items:center;justify-content:center;opacity:.75}
 .tab .ti svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.projrow{display:flex;align-items:flex-start;gap:11px;padding:8px 12px;margin:0 2px;border-radius:9px;background:color-mix(in srgb,var(--ink) 4%,transparent);border:1px solid var(--rule)}
+.projrow .ti{width:18px;height:18px;flex:none;display:inline-flex;align-items:center;justify-content:center;color:var(--accent);margin-top:1px}
+.projrow .ti svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.projname{font-family:var(--mono);font-size:.82rem;font-weight:600;color:var(--ink);line-height:1.35;word-break:break-word;min-width:0}
 .tab:hover:not(.active){color:var(--ink);background:color-mix(in srgb,var(--ink) 6%,transparent)}
 .tab.active{background:color-mix(in srgb,var(--brand) 15%,transparent);color:var(--accent);font-weight:600}
 .tab.active .ti{opacity:1}
@@ -335,6 +340,8 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);l
 .navburger{display:none;align-items:center;justify-content:center;width:38px;height:36px;font-size:1.05rem;line-height:1;background:var(--card);color:var(--ink);border:1px solid var(--rule);border-radius:9px;cursor:pointer}
 .navburger:hover{border-color:var(--mut)}
 .scrim{display:none}
+#yd-slot:empty{display:none}
+#yd-slot{border-top:1px solid var(--rule)}
 /* ── state stat blocks (the 5 gate states as gradient cards) ── */
 .statgrid{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin:0 0 22px}
 .statcard{position:relative;border-radius:14px;padding:15px 17px;color:#fff;min-height:114px;display:flex;flex-direction:column;justify-content:space-between;box-shadow:0 8px 20px -12px rgba(0,0,0,.45);overflow:hidden}
@@ -504,13 +511,15 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
 .allok{font-size:.84rem;color:var(--mut)}
 </style></head><body>
 <aside class="side" id="side">
-<div class="brand"><span class="logo"><svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><rect width="26" height="26" rx="7" fill="#3ecf8e"/><path d="M6.5 13.5l4 4L20 7.5" fill="none" stroke="#04231a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="brandname">YayLayer</span><span class="brandsep">/</span><span class="brandproj">${esc(project || 'project')}</span></div>
+<div class="brand"><span class="logo"><svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><rect width="26" height="26" rx="7" fill="#3ecf8e"/><path d="M6.5 13.5l4 4L20 7.5" fill="none" stroke="#04231a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="brandname">YayLayer</span></div>
 <nav class="sidenav">
+<div class="navgroup">Project</div>
+<div class="projrow" title="${esc(project || 'project')}"><span class="ti">${ICONS.project}</span><span class="projname">${esc(project || 'project')}</span></div>
 <div class="navgroup">Overview</div>
 <button class="tab active" data-tab="map"><span class="ti">${ICONS.map}</span>Map</button>
+<button class="tab" data-tab="plan" id="tab-plan" style="display:none"><span class="ti">${ICONS.plan}</span>System Plan</button>
 <div class="navgroup">Work</div>
 <button class="tab" data-tab="briefs"><span class="ti">${ICONS.briefs}</span>Briefs</button>
-<button class="tab" data-tab="plan" id="tab-plan" style="display:none"><span class="ti">${ICONS.plan}</span>System Plan</button>
 <button class="tab" data-tab="tags" id="tab-tags" style="display:none"><span class="ti">${ICONS.tags}</span>Tags</button>
 <button class="tab" data-tab="files"><span class="ti">${ICONS.files}</span>Files</button>
 <div class="navgroup">Governance</div>
@@ -519,6 +528,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
 <div class="navgroup">Reference</div>
 <button class="tab" data-tab="commands"><span class="ti">${ICONS.commands}</span>Commands</button>
 </nav>
+<div id="yd-slot"></div>
 </aside>
 <div class="scrim" id="scrim"></div>
 <div class="main">
