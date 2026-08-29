@@ -58,6 +58,15 @@ Forward spec-signing is the trunk. Grant and ratification are the two branches t
 
 > Note: code *existing* at signing time is common even outside Autopilot — in **batch mode** (the AI writes spec+code so you can try it, then you sign) and in **adoption** (specs retrofitted over existing code). But in every case your signature covers the **intent/spec**, not the code; the verifier owns the code claim.
 
+## Signers & owners
+
+The "Human" in the triad is really a **roster** of trusted identities, each with a role:
+
+- A **signer** can approve intent — sign specs + Briefs, ratify delegated work.
+- An **owner** can do all that **plus govern the project**: enroll/revoke other signers, issue [Autopilot](03-autopilot-delegated-execution.md) grants, sign [policy](05-how-to.md#set-signing-policy) into effect, and recover the trust root.
+
+The first identity is the **genesis owner**. Who-may-sign lives in an **append-only, owner-signed roster** (trust root pinned in CI), so only a human owner can change who is trusted — never the AI. Full treatment — enroll vs invite, revoke, re-root, signer routing across a team, signing methods, and recovery — is in [08 — Teams, roles & recovery](08-teams-roles-and-recovery.md).
+
 ## The three cryptographic identities
 
 Not "everything gets signed" — three distinct things, each proving a different fact:

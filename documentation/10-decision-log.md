@@ -1,4 +1,4 @@
-# 09 — Decision log
+# 10 — Decision log
 
 Locked decisions with rationale, so we never re-litigate. Source: three advisor papers (adopted **in full**, not as a menu) + our own calls. Date of convergence: 2026-08-29.
 

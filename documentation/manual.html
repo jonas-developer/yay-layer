@@ -151,9 +151,10 @@ dl{margin:14px 0} dt{font-weight:600;margin-top:14px} dd{margin:2px 0 0;color:va
       <li><a href="#howto"><span class="n">05</span>How-to</a></li>
       <li><a href="#cli"><span class="n">06</span>CLI reference</a></li>
       <li><a href="#security"><span class="n">07</span>Security model</a></li>
-      <li><a href="#roadmap"><span class="n">08</span>Roadmap &amp; build plan</a></li>
-      <li><a href="#decisions"><span class="n">09</span>Decision log</a></li>
-      <li><a href="#glossary"><span class="n">10</span>Glossary</a></li>
+      <li><a href="#teams"><span class="n">08</span>Teams, roles &amp; recovery</a></li>
+      <li><a href="#roadmap"><span class="n">09</span>Roadmap &amp; build plan</a></li>
+      <li><a href="#decisions"><span class="n">10</span>Decision log</a></li>
+      <li><a href="#glossary"><span class="n">11</span>Glossary</a></li>
     </ol>
   </details>
 
@@ -254,6 +255,7 @@ Ratified                   Green</code></pre>
       <p class="eyebrow">02 — Provenance architecture</p>
       <h2>The durable-audit heart</h2>
       <div class="note"><span class="k">Design principle</span><p>Every statement material to an approval remains reconstructable forever unless an explicit retention policy says otherwise — and nothing is ever silently rewritten.</p></div>
+      <p>YayLayer offers this at <strong>two levels</strong> — a per-project choice made at setup (full comparison under <a href="#provenance">Standard vs Durable</a> below). In short: <strong>Standard</strong> <em>(default)</em> archives the specs and attestations and references the <em>code</em> from git; <strong>Durable</strong> <em>also</em> archives the code (encrypted) in the project's own store, so the record survives even if git is lost or rewritten. They differ <strong>only in how code is stored</strong> — so when the text below says "in both Standard and Durable," that's what it means.</p>
       <p>An approval is a chain of authority and evidence, every node an immutable, content-addressed object:</p>
       <pre><code>Human Grant G42
    └─ Delegated operation A81       (or a direct forward sign)
@@ -439,8 +441,39 @@ yay gate                <span class="cm"># write the CI workflow protecting main
       <p>A validly-signed Brief whose Cell has since drifted must not read green — the Briefs view shows covered-Cell health and a "what changed" diff. <span class="pill later">Later</span>: the provenance ledger detects git-history rewriting ("the code git claims existed here isn't what YayLayer verified").</p>
     </section>
 
+    <section id="teams">
+      <p class="eyebrow">08 — Teams, roles &amp; recovery</p>
+      <h2>Who may sign, and how to recover</h2>
+      <p class="lead">All ✅ shipped today — the foundational trust layer the rest stands on.</p>
+      <h3>Two roles: signer and owner</h3>
+      <div class="tw"><table>
+        <thead><tr><th>Role</th><th>Sign Briefs/specs</th><th>Enrol / revoke</th><th>Issue Autopilot grants</th><th>Sign policy</th><th>Re-root</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Signer</strong></td><td>✅</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+          <tr><td><strong>Owner</strong></td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+        </tbody>
+      </table></div>
+      <p>A <strong>signer</strong> approves intent (specs + Briefs, and ratifies delegated work). An <strong>owner</strong> can do that <em>plus govern the project</em> — add/remove signers, issue grants, sign policy into effect, recover the root. The first identity is the <strong>genesis owner</strong>; grant owner only to people who should govern.</p>
+      <h3>The roster</h3>
+      <p>Who-may-sign is an <strong>append-only, owner-signed event log</strong> (<span class="mono">genesis → enrol → revoke …</span>, <code>prev</code>-chained ed25519), with the <strong>trust root pinned in CI</strong>. <code>yay verify</code> derives the current identities → keys → roles from it and checks every seal against it. Enrolment can't be forged (needs an owner signature; the root is pinned outside the AI's reach), and revocation stops <em>future</em> signing without rewriting past attributions.</p>
+      <h3>Adding a teammate</h3>
+      <p><code>yay invite "Bob"</code> — a 30-minute one-time link; Bob's device makes his key, you approve on your phone by matching a 6-digit code. Or <code>yay enroll --name Bob --pubkey &lt;b64&gt;</code> when you already have the key. Both write an owner-signed roster event; <code>--role owner|signer</code> (default signer).</p>
+      <h3>Removing a key · routing · methods</h3>
+      <ul>
+        <li><strong>Revoke:</strong> <code>yay revoke --name X</code> (owner-signed; <code>--pubkey</code> for one key) — <em>refuses if it would leave no owner</em>.</li>
+        <li><strong>Signer routing:</strong> <code>yay sign --name "&lt;teammate&gt;"</code> routes the request to their inbox over the relay; <code>yay sign --check [id]</code> collects the returned signature — so "Lisa must sign the security Cells" works even when Lisa is elsewhere.</li>
+        <li><strong>Signing methods</strong> (per project, at <code>yay init</code>): <strong>Local</strong> (encrypted keystore on this machine), <strong>Mobile · LAN</strong> (phone over Wi-Fi), <strong>Mobile · Relay</strong> (phone via end-to-end-encrypted <code>relay.yaylayer.com</code>, off-LAN). The AI's machine only ever holds <em>public</em> keys.</li>
+      </ul>
+      <h3>Recovery</h3>
+      <ul>
+        <li><strong>Lost phone, have your 24 words</strong> — restore the key onto a new phone from the mnemonic; nothing on the laptop changes.</li>
+        <li><strong>Lost phone <em>and</em> words</strong> — an owner enrols a fresh key for you; past approvals stay attributed.</li>
+        <li><strong>Lost/compromised root</strong> — <code>yay reroot</code> retires the trust root and establishes a new one (a deliberate trust discontinuity: re-sign specs and repoint the CI pin after).</li>
+      </ul>
+    </section>
+
     <section id="roadmap">
-      <p class="eyebrow">08 — Roadmap &amp; build plan</p>
+      <p class="eyebrow">09 — Roadmap &amp; build plan</p>
       <h2>Deliver the whole vision, incrementally</h2>
       <p>The full architecture is adopted; the only question is order. Relaunch <code>1.0</code> on a clean foundation and grow in versions.</p>
       <h3>Phases</h3>
@@ -457,7 +490,7 @@ yay gate                <span class="cm"># write the CI workflow protecting main
     </section>
 
     <section id="decisions">
-      <p class="eyebrow">09 — Decision log</p>
+      <p class="eyebrow">10 — Decision log</p>
       <h2>Locked decisions</h2>
       <p>All three advisor papers are adopted <strong>in full</strong> (not a menu). Converged 2026-08-29.</p>
       <dl>
@@ -477,7 +510,7 @@ yay gate                <span class="cm"># write the CI workflow protecting main
     </section>
 
     <section id="glossary">
-      <p class="eyebrow">10 — Glossary</p>
+      <p class="eyebrow">11 — Glossary</p>
       <h2>Terms</h2>
       <dl>
         <dt>Agent</dt><dd>The AI producing Briefs, specs, and code — the untrusted producer.</dd>

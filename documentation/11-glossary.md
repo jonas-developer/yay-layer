@@ -1,4 +1,4 @@
-# 10 — Glossary
+# 11 — Glossary
 
 **Agent** — the AI (or automation) that produces Briefs, specs, and code. The **untrusted producer**: may say *what* it made, never that it's correct or approved.
 

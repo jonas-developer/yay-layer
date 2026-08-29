@@ -1,8 +1,8 @@
-# 08 — Roadmap & build plan
+# 09 — Roadmap & build plan
 
 The whole architecture (all three advisor papers + our decisions) is adopted; the question is only **order**. We deliver the *complete* vision **incrementally** so it ships. Relaunch `1.0` on a clean, honest foundation and grow in versions — matching YayLayer's own "the verifier improves over versions" ethos.
 
-## Guiding decisions (see [09 — Decision log](09-decision-log.md))
+## Guiding decisions (see [10 — Decision log](10-decision-log.md))
 
 - **Relaunch incrementally** — don't hold `1.0` for the whole provenance system.
 - **Storage:** tiny bespoke sha256 store for specs/attestations; **git bundles** for bulk code (our sha256 as trust anchor; shared incremental pack).

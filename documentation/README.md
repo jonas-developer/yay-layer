@@ -27,9 +27,10 @@ Everything is tagged with a **status** so the docs never claim unbuilt things ex
 | 05 | [How-to guides](05-how-to.md) | init · adopt · sign · batch · Autopilot · ratify · verify · dashboard · CI gate · recovery · tags · policy · Standard vs Durable |
 | 06 | [CLI reference](06-cli-reference.md) | Every command + flags |
 | 07 | [Security model](07-security-model.md) | Key separation, verifier-key rule, phone signing, TOCTOU, injection resistance, integrity witness |
-| 08 | [Roadmap & build plan](08-roadmap-and-build-plan.md) | P0–P4, what's in 1.0, what's deferred |
-| 09 | [Decision log](09-decision-log.md) | Locked decisions (3 advisor papers + our calls) with rationale |
-| 10 | [Glossary](10-glossary.md) | Terms |
+| 08 | [Teams, roles & recovery](08-teams-roles-and-recovery.md) | Signers vs owners, the roster, enroll/invite/revoke/re-root, signer routing, signing methods, recovery |
+| 09 | [Roadmap & build plan](09-roadmap-and-build-plan.md) | P0–P4, what's in 1.0, what's deferred |
+| 10 | [Decision log](10-decision-log.md) | Locked decisions (3 advisor papers + our calls) with rationale |
+| 11 | [Glossary](11-glossary.md) | Terms |
 | — | [reference/](reference/) | Deeper reference (attestation schemas, object-store layout) — **to be finalized during implementation** |
 
 ## The one-paragraph version

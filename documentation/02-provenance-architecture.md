@@ -4,6 +4,13 @@ This is the durable-audit heart of YayLayer. Most of it is 🔜 v1 / 🔭 Later;
 
 > **Every statement material to an approval remains reconstructable forever unless an explicit retention policy says otherwise — and nothing is ever silently rewritten.**
 
+YayLayer offers this at **two levels** — a per-project choice made at setup, compared in full under [Standard vs Durable](#standard-vs-durable) below. In short:
+
+- **Standard** *(default)* — YayLayer archives the specs and attestations; the **code** at each point is referenced by git.
+- **Durable** — the code is *additionally* archived (encrypted) inside the project's own store, so the record survives even if git is lost or rewritten.
+
+They differ **only in how code is stored** — everything else in this section holds either way. So when the text below says "in both Standard and Durable," that's what it means.
+
 ## The provenance chain
 
 An approval is not a single fact; it's a chain of authority and evidence:
