@@ -1,0 +1,532 @@
+<title>YayLayer Manual</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+:root{
+  --ground:#f5f8f6; --surface:#ffffff; --surface-2:#eef4f0; --code-bg:#0f1714; --code-ink:#dfeae2;
+  --ink:#131a16; --ink-2:#46524b; --mut:#7a877f; --rule:#e0e8e3; --rule-2:#d3ded7;
+  --accent:#147a4e; --accent-ink:#ffffff; --accent-soft:#e4f1ea;
+  --green:#1f9d57; --amber:#c0820f; --red:#cf4436; --slate:#6b7680; --pink:#d6519a;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --shadow:0 1px 2px rgba(16,40,28,.04),0 10px 30px -18px rgba(16,40,28,.22);
+  --maxread:44rem;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --ground:#0d1411; --surface:#121b17; --surface-2:#16211b; --code-bg:#0a110e; --code-ink:#d4e2d9;
+  --ink:#e8efe9; --ink-2:#a9b5ae; --mut:#77857c; --rule:#233029; --rule-2:#2c3b33;
+  --accent:#3fae76; --accent-ink:#07130c; --accent-soft:#15251c;
+  --green:#43b978; --amber:#d69a2f; --red:#e46c5f; --slate:#8a95a0; --pink:#e173ad;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 12px 34px -20px rgba(0,0,0,.6);
+}}
+:root[data-theme="dark"]{
+  --ground:#0d1411; --surface:#121b17; --surface-2:#16211b; --code-bg:#0a110e; --code-ink:#d4e2d9;
+  --ink:#e8efe9; --ink-2:#a9b5ae; --mut:#77857c; --rule:#233029; --rule-2:#2c3b33;
+  --accent:#3fae76; --accent-ink:#07130c; --accent-soft:#15251c;
+  --green:#43b978; --amber:#d69a2f; --red:#e46c5f; --slate:#8a95a0; --pink:#e173ad;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 12px 34px -20px rgba(0,0,0,.6);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth} @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--sans);line-height:1.62;font-size:16.5px;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+a{color:var(--accent);text-decoration:none} a:hover{text-decoration:underline}
+code,pre,.mono{font-family:var(--mono)}
+h1,h2,h3{text-wrap:balance;line-height:1.2;letter-spacing:-.012em}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+
+/* ── Masthead ─────────────────────────────── */
+.mast{border-bottom:1px solid var(--rule);background:linear-gradient(180deg,var(--surface-2),var(--ground));}
+.mast-in{max-width:74rem;margin:0 auto;padding:30px 26px 26px;display:flex;flex-direction:column;gap:16px}
+.brandrow{display:flex;align-items:center;gap:12px;justify-content:space-between;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:11px}
+.mark{width:34px;height:34px;flex:none}
+.word{font-weight:700;font-size:1.35rem;letter-spacing:-.02em}
+.word b{color:var(--accent);font-weight:700}
+.thesis{font-size:1.34rem;font-weight:600;max-width:38rem;line-height:1.32;margin:2px 0 0}
+.thesis .a{color:var(--accent)}
+.sub{color:var(--ink-2);max-width:40rem;font-size:.98rem}
+.legend{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:2px}
+.legend .lbl{font-family:var(--mono);font-size:.64rem;letter-spacing:.14em;text-transform:uppercase;color:var(--mut);margin-right:2px}
+.themebtn{font-family:var(--mono);font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);background:var(--surface);border:1px solid var(--rule);border-radius:8px;padding:7px 11px;cursor:pointer}
+.themebtn:hover{border-color:var(--accent);color:var(--accent)}
+
+/* ── Pills & chips ────────────────────────── */
+.pill{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:.62rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;padding:2px 8px;border-radius:100px;border:1px solid;white-space:nowrap;vertical-align:middle}
+.pill::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.pill.shipped{color:var(--green);border-color:color-mix(in srgb,var(--green) 40%,transparent)}
+.pill.v1{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 45%,transparent)}
+.pill.later{color:var(--slate);border-color:color-mix(in srgb,var(--slate) 40%,transparent)}
+.state{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:.78rem;font-weight:600}
+.state::before{content:"";width:9px;height:9px;border-radius:50%;background:var(--d)}
+.s-green{--d:var(--green);color:var(--green)} .s-yellow{--d:var(--amber);color:var(--amber)}
+.s-red{--d:var(--red);color:var(--red)} .s-unsigned{--d:var(--slate);color:var(--slate)} .s-pink{--d:var(--pink);color:var(--pink)}
+
+/* ── Layout ───────────────────────────────── */
+.layout{max-width:74rem;margin:0 auto;padding:0 26px 90px;display:grid;grid-template-columns:15rem minmax(0,1fr);gap:44px;align-items:start}
+.toc{position:sticky;top:20px;max-height:calc(100vh - 40px);overflow-y:auto;padding:22px 0 10px;border:0}
+.toc summary{display:none}
+.toc-h{font-family:var(--mono);font-size:.64rem;letter-spacing:.16em;text-transform:uppercase;color:var(--mut);padding:0 4px 10px}
+.toc ol{list-style:none;margin:0;padding:0;counter-reset:sec}
+.toc li{margin:0}
+.toc a{display:flex;gap:9px;align-items:baseline;padding:5px 9px;border-radius:7px;color:var(--ink-2);font-size:.9rem;line-height:1.35}
+.toc a .n{font-family:var(--mono);font-size:.72rem;color:var(--mut);min-width:1.4em}
+.toc a:hover{background:var(--surface-2);text-decoration:none;color:var(--ink)}
+.toc a.active{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.toc a.active .n{color:var(--accent)}
+
+main{min-width:0;max-width:var(--maxread);padding-top:28px}
+section{padding:14px 0 8px;scroll-margin-top:18px}
+section+section{border-top:1px solid var(--rule);margin-top:26px;padding-top:34px}
+.eyebrow{font-family:var(--mono);font-size:.68rem;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);font-weight:600;margin:0 0 6px}
+h2{font-size:1.72rem;margin:0 0 4px;font-weight:700}
+h3{font-size:1.12rem;margin:26px 0 6px;font-weight:600}
+p{margin:12px 0} main li{margin:5px 0}
+strong,b{font-weight:600;color:var(--ink)}
+.lead{font-size:1.06rem;color:var(--ink-2)}
+hr{border:0;border-top:1px solid var(--rule);margin:26px 0}
+
+/* callouts */
+.note{border:1px solid var(--rule);border-left:3px solid var(--accent);background:var(--surface);border-radius:0 12px 12px 0;padding:14px 16px;margin:18px 0;box-shadow:var(--shadow)}
+.note .k{font-family:var(--mono);font-size:.64rem;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:600;display:block;margin-bottom:5px}
+.note.warn{border-left-color:var(--red)} .note.warn .k{color:var(--red)}
+.note p:first-of-type{margin-top:0} .note p:last-child{margin-bottom:0}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);border-radius:12px;padding:15px 17px;overflow-x:auto;font-size:.83rem;line-height:1.6;margin:16px 0;border:1px solid var(--rule-2)}
+pre code{color:inherit}
+:not(pre)>code{background:var(--surface-2);border:1px solid var(--rule);border-radius:6px;padding:.08em .38em;font-size:.86em;color:var(--ink)}
+.yay{color:var(--accent)} .cm{color:var(--mut)}
+
+/* tables */
+.tw{overflow-x:auto;margin:16px 0;border:1px solid var(--rule);border-radius:12px}
+table{border-collapse:collapse;width:100%;font-size:.9rem;min-width:34rem}
+th,td{text-align:left;padding:9px 13px;border-bottom:1px solid var(--rule);vertical-align:top}
+thead th{background:var(--surface-2);font-family:var(--mono);font-size:.68rem;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);font-weight:600}
+tbody tr:last-child td{border-bottom:0}
+td code{white-space:nowrap}
+dl{margin:14px 0} dt{font-weight:600;margin-top:14px} dd{margin:2px 0 0;color:var(--ink-2)}
+
+.foot{max-width:74rem;margin:0 auto;padding:26px;border-top:1px solid var(--rule);color:var(--mut);font-size:.85rem;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+
+@media (max-width:860px){
+  .layout{grid-template-columns:1fr;gap:0}
+  .toc{position:static;max-height:none;padding:16px 0 4px;margin-bottom:6px;border-bottom:1px solid var(--rule)}
+  .toc summary{display:block;cursor:pointer;font-family:var(--mono);font-size:.7rem;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);padding:6px 4px;list-style:none}
+  .toc summary::-webkit-details-marker{display:none}
+  .toc[open] summary{margin-bottom:8px}
+  main{padding-top:18px}
+}
+</style>
+
+<header class="mast">
+  <div class="mast-in">
+    <div class="brandrow">
+      <div class="brand">
+        <svg class="mark" viewBox="0 0 26 26" aria-hidden="true"><rect width="26" height="26" rx="7" fill="#147a4e"/><path d="M6.5 13.5l4 4L20 7.5" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="word">Yay<b>Layer</b></span>
+      </div>
+      <button class="themebtn" id="themebtn" aria-label="Toggle colour theme">Theme</button>
+    </div>
+    <p class="thesis">Humans authorize <span class="a">intent</span>. Machines demonstrate <span class="a">conformance</span>. Neither grades itself.</p>
+    <p class="sub">The project manual for a human authorization &amp; cryptographic provenance layer for AI-generated code — the source-of-truth we build the engine against.</p>
+    <div class="legend"><span class="lbl">Status legend</span>
+      <span class="pill shipped">Shipped</span>
+      <span class="pill v1">v1 (building)</span>
+      <span class="pill later">Later</span>
+    </div>
+  </div>
+</header>
+
+<div class="layout">
+  <details class="toc" open>
+    <summary>Contents</summary>
+    <div class="toc-h">Contents</div>
+    <ol id="toclist">
+      <li><a href="#overview"><span class="n">00</span>Overview</a></li>
+      <li><a href="#concepts"><span class="n">01</span>Concepts</a></li>
+      <li><a href="#provenance"><span class="n">02</span>Provenance architecture</a></li>
+      <li><a href="#autopilot"><span class="n">03</span>Autopilot</a></li>
+      <li><a href="#languages"><span class="n">04</span>Languages</a></li>
+      <li><a href="#howto"><span class="n">05</span>How-to</a></li>
+      <li><a href="#cli"><span class="n">06</span>CLI reference</a></li>
+      <li><a href="#security"><span class="n">07</span>Security model</a></li>
+      <li><a href="#roadmap"><span class="n">08</span>Roadmap &amp; build plan</a></li>
+      <li><a href="#decisions"><span class="n">09</span>Decision log</a></li>
+      <li><a href="#glossary"><span class="n">10</span>Glossary</a></li>
+    </ol>
+  </details>
+
+  <main>
+    <section id="overview">
+      <p class="eyebrow">00 — Overview</p>
+      <h2>What YayLayer is</h2>
+      <p class="lead">AI agents write code fast; the bottleneck is no longer producing it but <em>trusting</em> it. "A human clicked approve" is a weak claim — approve <em>what</em>, exactly? YayLayer sits between production and trust, on one discipline: humans authorize <strong>intent</strong>, machines demonstrate <strong>conformance</strong>, and neither actor grades its own work.</p>
+      <p>Code is organized into <strong>Cells</strong> — a unit of code with a specification block above it. A human signs the <strong>spec + a plain-English Brief</strong> with a key on their <strong>phone</strong>; the signature covers the intent, <strong>never the code bytes</strong>. A deterministic, non-AI <strong>verifier</strong> re-derives whether the code still satisfies the signed spec and assigns a state. A CI <strong>gate</strong> blocks anything not-Green from <code>main</code>. For autonomous work, a human issues a bounded <strong>grant</strong> (Autopilot); the AI produces within limits and a human <strong>ratifies</strong> afterward. Every step is an immutable, attributable record.</p>
+
+      <h3>The triad</h3>
+      <p>Three actors, three kinds of claim, so no actor grades itself:</p>
+      <div class="tw"><table>
+        <thead><tr><th>Actor</th><th>Role</th><th>May assert</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Human</strong></td><td>Authority / judgment</td><td>"I authorize this intent/scope" · "I ratify this result."</td></tr>
+          <tr><td><strong>Agent</strong> (AI)</td><td>Production <em>— least trusted</em></td><td>"I created these Briefs, specs, and code." Never "…and it's correct."</td></tr>
+          <tr><td><strong>Machine verifier</strong></td><td>Deterministic assessment</td><td>"Under verifier X + ruleset Y, this exact code satisfies this exact spec → Z."</td></tr>
+        </tbody>
+      </table></div>
+
+      <div class="note"><span class="k">The core promise</span>
+      <p>Every statement material to an approval remains reconstructable forever unless an explicit retention policy says otherwise — and no historical record is ever silently rewritten.</p></div>
+
+      <p>That turns the question from "did a human approve this code?" into what an auditor actually needs: who had authority, where it came from, its limits, what the agent did, what the verifier established (and under which semantics), when a human ratified, and what changed afterward.</p>
+      <p><strong>What it is not:</strong> not a code-approval system (a refactor preserving the spec needs no new signature); not a blockchain (just an append-only hash chain); not an AI grading itself (the verifier is deliberately non-AI — bounded, reproducible, versioned).</p>
+    </section>
+
+    <section id="concepts">
+      <p class="eyebrow">01 — Concepts</p>
+      <h2>The vocabulary</h2>
+      <h3>Cell <span class="pill shipped">Shipped</span></h3>
+      <p>The atomic unit YayLayer governs: a block of code plus a spec, delimited inline in the source. The spec lives with the code, so they never drift apart in version control.</p>
+      <pre><code><span class="yay">//∷YAY⟨C-050⟩</span>
+<span class="cm">// unit: memoKey</span>
+<span class="cm">// intent: Build a stable cache key by joining arguments with a separator.</span>
+<span class="cm">// in: parts: Array&lt;string|number&gt;</span>
+<span class="cm">// out: key: string</span>
+<span class="cm">// pure: yes</span>
+<span class="yay">//∷YAY-END⟨C-050⟩</span>
+function memoKey(){ return Array.prototype.slice.call(arguments).join('|'); }</code></pre>
+      <p>Every Cell has a stable <strong>id</strong> and a <strong>specHash</strong> = <code>sha256(normalized spec block)</code> — what the seal signs.</p>
+
+      <h3>Brief <span class="pill shipped">Shipped</span></h3>
+      <p>The human-readable headline over a change-set: a title + one to three sentences of intent, plus the Cells it covers. Signed <em>with</em> the specs, so it's the attributed record of what was commissioned. A Brief attributes intent — it never earns Green (only Cells do).</p>
+
+      <h3>The two chains</h3>
+      <p>The spine of the design — two authorities, kept strictly separate:</p>
+      <pre><code><span class="cm">HUMAN AUTHORIZATION CHAIN          IMPLEMENTATION VERIFICATION CHAIN</span>
+Brief + exact Cell specs           authorized spec-set + exact code snapshot
+      → human signature                    → verifier evidence + status</code></pre>
+      <p>Because the human never signs code bytes, a refactor (<code>const r = x + y</code> → <code>return x + y</code>) needs <strong>no new signature</strong> if it still verifies. That keeps YayLayer approving <em>intent</em>, not implementations.</p>
+
+      <h3>The human's three acts</h3>
+      <div class="tw"><table>
+        <thead><tr><th>Act</th><th>What's signed</th><th>Code exists?</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Forward spec-sign</strong> <em>(default)</em></td><td>Brief + spec-set</td><td>No — intent before implementation</td></tr>
+          <tr><td><strong>Grant</strong> (Autopilot)</td><td>a capability envelope</td><td>n/a — authorizes future production</td></tr>
+          <tr><td><strong>Ratification</strong></td><td>operation + Brief + spec-set + observed code + verification</td><td>Yes — review the result, then sign</td></tr>
+        </tbody>
+      </table></div>
+      <p>Forward-signing is the trunk; grant and ratification are the agentic branches. All three are the human side of the triad (phone key) — they differ only in what object is signed and whether code exists yet.</p>
+
+      <h3>The three cryptographic identities</h3>
+      <p>Not "everything gets signed" — three distinct facts:</p>
+      <ol>
+        <li><strong>Artifact hashes</strong> — <em>what exact thing?</em> (specHash, code-tree, evidence). <span class="pill shipped">Shipped</span></li>
+        <li><strong>Verifier attestation</strong> — <em>what did the machine conclude?</em> Signed by the verifier's own key. <span class="pill v1">v1</span></li>
+        <li><strong>Human signature</strong> — <em>what did the human authorize?</em> Signed by the phone key. <span class="pill shipped">Shipped</span></li>
+      </ol>
+
+      <h3>The two axes <span class="pill v1">v1</span></h3>
+      <p>Authority and verification are orthogonal — never collapse them into one traffic light:</p>
+      <pre><code><span class="cm">AUTHORITY (human)          VERIFICATION (machine)</span>
+Unapproved                 Red
+Delegated                  Yellow
+Ratified                   Green</code></pre>
+      <p>So a Cell can be <strong>Delegated + Green</strong> (verifier happy, no human yet) or <strong>Ratified + Red</strong> (human approved the intent, but the code no longer verifies). The UI shows one calm state in the common case and surfaces both only when they diverge.</p>
+
+      <h3>"Green is an event," not a property</h3>
+      <p>Code isn't inherently Green — it's Green <em>relative to</em> a spec + verifier + semantics + evidence + time: <code>GREEN(artifact, spec, verifier_semantics)</code>. A better verifier in 2029 doesn't make a 2026 Green fraudulent; it makes the claim more precise and can append a new assessment without rewriting the old.</p>
+
+      <h3>States <span class="pill shipped">Shipped</span></h3>
+      <div class="tw"><table>
+        <thead><tr><th>State</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><span class="state s-green">Green</span></td><td>Code satisfies the signed spec (machine-proven where the language supports it).</td></tr>
+          <tr><td><span class="state s-yellow">Yellow</span></td><td>Signed but not fully proven — mutation-weak, inert, needs re-sign, or an honest cap.</td></tr>
+          <tr><td><span class="state s-red">Red</span></td><td>Code contradicts the spec, or a spec-derived test fails.</td></tr>
+          <tr><td><span class="state s-unsigned">Unsigned</span></td><td>No valid human signature covers the current spec.</td></tr>
+          <tr><td><span class="state s-pink">Pink</span></td><td>Code with no Cell governing it — un-specced units, or loose top-level code. Blocks the gate.</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section id="provenance">
+      <p class="eyebrow">02 — Provenance architecture</p>
+      <h2>The durable-audit heart</h2>
+      <div class="note"><span class="k">Design principle</span><p>Every statement material to an approval remains reconstructable forever unless an explicit retention policy says otherwise — and nothing is ever silently rewritten.</p></div>
+      <p>An approval is a chain of authority and evidence, every node an immutable, content-addressed object:</p>
+      <pre><code>Human Grant G42
+   └─ Delegated operation A81       (or a direct forward sign)
+        ├─ Brief B17
+        ├─ Spec Set S91             (exact Cell revisions)
+        └─ Code Tree T93
+             └─ Verification V22    (verifier 1.8.4, ruleset 3, evidence E72 → GREEN)
+                  └─ Human Ratification R12   (references V22's hash)</code></pre>
+
+      <h3>Preserve every historical spec — always <span class="pill v1">v1</span></h3>
+      <p>Specs are tiny and irreplaceable, so <strong>every</strong> signed Cell spec is archived in both Standard and Durable modes, content-addressed by its specHash. This kills the "history comes back blank" problem: the "as signed" spec never depends on git being intact. Integrity is free — the stored body must hash to the signed specHash.</p>
+
+      <h3>Two capture points <span class="pill v1">v1</span></h3>
+      <p>The two chains have two birthdays: <strong>human authorization mints at sign</strong> (code doesn't exist yet); <strong>verifier attestation mints at commit / verify-pass</strong> (code exists then). Ratification is the exception — a human signs after code exists.</p>
+
+      <h3>Verifier attestation <span class="pill v1">v1</span></h3>
+      <p>Today <code>yay verify</code> is ephemeral. The attestation makes "Green" a durable, signed fact, recording spec-set / code-tree / verifier-package (version <em>and</em> bytes digest) / ruleset / config / evidence hashes / result / timestamp — then hashing and <strong>signing it with the verifier's own key</strong>. A hash proves "unchanged"; a signature proves "the trusted verifier produced this," so a malicious agent can't fabricate a Green. The human ratification references the attestation hash.</p>
+
+      <h3>Verifier versioning <span class="pill later">Later</span></h3>
+      <p>The verifier is a versioned participant. Releases are classified by capability — <strong>PATCH</strong> (semantics unchanged) · <strong>MINOR</strong> (new reasoning) · <strong>MAJOR</strong> (meaning of Green changed). A stronger verifier can re-verify history and <em>append</em> new assessments: <code>2026 → GREEN under 1.8.4</code> and <code>2029 → YELLOW under 4.2.0</code> both stay true. Never a silent rewrite, never an automatic CI failure — historical status is separate from current policy, and orgs configure grandfathering. Verifier improvements become a compounding asset: every one can raise confidence in the historical codebase.</p>
+
+      <h3>Storage — the hybrid model <span class="pill v1">v1</span> <span class="pill later">Later</span></h3>
+      <p>Invent as little as possible:</p>
+      <ul>
+        <li><strong>Small YayLayer-native objects</strong> (specs, attestations, evidence, grants/ratifications) → a tiny content-addressed <code>.yaylayer/objects/</code> store (sha256, deduped). The must-never-blank audit core.</li>
+        <li><strong>Bulk source</strong> (Durable mode) → <strong>git</strong> (a shared incremental pack) — battle-tested, delta-compressed, interoperable.</li>
+      </ul>
+      <p>Two rules keep git safe as a container: <strong>our sha256 over the archived bytes is the trust anchor</strong> (never git's SHA-1), and <strong>one shared incremental pack</strong> (never a bundle-per-approval, which loses dedup).</p>
+
+      <h3>Standard vs Durable <span class="pill later">Later</span></h3>
+      <p>A per-project setting chosen at <code>yay init</code> / <code>yay adopt</code>:</p>
+      <div class="tw"><table>
+        <thead><tr><th></th><th>Standard <em>(default)</em></th><th>Durable</th></tr></thead>
+        <tbody>
+          <tr><td>Specs + attestations</td><td>Archived (always)</td><td>Archived (always)</td></tr>
+          <tr><td>Brief tree / spec history</td><td>Full</td><td>Full</td></tr>
+          <tr><td><strong>Code</strong> at each point</td><td>By git reference (labeled if lost)</td><td>Archived (encrypted) — survives git loss</td></tr>
+          <tr><td>Best for</td><td>Normal projects</td><td>Regulated / long-lived audit</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3>Governance — designed in, not bolted on <span class="pill later">Later</span></h3>
+      <p>The real cost of "keep code forever" isn't disk — it's governance. Durable mode ships <em>with</em> it:</p>
+      <ul>
+        <li><strong>Audit metadata</strong> (hashes, attestations, signatures, tombstones) — kept in the clear and signed, so the chain is auditable <em>without</em> decrypting source.</li>
+        <li><strong>Source blobs</strong> — encrypted <strong>AES-256-GCM at rest and in transit, under a project-held key YayLayer never sees</strong>. The store holds ciphertext + the sha256 of the plaintext. Decryption is transient, in memory, only when an authorized human opens the "as signed" view.</li>
+        <li><strong>Owner-signed retention policy</strong> and a <strong>pre-archive secret scan</strong> (a secret archived forever is a forever-liability).</li>
+        <li><strong>Deletion tombstones</strong> — honest erasure without rewriting history:</li>
+      </ul>
+      <pre><code>Cell C-040 · revision C17
+  status:     deliberately removed
+  hash:       sha256:8d621b0f…
+  removed:    2026-09-14 · reason: "GDPR erasure request #4471"</code></pre>
+      <p>You lose reconstructability of that one object; you keep the chain, the signatures (which cover the hash), and an auditable record that a deletion happened.</p>
+
+      <h3>The integrity witness <span class="pill later">Later</span></h3>
+      <p>Because YayLayer independently retains spec/tree hashes, evidence, and signatures, a rewritten git history can be compared against the ledger: <em>"the code git now claims existed here isn't what YayLayer originally verified."</em> At that point YayLayer isn't documenting the workflow — it's an independent integrity witness for it.</p>
+    </section>
+
+    <section id="autopilot">
+      <p class="eyebrow">03 — Autopilot</p>
+      <h2>Delegated execution</h2>
+      <p class="lead"><strong>Autopilot</strong> is the friendly name; <strong>Delegated execution</strong> the formal one. (It replaces "Freedom mode," retired because "freedom" implies the AI is unbound — the opposite of bounded, revocable, ratified delegation with the human in control.)</p>
+      <div class="note"><span class="k">Fundamental distinction</span><p>A grant is authorization to <em>act</em>. It is not approval of the resulting artifact. Reserve "approved" for actual human signatures.</p></div>
+      <pre><code>Human ── signs ──▶ Grant G42  ("what the agent may do")
+                      │ authorizes
+                      ▼
+                 Agent operation A81  (Brief · Cells/specs · code · verification evidence)
+                      │
+                      ▼
+              Awaiting ratification  ── human reviews ──▶  Ratified  (or Rejected)</code></pre>
+
+      <h3>State vocabulary <span class="pill v1">v1</span></h3>
+      <p>Never "auto-approved." On the authority axis: <strong>Delegated</strong> → <strong>Awaiting ratification</strong> → <strong>Ratified</strong> / <strong>Rejected</strong> / <strong>Superseded</strong>.</p>
+
+      <h3>The grant is a capability envelope <span class="pill v1">v1</span> <span class="pill later">Later</span></h3>
+      <p>Today a grant is only <code>--for / --count / --cell</code>. The envelope makes authority precise and <em>signed</em>:</p>
+      <pre><code>Grant G42
+  allowed:       src/ui/**, src/utils/**
+  prohibited:    authentication, secrets, CI config, signing config, migrations
+  dependencies:  no additions
+  max cells:     8      max risk: medium
+  deployment:    prohibited      child grants: prohibited</code></pre>
+      <div class="note warn"><span class="k">Enforceability gates the envelope</span><p>A constraint is meaningful only if the verifier can <strong>detect a violation in the output</strong> — enforcement is by detection at verify/ratify time, not by sandboxing the agent. Scope constraints (paths, cells) are enforceable now; content constraints (deps, network, effects) arrive as verifier capability bumps. Never promise a constraint you can't verify — an unenforceable boundary is theater. And the agent must never be able to broaden its own grant: the authorization boundary lives outside the delegated authority.</p></div>
+
+      <h3>Non-delegable by default <span class="pill v1">v1</span></h3>
+      <p>"Autopilot" ≠ freedom everywhere. High-risk categories (auth, secrets, payments, deploy, CI/security, YayLayer's own trust config, supply-chain) default to <strong>human approval before execution</strong>, not execute-then-ratify. "Won't auto-sign it" ≠ "won't let the agent do it" — the stronger stance has the agent pause and request a forward signature on entering a prohibited area, with the verifier detecting violations as a backstop (the agent is untrusted).</p>
+
+      <h3>Ratification <span class="pill v1">v1</span></h3>
+      <p>The human catching up on authorization that never happened forward — a real intent-authorization done retrospectively with the code + evidence present. Because the code already exists, humans tend to rubber-stamp, so <code>yay ratify</code> must be <em>meaningful review</em>: what was authorized (grant scope), what the agent did (Brief, Cells, diff, effects, deps, perms), a boundary/deviation report, verification, then Ratify / Reject / Inspect.</p>
+      <p>The ratification object keeps the facts distinct: <em>I approve this intent/spec</em> and <em>this is the implementation snapshot that existed when I decided</em> — not <em>these bytes may never change</em>. A later refactor can stay under the same ratified spec if it re-verifies.</p>
+      <div class="note warn"><span class="k">TOCTOU safety — not-optional for the relaunch</span><p>Ratification's whole purpose is a human vouching for the exact thing they reviewed. So <code>yay ratify --sign</code> must sign the exact reviewed bundle: compute a reviewed-bundle hash over grant + brief + spec-set + code-tree + evidence; at sign, recompute and refuse if anything changed — <em>"implementation changed since review (reviewed T93, current T94) — run yay ratify again."</em> Otherwise a human reviews T93 and unknowingly signs T94, turning ratification into a false record.</p></div>
+
+      <h3>Rejected ratifications are valuable history <span class="pill v1">v1</span> <span class="pill later">Later</span></h3>
+      <p>Don't erase a rejection — it records where agent autonomy failed human judgment. Persisting <code>REJECTED</code> events (with category + reason) is the substrate for <strong>earned autonomy</strong>: over time, "refactors — 97% ratified unchanged; dependency changes — 31% rejected → exclude from grants by default." The agent earns broad delegation where it's reliably ratified and loses it where humans keep rejecting.</p>
+    </section>
+
+    <section id="languages">
+      <p class="eyebrow">04 — Languages</p>
+      <h2>Three tiers of support</h2>
+      <p>Which tier a language reaches is part of the verifier's <strong>capability version</strong> — so a language moving from static to proven is a capability bump that can re-verify history.</p>
+      <div class="tw"><table>
+        <thead><tr><th>Tier</th><th>What the verifier does</th><th>Best state</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Proven</strong></td><td>Executes code against its <code>ensures</code> (behavioral prover) + effect/purity nets + coverage + rename detection</td><td><span class="state s-green">Green</span></td></tr>
+          <tr><td><strong>Static</strong></td><td>Cells, un-specced code → Pink, coverage, per-language effect/purity nets, rename detection — no execution</td><td><span class="state s-yellow">Yellow</span></td></tr>
+          <tr><td><strong>Scanned</strong></td><td>Marker-parsed only</td><td><span class="state s-yellow">Yellow</span> (weaker)</td></tr>
+        </tbody>
+      </table></div>
+      <h3>Support matrix</h3>
+      <div class="tw"><table>
+        <thead><tr><th>Language</th><th>1.0 target</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td>JavaScript / TypeScript (JSX/TSX)</td><td><strong>Proven</strong> <span class="pill shipped">Shipped</span></td><td>AST via Babel; behavioral prover + mutation + inertness; JSX render prover. Node = this.</td></tr>
+          <tr><td>Python</td><td><strong>Proven</strong> <span class="pill shipped">Shipped</span></td><td><code>python3</code> subprocess; pure functions with <code>ensures</code> reach Green.</td></tr>
+          <tr><td>Ruby</td><td><strong>Proven</strong> <span class="pill v1">v1</span></td><td><code>ruby</code> subprocess (Python pattern) + Ruby effect net.</td></tr>
+          <tr><td>PHP</td><td><strong>Proven</strong> <span class="pill v1">v1</span></td><td><code>php</code> subprocess (Python pattern) + PHP effect net.</td></tr>
+          <tr><td>Solidity</td><td><strong>Static</strong> <span class="pill v1">v1</span></td><td>Effect net now; behavioral proof needs an EVM harness — <span class="pill later">Later</span>.</td></tr>
+          <tr><td>Rust</td><td><strong>Static</strong> <span class="pill v1">v1</span></td><td>Effect net now; proof needs a compile-harness — <span class="pill later">Later</span>.</td></tr>
+          <tr><td>C#</td><td><strong>Static</strong> <span class="pill v1">v1</span></td><td>Effect net now; proof needs a compile-harness — <span class="pill later">Later</span>.</td></tr>
+        </tbody>
+      </table></div>
+      <p><strong>Graceful degradation:</strong> behavioral proof detects the toolchain — present → prove; absent → honest Yellow, never an error. <strong>Determinism:</strong> the prover has no RNG (enumerated inputs, fixed mutants, synchronous) — same machine ⇒ identical verdict. The only nondeterminism is wall-clock timeouts + cross-environment drift, so an attestation records the environment and claims "Green under this verifier + environment at this time."</p>
+    </section>
+
+    <section id="howto">
+      <p class="eyebrow">05 — How-to</p>
+      <h2>Recipes</h2>
+      <p>Install <strong>git first, then yay-layer</strong> — git is where the proof lives.</p>
+      <h3>Set up / adopt</h3>
+      <pre><code>yay init      <span class="cm"># files → signing key → adopt → tags → Constitution → (v1) Standard/Durable</span>
+yay adopt     <span class="cm"># scaffold specs over an existing codebase</span></code></pre>
+      <h3>The normal loop (forward-signing)</h3>
+      <p>Spec first → <code>yay sign --title "…" --brief "…"</code> → implement to match → <code>yay verify</code> → on Green, commit code + <code>.yaylayer/</code> together (don't push unless asked).</p>
+      <h3>Sign at your own pace (batch)</h3>
+      <pre><code>yay batch 8     <span class="cm"># raise the barrier</span>
+yay batch off   <span class="cm"># a Brief per change</span></code></pre>
+      <h3>Autopilot &amp; ratify</h3>
+      <pre><code>yay grant --for 2h --count 20        <span class="cm"># bounded delegated authority (sign once on phone)</span>
+yay grant list      yay grant revoke [id]
+yay ratify                           <span class="cm"># list delegated Cells (read-only)</span>
+yay ratify --sign                    <span class="cm"># review the reviewed bundle, then human-sign</span></code></pre>
+      <p>Don't like it? Don't ratify — <strong>Send back</strong> with a note; the AI revises and presents a forward Brief you sign, superseding the delegated version.</p>
+      <h3>Verify &amp; gate</h3>
+      <pre><code>yay verify              yay verify --strict   <span class="cm"># CI: non-zero on Red/Unsigned/Pink</span>
+yay gate                <span class="cm"># write the CI workflow protecting main</span></code></pre>
+      <h3>Dashboard</h3>
+      <pre><code>yay dashboard --open    <span class="cm"># live map + phone relay; Briefs / Tags / Policy tabs</span></code></pre>
+      <p>The Briefs tab is a history lens — open a Cell <em>through</em> a Brief to see it as that Brief signed it (As signed / Current / What changed).</p>
+    </section>
+
+    <section id="cli">
+      <p class="eyebrow">06 — CLI reference</p>
+      <h2>Commands</h2>
+      <dl>
+        <dt><code>yay init [dir]</code> <span class="pill shipped">Shipped</span></dt><dd>Guided setup. Flags: <code>--key</code>, <code>--relay/--lan</code>, <code>--name</code>, <code>--tags</code>, <code>--adopt</code>, <code>--constitution</code>, <code>--plan</code>, <code>--provider</code>; <span class="pill v1">v1</span> <code>--provenance standard|durable</code>.</dd>
+        <dt><code>yay sign [--cell IDs]</code> <span class="pill shipped">Shipped</span></dt><dd>Approve the current specs. <code>--brief</code> (required), <code>--title</code>, <code>--tags</code>, <code>--name</code>, <code>--check</code>, <code>--phone/--local</code>, <code>--no-brief</code>.</dd>
+        <dt><code>yay verify</code> <span class="pill shipped">Shipped</span></dt><dd>Colour every Cell. <code>--strict</code> (CI), <code>--dir</code>. <span class="pill v1">v1</span> mints a signed attestation at commit.</dd>
+        <dt><code>yay grant</code> <span class="pill shipped">Shipped</span></dt><dd><code>--for</code>, <code>--count</code>, <code>--cell</code>, <code>list</code>, <code>revoke [id]</code>. <span class="pill v1">v1</span> capability-envelope flags (paths, <code>--no-deps</code>, <code>--max-cells</code>, <code>--risk</code>, <code>--no-deploy</code>).</dd>
+        <dt><code>yay ratify [--sign]</code> <span class="pill shipped">Shipped</span> <span class="pill v1">v1</span></dt><dd>List / human-sign delegated Cells. v1: shows built code + boundary report, TOCTOU-safe, persists Rejected.</dd>
+        <dt><code>yay dashboard</code> · <code>yay map</code> · <code>yay gate</code> · <code>yay constitution</code> · <code>yay status</code> <span class="pill shipped">Shipped</span></dt><dd>Live panel + relay · static map · CI gate · write the Constitution · summary.</dd>
+        <dt><code>yay tags</code> · <code>yay policy</code> · <code>yay batch</code> · <code>yay adopt</code> <span class="pill shipped">Shipped</span></dt><dd>Tag pool · signing policy (<code>--set</code> owner-signs) · batch barrier · adopt existing code.</dd>
+        <dt><code>yay keygen</code> · <code>yay pair</code> · <code>yay enroll</code> · <code>yay invite</code> <span class="pill shipped">Shipped</span></dt><dd>Create key · pair phone · enroll a signer · mint a join link.</dd>
+        <dt><code>yay archive --install</code> · <code>yay reverify</code> <span class="pill later">Later</span></dt><dd>Commit-time Durable archival hook · re-evaluate history with the current verifier (append, never rewrite).</dd>
+      </dl>
+    </section>
+
+    <section id="security">
+      <p class="eyebrow">07 — Security model</p>
+      <h2>How trust is protected</h2>
+      <h3>Separation of duties</h3>
+      <p>No actor grades its own work. The agent proposes, the verifier measures, the human authorizes. The agent is the <strong>untrusted producer</strong> — it may state what it made, never that it's correct or approved.</p>
+      <h3>Three keys, kept separate</h3>
+      <p><strong>Human</strong> phone key ("a person decided") · <strong>Verifier</strong> key ("the machine measured") · <strong>Artifact</strong> content hashes ("the exact thing"). A ratification references the verifier attestation hash but is signed by the phone key.</p>
+      <div class="note warn"><span class="k">The verifier-key rule</span><p>Never ship the verifier's signing key inside the npm package. A public key lets anyone forge a Green and makes the whole machine-attestation half worthless. v1: a project/CI-scoped verifier key; later: an optional hosted attestation service. A signature carries trust only if its key is not universally available.</p></div>
+      <h3>Phone signing <span class="pill shipped">Shipped</span></h3>
+      <p>The human's private key is generated on the phone and never leaves it — secure hardware, biometric per signature. The AI's machine only sees the public key. A compromised dev machine or rogue agent still cannot sign as the human.</p>
+      <h3>The gate &amp; Pink <span class="pill shipped">Shipped</span></h3>
+      <p>Enforcement lives in CI (<code>yay verify --strict</code>), not a local hook the AI could disable. Any unit with no spec, or loose top-level code, shows <span class="state s-pink">Pink</span> and blocks — you can't smuggle ungoverned code past the gate by simply not writing a spec.</p>
+      <h3>Injection resistance <span class="pill shipped">Shipped</span></h3>
+      <p>Injected un-specced code → Pink. Injected effect in a <code>pure</code> Cell → Red (line pinpointed). Behavior contradicting the spec → Red (counterexample). Tampered seal → Unsigned. Injected code can't reach Green without matching an approved spec or a fresh human signature.</p>
+      <h3>Silent-drift &amp; the integrity witness</h3>
+      <p>A validly-signed Brief whose Cell has since drifted must not read green — the Briefs view shows covered-Cell health and a "what changed" diff. <span class="pill later">Later</span>: the provenance ledger detects git-history rewriting ("the code git claims existed here isn't what YayLayer verified").</p>
+    </section>
+
+    <section id="roadmap">
+      <p class="eyebrow">08 — Roadmap &amp; build plan</p>
+      <h2>Deliver the whole vision, incrementally</h2>
+      <p>The full architecture is adopted; the only question is order. Relaunch <code>1.0</code> on a clean foundation and grow in versions.</p>
+      <h3>Phases</h3>
+      <ul>
+        <li><strong>P0 — Relaunch hygiene</strong> <span class="pill v1">v1</span> — rename "auto-approved" → Delegated/Awaiting and "Freedom mode" → Autopilot; <strong>fix the <code>ratify --sign</code> TOCTOU hole</strong> (not-optional); audit grant-broadening.</li>
+        <li><strong>P1 — Spec provenance</strong> <span class="pill v1">v1</span> — content-addressed spec store; history reads store-first (kills the blank); immutable Cell revisions.</li>
+        <li><strong>P1.5 — Languages</strong> <span class="pill v1">v1</span> — per-language effect/purity nets for all five; behavioral proof for Ruby + PHP.</li>
+        <li><strong>P2 — Verifier attestation</strong> <span class="pill later">Later</span> — signed at commit, verifier key, referenced by ratification; capability-versioning.</li>
+        <li><strong>P3 — Grants → envelopes, two-axis, rejections</strong> <span class="pill later">Later</span> — capability envelopes + detectors; non-delegable defaults; meaningful ratify screen; persisted rejections.</li>
+        <li><strong>P4 — Long-lived assurance</strong> <span class="pill later">Later</span> — Durable mode + governance/tombstones; historical re-verification; integrity witness; Cell timeline; earned-autonomy metrics.</li>
+      </ul>
+      <h3>What ships in 1.0</h3>
+      <p>P0 + P1 + P1.5: a correctly-worded, TOCTOU-safe, non-blanking release with <strong>JS/TS + Python + Ruby + PHP behaviorally proven</strong> and <strong>Solidity/Rust/C# statically first-class</strong>. Deferred: C#/Rust/Solidity behavioral proof, attestations (P2), envelopes/rejections (P3), Durable + governance + reverification + timeline + metrics (P4), hosted attestation service.</p>
+    </section>
+
+    <section id="decisions">
+      <p class="eyebrow">09 — Decision log</p>
+      <h2>Locked decisions</h2>
+      <p>All three advisor papers are adopted <strong>in full</strong> (not a menu). Converged 2026-08-29.</p>
+      <dl>
+        <dt>D1–D7 · Architecture (from the papers)</dt><dd>The triad with separation of duties; two chains (authorization vs verification); three cryptographic identities; append-only &amp; content-addressed, never rewritten; "Green is an event"; preserve every historical spec always; the Autopilot reform (grant authorizes action not artifact; Delegated/Ratified/Rejected; two axes; non-delegable defaults; persisted rejections).</dd>
+        <dt>D8 · Naming</dt><dd>Autopilot (friendly) + Delegated execution (formal); retire "Freedom mode"; drop "auto-approved." "Freedom" has the wrong polarity for a control/trust product.</dd>
+        <dt>D9 · Ship incrementally</dt><dd>Relaunch 1.0 on the foundation; grow in versions rather than hold for the whole system.</dd>
+        <dt>D10 · Storage = hybrid</dt><dd>Tiny bespoke sha256 store for the audit core; git bundles for bulk source. Our sha256 is the trust anchor, not git's SHA-1; one shared incremental pack, never per-approval bundles.</dd>
+        <dt>D11 · Verifier key</dt><dd>Project/CI-scoped first, hosted later; never shipped in the package.</dd>
+        <dt>D12 · Governance is first-class</dt><dd>Metadata clear + signed; source encrypted under a project-held key YayLayer never sees; owner-signed retention; pre-archive secret scan; deletion tombstones.</dd>
+        <dt>D13 · Two capture points</dt><dd>Human authorization at sign; verifier attestation at commit/verify-pass.</dd>
+        <dt>D14 · TOCTOU fix — not-optional</dt><dd><code>ratify --sign</code> signs the exact reviewed bundle; refuses on drift.</dd>
+        <dt>D15 · Envelope constraints gated by detectors</dt><dd>A grant only carries constraints the running verifier can detect; attestations record verifier version + capabilities.</dd>
+        <dt>D16 · Prover determinism, honestly</dt><dd>No RNG; only wall-clock timeouts + environment drift. Attestations record the environment; later, a deterministic step/fuel budget.</dd>
+        <dt>D17 · Language scope for 1.0</dt><dd>All five static first-class + Ruby/PHP proven; postpone C#/Rust/Solidity behavioral proof (Solidity its own EVM release).</dd>
+        <dt>D18 · Docs-first</dt><dd>Write the canonical manual, build the engine against it, update docs alongside code — YayLayer's own spec-first philosophy, applied to itself.</dd>
+      </dl>
+    </section>
+
+    <section id="glossary">
+      <p class="eyebrow">10 — Glossary</p>
+      <h2>Terms</h2>
+      <dl>
+        <dt>Agent</dt><dd>The AI producing Briefs, specs, and code — the untrusted producer.</dd>
+        <dt>Attestation</dt><dd>An immutable, content-addressed record of a claim; verifier attestations are also signed.</dd>
+        <dt>Autopilot / Delegated execution</dt><dd>Operating under a grant. (Replaces "Freedom mode.")</dd>
+        <dt>Brief</dt><dd>The human-readable headline over a change-set; signed with the specs; never earns Green.</dd>
+        <dt>Capability envelope</dt><dd>The signed set of constraints in a grant (paths, deps, max-cells, risk…).</dd>
+        <dt>Cell</dt><dd>A unit of code plus its inline spec block — the atomic thing YayLayer governs.</dd>
+        <dt>Content-addressed</dt><dd>Stored/looked-up by the hash of the content; identical content stored once.</dd>
+        <dt>Durable / Standard</dt><dd>Whether source is archived (encrypted) in the provenance store, or referenced from git.</dd>
+        <dt>Forward signing</dt><dd>The default — signing the spec before the code exists.</dd>
+        <dt>Gate</dt><dd>The CI check that blocks Red / Unsigned / Pink from <code>main</code>.</dd>
+        <dt>Grant</dt><dd>An owner-signed authorization for the agent to act autonomously within an envelope.</dd>
+        <dt>Green / Yellow / Red / Unsigned / Pink</dt><dd>The verification states (see Concepts).</dd>
+        <dt>Integrity witness</dt><dd>Using the ledger to detect git-history rewriting.</dd>
+        <dt>Non-delegable</dt><dd>Categories requiring human approval before execution, not execute-then-ratify.</dd>
+        <dt>Provenance</dt><dd>The full chain: who had authority, its source and limits, what the agent did, what the verifier established (and under which semantics), when a human ratified, and what changed after.</dd>
+        <dt>Ratification</dt><dd>Retrospective human authorization for grant-produced work, with code + evidence present.</dd>
+        <dt>Roster</dt><dd>The append-only, owner-signed log of trusted signers.</dd>
+        <dt>specHash</dt><dd><code>sha256(normalized spec block)</code> — what the seal signs and the archive keys on.</dd>
+        <dt>Tombstone</dt><dd>A record that a stored object was deliberately removed, preserving the chain while honoring deletion.</dd>
+        <dt>Triad</dt><dd>Human / Agent / Machine verifier.</dd>
+        <dt>Verifier</dt><dd>The deterministic, non-AI system that evaluates code against specs; versioned and cryptographically identifiable.</dd>
+      </dl>
+    </section>
+  </main>
+</div>
+
+<footer class="foot">
+  <span>YayLayer — human authorization &amp; cryptographic provenance for AI-generated code.</span>
+  <span class="mono">canonical source: <code>/documentation</code> · converged 2026-08-29</span>
+</footer>
+
+<script>
+(function(){
+  // Theme toggle (cycles light ⇄ dark; persists per-viewer)
+  var root=document.documentElement, btn=document.getElementById('themebtn');
+  try{ var s=localStorage.getItem('yl-manual-theme'); if(s) root.setAttribute('data-theme',s); }catch(e){}
+  function cur(){ var a=root.getAttribute('data-theme'); if(a) return a; return matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light'; }
+  btn.addEventListener('click',function(){ var next=cur()==='dark'?'light':'dark'; root.setAttribute('data-theme',next); try{localStorage.setItem('yl-manual-theme',next);}catch(e){} });
+  // Scrollspy — highlight the current section in the contents rail
+  var links=[].slice.call(document.querySelectorAll('#toclist a'));
+  var map={}; links.forEach(function(a){ map[a.getAttribute('href').slice(1)]=a; });
+  var secs=[].slice.call(document.querySelectorAll('main section'));
+  if('IntersectionObserver' in window){
+    var io=new IntersectionObserver(function(ents){
+      ents.forEach(function(en){ if(en.isIntersecting){ links.forEach(function(l){l.classList.remove('active');}); var a=map[en.target.id]; if(a)a.classList.add('active'); } });
+    },{rootMargin:'-12% 0px -75% 0px',threshold:0});
+    secs.forEach(function(s){io.observe(s);});
+  }
+})();
+</script>
