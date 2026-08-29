@@ -245,7 +245,20 @@ function renderMap(manifest, verified, project, changes, times, planDoc, gov, br
     .map((id) => ({ id: 'u:' + id, state: verified.results[id].state }))
     .sort((a, b) => NEEDSEV[a.state] - NEEDSEV[b.state]);
   const c = verified.counts;
-  const legend = Object.entries(COLORS).map(([k, [col, label]]) => `<span class="lg" style="color:${col}">${label} ${c[k] || 0}</span>`).join('');
+  // The five gate states as gradient stat blocks (replaces the flat legend). YayLayer-toned
+  // gradients; white text; the Green block shows proven/unproven as its sub-metric.
+  const STAT_META = {
+    GREEN:    { label: 'Green',    glyph: '✓', sub: 'proven &amp; signed',       grad: 'linear-gradient(135deg,#18b368,#0f8a4d)' },
+    YELLOW:   { label: 'Yellow',   glyph: '⚠', sub: 'signed, not proven',       grad: 'linear-gradient(135deg,#e0a53a,#c17d16)' },
+    RED:      { label: 'Red',      glyph: '✕', sub: 'contradicts its spec',     grad: 'linear-gradient(135deg,#ef5b57,#cc352c)' },
+    UNSIGNED: { label: 'Unsigned', glyph: '✎', sub: 'awaiting a signature',     grad: 'linear-gradient(135deg,#8b95a6,#586274)' },
+    PINK:     { label: 'Pink',     glyph: '◆', sub: 'no spec — blocks the gate', grad: 'linear-gradient(135deg,#ec6aa6,#cf3f86)' },
+  };
+  const statblocks = '<div class="statgrid">' + ['GREEN', 'YELLOW', 'RED', 'UNSIGNED', 'PINK'].map((k) => {
+    const m = STAT_META[k];
+    const sub = (k === 'GREEN' && (c.GREEN || 0) > 0) ? `${c.proven || 0} proven · ${c.unproven || 0} unproven` : m.sub;
+    return `<div class="statcard" style="background:${m.grad}"><div class="sc-top"><span class="sc-label">${m.label}</span><span class="sc-glyph">${m.glyph}</span></div><div class="sc-num">${c[k] || 0}</div><div class="sc-sub">${sub}</div></div>`;
+  }).join('') + '</div>';
   const totalUnits = Object.values(nodes).filter((n) => n.kind === 'unit').length;
   const FILES = [];
   for (const id of Object.keys(verified.results)) {
@@ -280,39 +293,55 @@ function renderMap(manifest, verified, project, changes, times, planDoc, gov, br
   --shadow:0 1px 2px rgba(0,0,0,.3),0 2px 8px rgba(0,0,0,.25);}
 *{box-sizing:border-box}
 body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);line-height:1.6;-webkit-font-smoothing:antialiased}
-.nav{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule)}
-.nav-in{max-width:1800px;margin:0;padding:0 32px;height:56px;display:flex;align-items:center;justify-content:flex-start}
-.brand{display:flex;align-items:center;gap:10px;min-width:0}
+/* ── shell: fixed left sidebar + main column ── */
+.side{position:fixed;left:0;top:0;width:242px;height:100vh;z-index:70;display:flex;flex-direction:column;background:var(--card);border-right:1px solid var(--rule);transition:transform .22s ease}
+.brand{display:flex;align-items:center;gap:9px;min-width:0;padding:17px 18px;border-bottom:1px solid var(--rule)}
 .brand .logo{width:26px;height:26px;flex:none;display:inline-flex}
-.brandname{font-weight:700;font-size:1rem;letter-spacing:-.01em;color:var(--ink)}
+.brandname{font-weight:700;font-size:1.02rem;letter-spacing:-.01em;color:var(--ink)}
 .brandsep{color:var(--mut)}
-.brandproj{color:var(--ink2);font-family:var(--mono);font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.nav-right{display:flex;align-items:center;gap:9px;flex:none;margin-left:auto}
-.themebtn{font-family:var(--sans);font-size:.8rem;font-weight:500;background:var(--card);color:var(--ink);border:1px solid var(--rule);border-radius:8px;padding:7px 13px;cursor:pointer}
-.themebtn:hover{border-color:var(--mut)}
-.viewbtn{font-family:var(--sans);font-size:.8rem;font-weight:600;background:var(--brand);color:#04231a;border:1px solid transparent;border-radius:8px;padding:7px 15px;cursor:pointer}
-.viewbtn:hover{filter:brightness(1.05)}
-.tabs{display:flex;gap:3px;background:var(--card2);border:1px solid var(--rule);border-radius:11px;padding:4px;margin-left:28px}
-.tab{position:relative;font-family:var(--sans);font-size:.82rem;font-weight:500;letter-spacing:-.005em;background:none;border:none;color:var(--ink2);border-radius:8px;padding:7px 14px;cursor:pointer;transition:color .16s ease,background .16s ease}
+.brandproj{color:var(--ink2);font-family:var(--mono);font-size:.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sidenav{flex:1;overflow-y:auto;padding:8px 12px 20px}
+.navgroup{font-family:var(--sans);font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:var(--mut);padding:15px 10px 6px}
+.navgroup:first-child{padding-top:8px}
+.tab{display:flex;align-items:center;gap:11px;width:100%;text-align:left;font-family:var(--sans);font-size:.88rem;font-weight:500;letter-spacing:-.005em;background:none;border:none;color:var(--ink2);border-radius:9px;padding:9px 12px;cursor:pointer;transition:color .15s ease,background .15s ease}
+.tab .ti{width:18px;text-align:center;font-size:.98rem;opacity:.8;flex:none;font-family:var(--mono)}
 .tab:hover:not(.active){color:var(--ink);background:color-mix(in srgb,var(--ink) 6%,transparent)}
-.tab.active{background:color-mix(in srgb,var(--brand) 15%,var(--paper));color:var(--accent);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.05),inset 0 0 0 1px color-mix(in srgb,var(--brand) 28%,transparent)}
-.navburger{display:none;align-items:center;justify-content:center;width:38px;height:36px;font-size:1.05rem;line-height:1;background:var(--card);color:var(--ink);border:1px solid var(--rule);border-radius:8px;cursor:pointer}
+.tab.active{background:color-mix(in srgb,var(--brand) 15%,transparent);color:var(--accent);font-weight:600}
+.tab.active .ti{opacity:1}
+.themebtn{font-family:var(--sans);font-size:.8rem;font-weight:500;background:var(--card);color:var(--ink);border:1px solid var(--rule);border-radius:9px;padding:7px 13px;cursor:pointer}
+.themebtn:hover{border-color:var(--mut)}
+.viewbtn{font-family:var(--sans);font-size:.8rem;font-weight:600;background:var(--brand);color:#04231a;border:1px solid transparent;border-radius:9px;padding:7px 15px;cursor:pointer}
+.viewbtn:hover{filter:brightness(1.05)}
+.main{margin-left:242px;min-height:100vh}
+.topbar{position:sticky;top:0;z-index:50;height:60px;display:flex;align-items:center;gap:14px;padding:0 32px;background:color-mix(in srgb,var(--paper) 85%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--rule)}
+.tb-title{font-family:var(--sans);font-weight:700;font-size:1.02rem;color:var(--ink)}
+.tb-right{margin-left:auto;display:flex;align-items:center;gap:9px}
+.gatepill{font-family:var(--sans);font-size:.74rem;font-weight:600;border-radius:100px;padding:5px 13px;border:1px solid var(--rule);background:var(--card)}
+.gatepill.ok{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 40%,transparent)}
+.gatepill.bad{color:var(--red);border-color:color-mix(in srgb,var(--red) 40%,transparent)}
+.navburger{display:none;align-items:center;justify-content:center;width:38px;height:36px;font-size:1.05rem;line-height:1;background:var(--card);color:var(--ink);border:1px solid var(--rule);border-radius:9px;cursor:pointer}
 .navburger:hover{border-color:var(--mut)}
-.navmenu{display:none}
-@media(max-width:820px){
-  .nav-in{padding:0 16px;height:52px}
-  .wrap{padding:20px 16px 72px}
-  .brandproj{max-width:34vw}
-  .tabs{display:none}
+.scrim{display:none}
+/* ── state stat blocks (the 5 gate states as gradient cards) ── */
+.statgrid{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin:0 0 22px}
+.statcard{position:relative;border-radius:14px;padding:15px 17px;color:#fff;min-height:114px;display:flex;flex-direction:column;justify-content:space-between;box-shadow:0 8px 20px -12px rgba(0,0,0,.45);overflow:hidden}
+.statcard::after{content:"";position:absolute;right:-26px;top:-26px;width:92px;height:92px;border-radius:50%;background:rgba(255,255,255,.12)}
+.sc-top{display:flex;align-items:center;justify-content:space-between;gap:8px;position:relative;z-index:1}
+.sc-label{font-family:var(--sans);font-size:.82rem;font-weight:700;letter-spacing:.01em}
+.sc-glyph{font-size:1.1rem;opacity:.92}
+.sc-num{font-family:var(--sans);font-size:2.15rem;font-weight:800;line-height:1;margin:8px 0 2px;font-variant-numeric:tabular-nums;position:relative;z-index:1}
+.sc-sub{font-family:var(--sans);font-size:.72rem;opacity:.93;position:relative;z-index:1}
+@media(max-width:1080px){.statgrid{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}}
+@media(max-width:900px){
+  .side{transform:translateX(-100%);box-shadow:0 24px 70px rgba(0,0,0,.45)}
+  .side.open{transform:translateX(0)}
+  .main{margin-left:0}
+  .topbar{padding:0 16px}
   .navburger{display:inline-flex}
-  .navmenu{flex-direction:column;gap:3px;padding:8px 16px 14px;border-top:1px solid var(--rule);background:var(--paper)}
-  .navmenu.open{display:flex}
-  .navmenu .tab{width:100%;text-align:left;font-size:1rem;padding:12px;border-radius:8px;background:var(--card2)}
-  .navmenu .tab.active{background:var(--brand);color:#04231a}
-  .legend{font-size:.74rem;gap:7px}
-  .lg{padding:6px 12px}
-  h1{font-size:1.25rem}
+  .scrim.open{display:block;position:fixed;inset:0;z-index:65;background:rgba(10,12,16,.5)}
+  .wrap{padding:20px 16px 72px}
   .wrap>*{min-width:0}
+  h1{font-size:1.25rem}
 }
 .signers{margin-top:4px;max-width:900px}
 .rootcard{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;background:var(--card2);border:1px solid var(--rule);border-radius:12px;padding:16px 18px;margin:0 0 20px}
@@ -461,15 +490,29 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
 .ck-red{color:var(--red);font-weight:600}.ck-yellow{color:var(--amber)}.ck-info{color:var(--mut)}
 .allok{font-size:.84rem;color:var(--mut)}
 </style></head><body>
-<header class="nav"><div class="nav-in">
+<aside class="side" id="side">
 <div class="brand"><span class="logo"><svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><rect width="26" height="26" rx="7" fill="#3ecf8e"/><path d="M6.5 13.5l4 4L20 7.5" fill="none" stroke="#04231a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="brandname">YayLayer</span><span class="brandsep">/</span><span class="brandproj">${esc(project || 'project')}</span></div>
-<nav class="tabs"><button class="tab active" data-tab="map">Map</button><button class="tab" data-tab="briefs">Briefs</button><button class="tab" data-tab="files">Files</button><button class="tab" data-tab="plan" id="tab-plan" style="display:none">System Plan</button><button class="tab" data-tab="tags" id="tab-tags" style="display:none">Tags</button><button class="tab" data-tab="policy" id="tab-policy" style="display:none">Policy</button><button class="tab" data-tab="signers">Signers</button><button class="tab" data-tab="commands">Commands</button></nav><div class="nav-right"><button id="themebtn" class="themebtn" aria-label="Toggle theme">Dark</button><button id="navburger" class="navburger" aria-label="Menu" aria-expanded="false">☰</button></div>
-</div>
-<div id="navmenu" class="navmenu"><button class="tab active" data-tab="map">Map</button><button class="tab" data-tab="briefs">Briefs</button><button class="tab" data-tab="files">Files</button><button class="tab" data-tab="plan" style="display:none">System Plan</button><button class="tab" data-tab="tags" style="display:none">Tags</button><button class="tab" data-tab="policy" style="display:none">Policy</button><button class="tab" data-tab="signers">Signers</button><button class="tab" data-tab="commands">Commands</button></div>
-</header>
+<nav class="sidenav">
+<div class="navgroup">Overview</div>
+<button class="tab active" data-tab="map"><span class="ti">◫</span>Map</button>
+<div class="navgroup">Work</div>
+<button class="tab" data-tab="briefs"><span class="ti">❏</span>Briefs</button>
+<button class="tab" data-tab="plan" id="tab-plan" style="display:none"><span class="ti">◇</span>System Plan</button>
+<button class="tab" data-tab="tags" id="tab-tags" style="display:none"><span class="ti">#</span>Tags</button>
+<button class="tab" data-tab="files"><span class="ti">▤</span>Files</button>
+<div class="navgroup">Governance</div>
+<button class="tab" data-tab="signers"><span class="ti">✦</span>Signers</button>
+<button class="tab" data-tab="policy" id="tab-policy" style="display:none"><span class="ti">§</span>Policy</button>
+<div class="navgroup">Reference</div>
+<button class="tab" data-tab="commands"><span class="ti">›_</span>Commands</button>
+</nav>
+</aside>
+<div class="scrim" id="scrim"></div>
+<div class="main">
+<header class="topbar"><button id="navburger" class="navburger" aria-label="Menu" aria-expanded="false">☰</button><div class="tb-title">Dashboard</div><div class="tb-right"><span class="gatepill ${verified.passed ? 'ok' : 'bad'}">${verified.passed ? '● Gate PASS' : '● Gate BLOCKED'}</span><button id="themebtn" class="themebtn" aria-label="Toggle theme">Dark</button></div></header>
 <div class="wrap">
 <div class="pagehead"><h1>System map</h1><p class="sub">${totalUnits} units · ${verified.passed ? 'gate PASS' : 'gate BLOCKED'}${verified.counts.GREEN ? ` · ${verified.counts.proven || 0} proven / ${verified.counts.unproven || 0} unproven` : ''}</p></div>
-<div class="legend">${legend}</div>
+${statblocks}
 <div id="needs" class="needs"></div>
 <p class="hint">A drill-down tree. The box on the <b>left is where you are</b>; its contents branch to the right. Click a <b>container ›</b> to zoom into it, click the left box or <b>↑ Up a level</b> to zoom out, and click a <b>unit</b> to open its spec, code &amp; checks.</p>
 <div class="crumb" id="crumb"></div>
@@ -483,6 +526,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
 <div id="files" class="files" style="display:none"></div>
 <div id="commands" class="commands" style="display:none">${commandsHTML()}</div>
 <div class="foot">Generated by <code>yay map</code> · zoomable hierarchy · green = code proven to match a signed spec, pink = no spec · ▲N = Cells that depend on this (blast radius) · <span style="color:var(--amber)">unused?</span> = no callers found.</div>
+</div>
 </div>
 <div id="modal" class="modal" role="dialog" aria-modal="true"><div class="modal-panel"><button class="modal-close" aria-label="Close">✕</button><div class="modal-body"></div></div></div>
 <script id="yl-data" type="application/json">${payload}</script>
@@ -1264,7 +1308,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
   }
 
   // ── tabs ──────────────────────────────────────────────────────────────────
-  var MAP_ELS=['.pagehead','.legend','#needs','.hint','#crumb','.stage','.logwrap','.foot'];
+  var MAP_ELS=['.pagehead','.statgrid','#needs','.hint','#crumb','.stage','.logwrap','.foot'];
   function showSel(sel,on){ var e=document.querySelector(sel); if(e) e.style.display=on?'':'none'; }
   var curTab='map';
   function setTab(name){
@@ -1273,7 +1317,8 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
     MAP_ELS.forEach(function(s){ showSel(s, name==='map'); });
     showSel('#plan', name==='plan'); showSel('#signers', name==='signers'); showSel('#files', name==='files'); showSel('#commands', name==='commands'); showSel('#briefs', name==='briefs'); showSel('#tags', name==='tags'); showSel('#policy', name==='policy');
     Array.prototype.forEach.call(document.querySelectorAll('.tab'),function(b){ b.classList.toggle('active', b.getAttribute('data-tab')===name); });
-    var nm=document.getElementById('navmenu'); if(nm) nm.classList.remove('open');
+    var nm=document.getElementById('side'); if(nm) nm.classList.remove('open');
+    var sc=document.getElementById('scrim'); if(sc) sc.classList.remove('open');
     var nb=document.getElementById('navburger'); if(nb){ nb.textContent='☰'; nb.setAttribute('aria-expanded','false'); }
     if(name==='plan') renderPlan();
     if(name==='signers') renderSigners();
@@ -1293,8 +1338,9 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
     function revealPolicy(){ if(isLive() || (pol.enforced&&pol.enforced.length) || (pol.draft&&pol.draft.length)) Array.prototype.forEach.call(document.querySelectorAll('[data-tab="policy"]'),function(t){ t.style.display=''; }); }
     revealPolicy(); window.addEventListener('load', revealPolicy); // re-check once yd-bar is in the DOM
     Array.prototype.forEach.call(document.querySelectorAll('.tab'),function(b){ b.addEventListener('click',function(){ setTab(b.getAttribute('data-tab')); }); });
-    var nb=document.getElementById('navburger'), nm=document.getElementById('navmenu');
-    if(nb && nm) nb.addEventListener('click',function(){ var open=nm.classList.toggle('open'); nb.textContent=open?'✕':'☰'; nb.setAttribute('aria-expanded',open?'true':'false'); });
+    var nb=document.getElementById('navburger'), nm=document.getElementById('side'), sc=document.getElementById('scrim');
+    if(nb && nm) nb.addEventListener('click',function(){ var open=nm.classList.toggle('open'); if(sc) sc.classList.toggle('open',open); nb.textContent=open?'✕':'☰'; nb.setAttribute('aria-expanded',open?'true':'false'); });
+    if(sc) sc.addEventListener('click',function(){ nm.classList.remove('open'); sc.classList.remove('open'); if(nb){ nb.textContent='☰'; nb.setAttribute('aria-expanded','false'); } });
     // Restore the tab the user was on before a reload (registered after the reveal listeners
     // so hidden tabs like Tags/Policy are visible by the time we restore).
     window.addEventListener('load',function(){ try{ var t=sessionStorage.getItem('yay.tab'); if(t && t!=='map'){ var b=document.querySelector('[data-tab="'+t+'"]'); if(b && b.style.display!=='none') setTab(t); } }catch(e){} });
