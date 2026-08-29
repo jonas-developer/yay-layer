@@ -940,6 +940,16 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     const human = (() => { const h = { id: 'A-0002', project: 'g', prev: 'A-0001', nonce: 'hn', at: '2026-07-01T00:00:00Z', signer: 'Alex', items: { 'C-1': sh } }; h.signature = C.sign(canonical(h), owner.privDer); return h; })();
     v = V([autoAp('2026-06-01T00:00:00Z'), human], [grant]);
     ok(v.results['C-1'].trust.auto === false && v.results['C-1'].trust.signed === true, 'grants: a human ratification supersedes the AUTO seal (trust becomes human)');
+
+    // TOCTOU: the reviewed-bundle hash is deterministic and MOVES when the delegated code changes,
+    // so `yay ratify --sign` can refuse to sign anything other than exactly what was reviewed.
+    const Rt = require('../src/ratify');
+    const vAuto = V([autoAp('2026-06-01T00:00:00Z')], [grant]);
+    ok(Rt.autoCellIds(vAuto).join(',') === 'C-1', 'ratify: autoCellIds lists the delegated Cell awaiting ratification');
+    const rb1 = Rt.ratifyBundle(gm, vAuto);
+    ok(!!rb1.hash && rb1.hash === Rt.ratifyBundle(gm, vAuto).hash, 'ratify: the reviewed-bundle hash is deterministic');
+    const gm2 = JSON.parse(JSON.stringify(gm)); gm2.cells['C-1'].unitBody = (gm.cells['C-1'].unitBody || '') + ' /*changed*/';
+    ok(Rt.ratifyBundle(gm2, vAuto).hash !== rb1.hash, 'ratify: the bundle hash changes when the delegated code moves (TOCTOU guard trips → --sign refuses)');
     fs.rmSync(gdir, { recursive: true, force: true });
 
     // The in-code AUTO stamp lives ABOVE the marker (outside the block), so it must not

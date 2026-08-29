@@ -1,4 +1,5 @@
 'use strict';
+const { ratifyBundle } = require('./ratify'); // render-time bundle hash for TOCTOU-safe ratify
 // Generate the flowchart — a self-contained, theme-aware, ZOOMABLE mind-map.
 //
 // It's a drill-down hierarchy explorer: the mind-map shows one level at a time —
@@ -239,7 +240,7 @@ function renderMap(manifest, verified, project, changes, times, planDoc, gov, br
   // of signed Specs + Briefs over time (a Brief's weight = its own chars + its Cells' specs).
   const specChars = {};
   for (const id of Object.keys(manifest.cells)) { const c = manifest.cells[id]; if (c) specChars[id] = (c.specBlock || '').length; }
-  const meta = { project: project || 'project', counts: verified.counts, passed: verified.passed, totalUnits, plan: planDoc || null, gov: gov || null, files: FILES, briefs: briefs || [], specChars, tags: (tagCfg && tagCfg.tags) || [], tagSet: (tagCfg && tagCfg.set) || null, tagDescriptions: (tagCfg && tagCfg.descriptions) || {}, tagSets: tagSets || [], batch: batchCfg || { enabled: true, barrier: 5 }, policy: policyInfo || { enforced: [], draft: [], violations: [], signers: [] }, signMethod: (policyInfo && policyInfo.signMethod) || 'phone' };
+  const meta = { project: project || 'project', counts: verified.counts, passed: verified.passed, totalUnits, plan: planDoc || null, gov: gov || null, files: FILES, briefs: briefs || [], specChars, tags: (tagCfg && tagCfg.tags) || [], tagSet: (tagCfg && tagCfg.set) || null, tagDescriptions: (tagCfg && tagCfg.descriptions) || {}, tagSets: tagSets || [], batch: batchCfg || { enabled: true, barrier: 5 }, policy: policyInfo || { enforced: [], draft: [], violations: [], signers: [] }, signMethod: (policyInfo && policyInfo.signMethod) || 'phone', ratify: (function(){ try { var b = ratifyBundle(manifest, verified); return { hash: b.hash, count: b.ids.length }; } catch (_) { return { hash: null, count: 0 }; } })() };
   const payload = JSON.stringify({ root: 'system', nodes: YLnodes, edges: { system: modEdges }, details, changes: changes || [], needs, meta })
     .replace(/</g, '\\u003c');
 
@@ -941,7 +942,8 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
     var ccs=document.getElementById('bf-cs'); if(ccs) ccs.onchange=function(){ briefChartSigner=ccs.value||null; renderBriefs(); };
     var crat=document.getElementById('bf-crat'); if(crat) crat.onclick=function(){ briefChartRatify=!briefChartRatify; renderBriefs(); };
     var rbtn=document.getElementById('bf-ratify'); if(rbtn) rbtn.onclick=function(){ var rm=document.getElementById('bf-ratmsg'); if(rm){ rm.textContent=onPhone?'Sending to your phone to sign…':'Signing locally…'; rm.style.color=''; } rbtn.disabled=true; rbtn.style.opacity='.6';
-      fetch('/api/ratify',{method:'POST',headers:{'content-type':'application/json'},body:'{}'}).then(function(r){return r.json();}).then(function(j){ if(j&&j.ok){ if(rm){ rm.textContent='✓ Ratified — reloading…'; rm.style.color='#1f9d57'; } setTimeout(function(){ location.reload(); },1200); } else { rbtn.disabled=false; rbtn.style.opacity='1'; if(rm){ rm.textContent='✗ '+((j&&j.error)||'failed'); rm.style.color='#cf4436'; } } }).catch(function(){ rbtn.disabled=false; rbtn.style.opacity='1'; if(rm){ rm.textContent='✗ request failed'; rm.style.color='#cf4436'; } }); };
+      var reviewed=(DATA.meta&&DATA.meta.ratify&&DATA.meta.ratify.hash)||null; // TOCTOU: sign exactly what this page rendered
+      fetch('/api/ratify',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({reviewed:reviewed})}).then(function(r){return r.json();}).then(function(j){ if(j&&j.ok){ if(rm){ rm.textContent='✓ Ratified — reloading…'; rm.style.color='#1f9d57'; } setTimeout(function(){ location.reload(); },1200); } else { rbtn.disabled=false; rbtn.style.opacity='1'; if(rm){ rm.textContent='✗ '+((j&&j.error)||'failed'); rm.style.color='#cf4436'; } } }).catch(function(){ rbtn.disabled=false; rbtn.style.opacity='1'; if(rm){ rm.textContent='✗ request failed'; rm.style.color='#cf4436'; } }); };
     var crs=document.getElementById('bf-creset'); if(crs) crs.onclick=function(){ briefChartTag=null; briefChartSigner=null; briefChartRatify=false; renderBriefs(); };
     if(briefView==='chart') setupChartLens();
     var ben=document.getElementById('bf-batch-en'), bn=document.getElementById('bf-batch-n'), bmsg=document.getElementById('bf-batch-msg');

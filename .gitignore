@@ -6,6 +6,7 @@
 
 # ── Signing / key material — private keys stay off the repo ─
 .yaylayer/keys/
+.yaylayer/.ratify-review.json
 *.keystore
 *.mnemonic
 *.key

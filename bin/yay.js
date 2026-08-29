@@ -14,6 +14,7 @@ const path = require('path');
 
 const U = require('../src/util');
 const C = require('../src/crypto');
+const R = require('../src/ratify');
 const { buildManifest } = require('../src/manifest');
 const { verifyManifest } = require('../src/verify');
 const { renderMap } = require('../src/map');
@@ -1235,18 +1236,35 @@ async function cmdRatify(flags) {
   if (!config) return fail('run `yay init` first');
   const manifest = buildManifest(flags.dir || p.root);
   const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: loadRoster(p), grants: loadGrants(p), root: trustRootPin(flags) });
-  const auto = Object.keys(verified.results).filter((id) => verified.results[id].trust && verified.results[id].trust.auto);
-  if (!auto.length) { console.log(U.c.green('✓ nothing to ratify') + U.c.dim(' — no auto-approved Cells awaiting your signature.')); return; }
-  console.log(U.c.bold(`${auto.length} auto-approved Cell(s) awaiting ratification:`));
+  const auto = R.autoCellIds(verified);
+  if (!auto.length) { console.log(U.c.green('✓ nothing to ratify') + U.c.dim(' — no delegated Cells awaiting your signature.')); return; }
+  const bundle = R.ratifyBundle(manifest, verified, auto);
+  const reviewPath = path.join(path.dirname(p.lock), '.ratify-review.json');
+  console.log(U.c.bold(`${auto.length} delegated Cell(s) awaiting ratification:`));
   for (const id of auto) { const r = verified.results[id]; const c = manifest.cells[id]; console.log('  ' + U.c.yellow('⚡ ') + id + U.c.dim(` · ${(c && c.unitName) || ''} · grant ${r.trust.grant}`)); }
   if (!flags.sign && !flags.yes) {
-    console.log('\n' + U.c.dim('review these, then ratify (sign them for real) with ') + U.c.bold('yay ratify --sign') + U.c.dim(' — or leave them delegated.'));
+    U.writeJSON(reviewPath, { hash: bundle.hash, ids: bundle.ids, per: bundle.per, at: new Date().toISOString() });
+    console.log('\n' + U.c.dim('reviewed snapshot ') + U.c.bold(bundle.hash.slice(0, 12) + '…') + U.c.dim(' — review these, then ratify with ') + U.c.bold('yay ratify --sign') + U.c.dim(' (it signs exactly this snapshot).'));
     return;
   }
-  // Ratify = a normal HUMAN signature over exactly these Cells (never auto again).
+  // ── TOCTOU protection: `--sign` must sign PRECISELY what was reviewed. The reviewed hash comes
+  // from `--reviewed <hash>` (dashboard, captured at render time) or the review file (a prior
+  // `yay ratify`). If the delegated changes moved since, refuse the whole batch — nothing signed.
+  let reviewed = (flags.reviewed && flags.reviewed !== true) ? String(flags.reviewed) : null, prevPer = null;
+  if (!reviewed && fs.existsSync(reviewPath)) { const rf = U.readJSON(reviewPath, {}); reviewed = rf.hash || null; prevPer = rf.per || null; }
+  if (!reviewed) return fail('run `yay ratify` first to review what you are signing — nothing signed.');
+  if (reviewed !== bundle.hash) {
+    let changed = '';
+    if (prevPer) { const keys = Object.keys({ ...prevPer, ...bundle.per }); const diff = keys.filter((id) => !prevPer[id] || !bundle.per[id] || prevPer[id].spec !== bundle.per[id].spec || prevPer[id].code !== bundle.per[id].code); if (diff.length) changed = ' Changed: ' + diff.join(', ') + '.'; }
+    try { if (fs.existsSync(reviewPath)) fs.unlinkSync(reviewPath); } catch (_) {}
+    return fail(`the delegated changes moved since you reviewed them (reviewed ${String(reviewed).slice(0, 12)}…, current ${bundle.hash.slice(0, 12)}…).${changed} Run \`yay ratify\` again — nothing signed.`);
+  }
+  // Ratify = a normal HUMAN signature over exactly these Cells (never delegated again).
   flags.cell = auto.join(','); flags['no-auto'] = true;
-  if (!flags.brief) flags.brief = 'Ratify delegated (auto-approved) changes';
-  return cmdSign(flags);
+  if (!flags.brief) flags.brief = 'Ratify delegated changes';
+  const res = await cmdSign(flags);
+  try { if (fs.existsSync(reviewPath)) fs.unlinkSync(reviewPath); } catch (_) {}
+  return res;
 }
 
 async function cmdPair(flags) {
@@ -1900,10 +1918,12 @@ async function cmdDashboard(flags) {
           ? { ok: true, output: out.replace(/\x1b\[[0-9;]*m/g, '').trim() }
           : { ok: false, error: (out.replace(/\x1b\[[0-9;]*m/g, '').trim() || ('policy --set exited ' + code)) }));
       }),
-      // Freedom mode: human-ratify all delegated (auto-approved) Cells — routes to the phone
-      // (reuses yay ratify --sign, which lays a real signature over exactly the auto Cells).
-      ratifyApply: () => new Promise((resolve) => {
-        const child = require('child_process').spawn(process.execPath, [process.argv[1], 'ratify', '--sign'], { cwd: p.root });
+      // Autopilot: human-ratify the delegated Cells — routes to the phone (reuses yay ratify --sign).
+      // `reviewed` is the bundle hash the dashboard rendered; the CLI refuses if the tree moved since.
+      ratifyApply: (reviewed) => new Promise((resolve) => {
+        const args = [process.argv[1], 'ratify', '--sign'];
+        if (reviewed) { args.push('--reviewed', String(reviewed)); }
+        const child = require('child_process').spawn(process.execPath, args, { cwd: p.root });
         let out = '';
         child.stdout.on('data', (d) => { out += d; });
         child.stderr.on('data', (d) => { out += d; });

@@ -346,7 +346,8 @@ function startDashboard(deps, opts) {
       if (!isLocal(req)) return sendJSON(res, 403, { error: 'local only' });
       if (!deps.ratifyApply) return sendJSON(res, 200, { ok: false, error: 'ratify not available' });
       if (pending) return sendJSON(res, 409, { error: 'a request is already awaiting the phone' });
-      try { return sendJSON(res, 200, await deps.ratifyApply()); }
+      const b = await readBody(req); // b.reviewed = the bundle hash the page rendered (TOCTOU guard)
+      try { return sendJSON(res, 200, await deps.ratifyApply(b && b.reviewed)); }
       catch (e) { return sendJSON(res, 200, { ok: false, error: String((e && e.message) || e) }); }
     }
     // Briefs history lens: a Cell as a given Brief signed it (git), + current + a then→now diff.
