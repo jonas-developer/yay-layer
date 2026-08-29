@@ -254,6 +254,18 @@ function renderMap(manifest, verified, project, changes, times, planDoc, gov, br
     UNSIGNED: { label: 'Unsigned', glyph: '✎', sub: 'awaiting a signature',     grad: 'linear-gradient(135deg,#8b95a6,#586274)' },
     PINK:     { label: 'Pink',     glyph: '◆', sub: 'no spec — blocks the gate', grad: 'linear-gradient(135deg,#ec6aa6,#cf3f86)' },
   };
+  // Matched inline line-icons (Feather set, MIT) for the sidebar nav — stroke:currentColor so they
+  // tint with the tab (muted → accent when active). Uniform 24×24, no fill.
+  const ICONS = {
+    map: '<svg viewBox="0 0 24 24"><polygon points="1 6 8 3 16 6 23 3 23 18 16 21 8 18 1 21"/><line x1="8" y1="3" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="21"/></svg>',
+    briefs: '<svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>',
+    plan: '<svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>',
+    tags: '<svg viewBox="0 0 24 24"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>',
+    files: '<svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>',
+    signers: '<svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+    policy: '<svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
+    commands: '<svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>',
+  };
   const statblocks = '<div class="statgrid">' + ['GREEN', 'YELLOW', 'RED', 'UNSIGNED', 'PINK'].map((k) => {
     const m = STAT_META[k];
     const sub = (k === 'GREEN' && (c.GREEN || 0) > 0) ? `${c.proven || 0} proven · ${c.unproven || 0} unproven` : m.sub;
@@ -304,7 +316,8 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);l
 .navgroup{font-family:var(--sans);font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:var(--mut);padding:15px 10px 6px}
 .navgroup:first-child{padding-top:8px}
 .tab{display:flex;align-items:center;gap:11px;width:100%;text-align:left;font-family:var(--sans);font-size:.88rem;font-weight:500;letter-spacing:-.005em;background:none;border:none;color:var(--ink2);border-radius:9px;padding:9px 12px;cursor:pointer;transition:color .15s ease,background .15s ease}
-.tab .ti{width:18px;text-align:center;font-size:.98rem;opacity:.8;flex:none;font-family:var(--mono)}
+.tab .ti{width:18px;height:18px;flex:none;display:inline-flex;align-items:center;justify-content:center;opacity:.75}
+.tab .ti svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .tab:hover:not(.active){color:var(--ink);background:color-mix(in srgb,var(--ink) 6%,transparent)}
 .tab.active{background:color-mix(in srgb,var(--brand) 15%,transparent);color:var(--accent);font-weight:600}
 .tab.active .ti{opacity:1}
@@ -494,17 +507,17 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
 <div class="brand"><span class="logo"><svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><rect width="26" height="26" rx="7" fill="#3ecf8e"/><path d="M6.5 13.5l4 4L20 7.5" fill="none" stroke="#04231a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="brandname">YayLayer</span><span class="brandsep">/</span><span class="brandproj">${esc(project || 'project')}</span></div>
 <nav class="sidenav">
 <div class="navgroup">Overview</div>
-<button class="tab active" data-tab="map"><span class="ti">◫</span>Map</button>
+<button class="tab active" data-tab="map"><span class="ti">${ICONS.map}</span>Map</button>
 <div class="navgroup">Work</div>
-<button class="tab" data-tab="briefs"><span class="ti">❏</span>Briefs</button>
-<button class="tab" data-tab="plan" id="tab-plan" style="display:none"><span class="ti">◇</span>System Plan</button>
-<button class="tab" data-tab="tags" id="tab-tags" style="display:none"><span class="ti">#</span>Tags</button>
-<button class="tab" data-tab="files"><span class="ti">▤</span>Files</button>
+<button class="tab" data-tab="briefs"><span class="ti">${ICONS.briefs}</span>Briefs</button>
+<button class="tab" data-tab="plan" id="tab-plan" style="display:none"><span class="ti">${ICONS.plan}</span>System Plan</button>
+<button class="tab" data-tab="tags" id="tab-tags" style="display:none"><span class="ti">${ICONS.tags}</span>Tags</button>
+<button class="tab" data-tab="files"><span class="ti">${ICONS.files}</span>Files</button>
 <div class="navgroup">Governance</div>
-<button class="tab" data-tab="signers"><span class="ti">✦</span>Signers</button>
-<button class="tab" data-tab="policy" id="tab-policy" style="display:none"><span class="ti">§</span>Policy</button>
+<button class="tab" data-tab="signers"><span class="ti">${ICONS.signers}</span>Signers</button>
+<button class="tab" data-tab="policy" id="tab-policy" style="display:none"><span class="ti">${ICONS.policy}</span>Policy</button>
 <div class="navgroup">Reference</div>
-<button class="tab" data-tab="commands"><span class="ti">›_</span>Commands</button>
+<button class="tab" data-tab="commands"><span class="ti">${ICONS.commands}</span>Commands</button>
 </nav>
 </aside>
 <div class="scrim" id="scrim"></div>
