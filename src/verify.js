@@ -9,7 +9,7 @@
 // from `ensures`, real AST effect analysis, mutation scoring — is the per-language
 // adapter milestone on the roadmap (see standard/STANDARD.md §Verification tiers).
 
-const { canonical, pubKeysOf, isJsLang } = require('./util');
+const { canonical, pubKeysOf, isJsLang, normLangName } = require('./util');
 const { verify: sigVerify } = require('./crypto');
 const { proveManifest } = require('./prove');
 const { requiredSigners, inertLevel, ignoreAllowed } = require('./policy');
@@ -36,11 +36,62 @@ const EFFECT_SIGNALS_PY = [
   ['global-state', /^\s*global\s+[A-Za-z_]/],
   ['import', /\b__import__\s*\(/],
 ];
+// Per-language nets for the five P1.5 languages, so a `pure: yes` claim is policed in each with
+// its OWN effect idioms (before this, non-JS/Python fell through to no net — a missed Red).
+// Conservative: match common effect calls, not every token (a false Red is worse than a gap).
+const EFFECT_SIGNALS_RUBY = [
+  ['stdout', /\b(puts|print|pp)\b|\$stdout\b|\bSTDOUT\b/],
+  ['filesystem', /\bFile\s*\.|\bIO\s*\.|\bDir\s*\.|\bFileUtils\b/],
+  ['network', /\bNet::HTTP\b|\bURI\s*\.\s*open\b|\bopen-uri\b|\bTCPSocket\b|\bSocket\b|\bHTTParty\b/],
+  ['exec', /\bsystem\s*\(|\bexec\s*\(|\bIO\.popen\b|\bProcess\s*\.|`[^`]*`|%x[({[]/],
+  ['env', /\bENV\b/],
+  ['nondeterminism', /\brand\b|\bTime\s*\.\s*now\b|\bDateTime\b|\bSecureRandom\b/],
+  ['global-state', /(^|[^@\w])\$[a-zA-Z_]\w*/],
+];
+const EFFECT_SIGNALS_PHP = [
+  ['stdout', /\becho\b|\bprint\b|\bprintf\s*\(|\bvar_dump\s*\(/],
+  ['filesystem', /\bfile_get_contents\s*\(|\bfile_put_contents\s*\(|\bfopen\s*\(|\bunlink\s*\(|\bmkdir\s*\(|\brename\s*\(/],
+  ['network', /\bcurl_exec\s*\(|\bfsockopen\s*\(|\bstream_socket_client\s*\(/],
+  ['exec', /\bexec\s*\(|\bshell_exec\s*\(|\bsystem\s*\(|\bpassthru\s*\(|\bproc_open\s*\(|`[^`]*`/],
+  ['superglobal', /\$_(GET|POST|REQUEST|SESSION|COOKIE|SERVER|ENV|FILES)\b/],
+  ['db', /\bnew\s+PDO\b|\bmysqli?_(query|connect)\b/],
+  ['nondeterminism', /\brand\s*\(|\bmt_rand\s*\(|\brandom_int\s*\(|\btime\s*\(|\bmicrotime\s*\(|\bdate\s*\(|\buniqid\s*\(/],
+];
+const EFFECT_SIGNALS_SOLIDITY = [
+  ['state', /\bstorage\b|\bselfdestruct\s*\(/],
+  ['event', /\bemit\s+\w/],
+  ['external-call', /\.\s*call\s*[({]|\.\s*delegatecall\s*\(|\.\s*transfer\s*\(|\.\s*send\s*\(/],
+  ['context', /\bblock\s*\.|\bmsg\s*\.|\btx\s*\.|\bblockhash\s*\(|\bnow\b/],
+];
+const EFFECT_SIGNALS_RUST = [
+  ['stdout', /\bprintln!|\bprint!|\beprintln!|\beprint!|\bio::stdout\b/],
+  ['filesystem', /\bstd::fs\b|\bFile::(open|create)\b|\bfs::(read|write|remove|create)/],
+  ['network', /\bTcpStream\b|\bTcpListener\b|\bstd::net\b|\breqwest\b/],
+  ['process', /\bstd::process\b|\bCommand::new\b/],
+  ['nondeterminism', /\brand::|\bInstant::now\b|\bSystemTime::now\b|\bthread_rng\b/],
+  ['global-mut', /\bstatic\s+mut\b/],
+  ['unsafe', /\bunsafe\b/],
+];
+const EFFECT_SIGNALS_CSHARP = [
+  ['stdout', /\bConsole\s*\.\s*(Write|WriteLine|Read|ReadLine)\b/],
+  ['filesystem', /\bFile\s*\.|\bDirectory\s*\.|\bStreamReader\b|\bStreamWriter\b|\bSystem\s*\.\s*IO\b/],
+  ['network', /\bHttpClient\b|\bWebClient\b|\bSocket\b|\bSystem\s*\.\s*Net\b/],
+  ['process', /\bProcess\s*\.\s*Start\b|\bSystem\s*\.\s*Diagnostics\s*\.\s*Process\b/],
+  ['env', /\bEnvironment\s*\./],
+  ['nondeterminism', /\bnew\s+Random\b|\bDateTime\s*\.\s*(Now|UtcNow|Today)\b|\bGuid\s*\.\s*NewGuid\b|\bStopwatch\b/],
+];
 const isPyLang = (l) => /^py(thon)?w?$/i.test(String(l || ''));
 function effectSignalsFor(lang) {
   if (!lang || isJsLang(lang)) return EFFECT_SIGNALS;
   if (isPyLang(lang)) return EFFECT_SIGNALS_PY;
-  return null; // other languages: no reliable net yet — don't guess (false red is worse)
+  switch (normLangName(lang)) {
+    case 'ruby': return EFFECT_SIGNALS_RUBY;
+    case 'php': return EFFECT_SIGNALS_PHP;
+    case 'solidity': return EFFECT_SIGNALS_SOLIDITY;
+    case 'rust': return EFFECT_SIGNALS_RUST;
+    case 'csharp': return EFFECT_SIGNALS_CSHARP;
+    default: return null; // languages with no net yet — don't guess (a false Red is worse)
+  }
 }
 
 const SEV = { GREEN: 0, YELLOW: 1, UNSIGNED: 2, RED: 3 };
@@ -93,7 +144,7 @@ function staticChecks(cell) {
   // Python). Languages with no reliable net get none — a false red on a function
   // that merely shares a name would be worse than an honest gap.
   // (Missing lang ⇒ JS, so legacy/synthetic cells behave exactly as before.)
-  const sigSet = effectSignalsFor(cell.lang);
+  const sigSet = effectSignalsFor(cell.langName || cell.lang);
   if (cell.unitBody && sigSet) {
     const base = cell.unitBodyStart || 0;
     const found = []; // { signal, line, text } — the exact offending source lines

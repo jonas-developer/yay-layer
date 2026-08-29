@@ -98,6 +98,26 @@ function langOf(file) {
   if (e === '.html') return 'html';
   return 'other';
 }
+// The SPECIFIC language (not the body-grabbing family) — so per-language effect nets and the
+// Ruby/PHP provers can tell php/solidity/rust/csharp apart (all family 'brace') and ruby apart
+// from elixir (both family 'ruby'). Family selects how a unit body is grabbed; this selects
+// which language's effect idioms to police.
+const LANG_NAME = {
+  '.js': 'js', '.jsx': 'js', '.mjs': 'js', '.cjs': 'js', '.ts': 'ts', '.tsx': 'ts',
+  '.py': 'python', '.pyw': 'python', '.rb': 'ruby', '.ex': 'elixir', '.exs': 'elixir',
+  '.php': 'php', '.sol': 'solidity', '.rs': 'rust', '.cs': 'csharp', '.go': 'go', '.java': 'java',
+  '.c': 'c', '.h': 'c', '.cpp': 'cpp', '.cc': 'cpp', '.cxx': 'cpp', '.hpp': 'cpp', '.hh': 'cpp',
+  '.kt': 'kotlin', '.kts': 'kotlin', '.swift': 'swift', '.scala': 'scala', '.dart': 'dart',
+  '.pl': 'perl', '.pm': 'perl', '.sh': 'shell', '.bash': 'shell',
+};
+function langNameOf(file) { return LANG_NAME[path.extname(String(file)).toLowerCase()] || 'other'; }
+// Normalise a language STRING (a cell's extension-derived lang, or a `lang:` spec override) to the
+// canonical name the effect nets / provers key on — so 'rb'|'ruby', 'cs'|'c#'|'csharp' all agree.
+function normLangName(l) {
+  l = String(l || '').toLowerCase().trim();
+  const m = { jsx: 'js', mjs: 'js', cjs: 'js', tsx: 'ts', py: 'python', pyw: 'python', rb: 'ruby', sol: 'solidity', rs: 'rust', cs: 'csharp', 'c#': 'csharp' };
+  return m[l] || l;
+}
 // The comment lead used when `yay adopt` scaffolds a block: '#' for hash-comment
 // languages, '//' otherwise. (Reading is comment-agnostic; only writing needs this.)
 const HASH_EXT = new Set(['.py', '.pyw', '.rb', '.ex', '.exs', '.pl', '.pm', '.sh', '.bash']);
@@ -166,7 +186,24 @@ function hasLoadTimeEffect(text, family) {
   return set.some((re) => re.test(s));
 }
 
+// Top-level (executable-at-load) statements in a PHP file — used ONLY by the PHP prover as a
+// safety gate (never eval a file that runs code outside function/class bodies). Conservative: at
+// brace-depth 0, anything that isn't a declaration / tag / comment is flagged, so we refuse to
+// prove rather than risk executing top-level side effects. (Not wired into the gate's Pink net —
+// that stays family-based; this is opt-in via family 'php' from the adapter.)
+function loosePhp(lines) {
+  const out = []; let depth = 0;
+  const DECL = /^(?:<\?php|<\?=|<\?|\?>|namespace\b|use\b|declare\b|abstract\b|final\b|interface\b|trait\b|enum\b|class\b|function\b|const\b|require\b|require_once\b|include\b|include_once\b|\/\/|#|\/\*|\*)/;
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i]; const t = raw.trim();
+    if (t && depth <= 0 && !DECL.test(t) && !/∷YAY/.test(t) && t !== '{' && t !== '}') out.push(i + 1);
+    depth += (raw.match(/\{/g) || []).length - (raw.match(/\}/g) || []).length;
+    if (depth < 0) depth = 0;
+  }
+  return out;
+}
 function looseTopLevelNonJs(lines, family) {
+  if (family === 'php') return loosePhp(lines);
   if (family !== 'python' && family !== 'ruby') return [];
   const out = [];
   const CALL = /^[A-Za-z_$][\w$]*(?:\s*\.\s*[A-Za-z_$][\w$]*)*\s*\(/;
@@ -193,5 +230,5 @@ function looseTopLevelNonJs(lines, family) {
 module.exports = {
   MARK_BEGIN, MARK_END, YAY_DIR,
   repoRoot, paths, readJSON, writeJSON, canonical, pubKeysOf, walk, c, STATE,
-  langOf, isJsLang, commentLeadOf, looseTopLevelNonJs, hasLoadTimeEffect,
+  langOf, langNameOf, normLangName, isJsLang, commentLeadOf, looseTopLevelNonJs, hasLoadTimeEffect,
 };

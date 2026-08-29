@@ -7,7 +7,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { walk, repoRoot, langOf, isJsLang, looseTopLevelNonJs } = require('./util');
+const { walk, repoRoot, langOf, langNameOf, normLangName, isJsLang, looseTopLevelNonJs } = require('./util');
 const { sha256 } = require('./crypto');
 const { extractFile } = require('./extract');
 const { analyze, nearestUnitAfter } = require('./analyze');
@@ -161,6 +161,7 @@ function buildManifest(targetDir) {
       cells[cell.id] = {
         id: cell.id, file: rel, line: cell.startLine,
         lang: (cell.spec.lang || path.extname(file).slice(1) || 'unknown').split(/[ ·]/)[0],
+        langName: normLangName(cell.spec.lang || langNameOf(file)), // canonical language for effect nets / provers
         spec: cell.spec, specBlock: cell.normalized, specHash: sha256(cell.normalized),
         unitName, detectedUnit, unitBody, unitBodyStart, unitFound, module: cellModule, group: cellGroup,
         contains: parseList(cell.spec.contains), feeds: parseList(cell.spec.feeds), callsOut, callsDirect,

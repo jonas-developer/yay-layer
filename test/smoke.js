@@ -980,6 +980,26 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     fs.rmSync(od, { recursive: true, force: true }); fs.rmSync(cd2, { recursive: true, force: true });
   }
 
+  // P1.5 languages: langNameOf tells brace-family languages apart; per-language effect nets police
+  // `pure: yes` in each; the Ruby/PHP provers run only when their runtime is installed.
+  {
+    const { langNameOf } = require('../src/util');
+    ok(langNameOf('a.rb') === 'ruby' && langNameOf('a.php') === 'php' && langNameOf('a.sol') === 'solidity' && langNameOf('a.rs') === 'rust' && langNameOf('a.cs') === 'csharp', 'langNameOf: php/solidity/rust/csharp are told apart (all body-family "brace")');
+    const mkc = (ext, body) => { const d = fs.mkdtempSync(require('path').join(os.tmpdir(), 'yay-l-')); fs.writeFileSync(require('path').join(d, 'a.' + ext), body); return d; };
+    const noteHas = (d, id, re) => { const v = verifyManifest(buildManifest(d), { approvals: [] }, { signers: {} }, {}); return ((v.results[id] || {}).notes || []).some((n) => re.test(n.text)); };
+    let d = mkc('rb', '#∷YAY⟨C-1⟩\n# unit: w\n# pure: yes\n#∷YAY-END⟨C-1⟩\ndef w(x)\n  File.write("/tmp/x", x)\nend\n');
+    ok(noteHas(d, 'C-1', /purity violated.*filesystem/), 'effect net (Ruby): `pure: yes` with File.write → purity violated');
+    fs.rmSync(d, { recursive: true, force: true });
+    d = mkc('php', '<?php\n//∷YAY⟨C-1⟩\n// unit: w\n// pure: yes\n//∷YAY-END⟨C-1⟩\nfunction w($x){ file_put_contents("/tmp/x", $x); }\n');
+    ok(noteHas(d, 'C-1', /purity violated.*filesystem/), 'effect net (PHP): `pure: yes` with file_put_contents → purity violated');
+    fs.rmSync(d, { recursive: true, force: true });
+    const P = require('../src/prove');
+    d = mkc('rb', '#∷YAY⟨C-1⟩\n# unit: add\n# in: (a:number, b:number)\n# out: number\n# pure: yes\n# ensures: out == a + b\n#∷YAY-END⟨C-1⟩\ndef add(a,b)\n  a + b\nend\n');
+    const pr = P.proveManifest(buildManifest(d))['C-1'] || {};
+    if (!/ruby-missing/.test(pr.reason || '')) ok(pr.status === 'pass', 'prover (Ruby): a pure method with a true `ensures` is machine-proven'); // only when `ruby` is present
+    fs.rmSync(d, { recursive: true, force: true });
+  }
+
   // spec-only adversary: an LLM sees ONLY the spec (never the code) and tries to break it.
   const A = require('../src/adversary');
   const advDir = fs.mkdtempSync(require('path').join(os.tmpdir(), 'yay-adv-'));

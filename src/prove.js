@@ -19,7 +19,7 @@ const vm = require('node:vm');
 const cp = require('child_process');
 const { mutants, deletions, harvestLiterals } = require('./mutate');
 const { makeRecorder } = require('./record');
-const { isJsLang, looseTopLevelNonJs } = require('./util');
+const { isJsLang, looseTopLevelNonJs, normLangName } = require('./util');
 
 function stripTS(code) {
   let m; try { m = require('node:module'); } catch (_) { return code; }
@@ -433,10 +433,143 @@ const pythonAdapter = {
   },
 };
 
-// Registry (order = precedence). Python is claimed before pure-call so a `pure: yes`
-// Python Cell routes to the out-of-VM adapter, not the JS-VM one. The effect/`records:`
-// surface stays an ADVERSARY concern (see note in the design doc), not a prover mode.
-const ADAPTERS = [renderAdapter, pythonAdapter, pureCallAdapter];
+// ── Ruby adapter (out-of-VM) — same shape as Python: proves a pure Ruby method against a Ruby
+// `ensures` in a `ruby` subprocess over spec-generated inputs. Optional runtime: absent → skip.
+function isRubyLang(l) { return normLangName(l) === 'ruby'; }
+let RB_BIN;
+function detectRuby() {
+  if (RB_BIN !== undefined) return RB_BIN;
+  try { cp.execFileSync('ruby', ['-e', 'require "json"'], { stdio: 'ignore', timeout: 4000 }); RB_BIN = 'ruby'; return RB_BIN; } catch (_) {}
+  RB_BIN = null; return RB_BIN;
+}
+const RB_HARNESS = [
+  'require "json"',
+  'd = JSON.parse(STDIN.read)',
+  'b = binding',
+  'begin',
+  '  eval(d["source"], b)',
+  'rescue Exception => e',
+  '  puts JSON.generate({"error" => "load: " + e.message}); exit 0',
+  'end',
+  'fn = (b.eval("method(:" + d["unit"] + ")") rescue nil)',
+  'if fn.nil?',
+  '  puts JSON.generate({"error" => "unit not callable in isolation"}); exit 0',
+  'end',
+  'threw = 0; total = 0',
+  'd["inputs"].each do |args|',
+  '  total += 1',
+  '  begin',
+  '    out = fn.call(*args)',
+  '    eb = binding',
+  '    d["params"].each_with_index { |p, i| eb.local_variable_set(p.to_sym, args[i]) }',
+  '    eb.local_variable_set(:out, out)',
+  '    ok = eb.eval(d["ensures"]) ? true : false',
+  '  rescue Exception => e',
+  '    threw += 1; next',
+  '  end',
+  '  unless ok',
+  '    argstr = d["params"].each_with_index.map { |p, i| "#{p}=#{args[i].inspect}" }.join(", ")',
+  '    o = ((JSON.generate(out) rescue nil) ? out : out.inspect)',
+  '    puts JSON.generate({"fail" => {"argstr" => argstr, "out" => o}}); exit 0',
+  '  end',
+  'end',
+  'if total > 0 && threw >= total',
+  '  puts JSON.generate({"error" => "threw on all generated inputs"}); exit 0',
+  'end',
+  'puts JSON.generate({"pass" => true, "cases" => total - threw})',
+].join('\n');
+function runRubyBatch(bin, source, unit, paramNames, inputs, ensures) {
+  const payload = JSON.stringify({ source, unit, params: paramNames, inputs, ensures });
+  let out;
+  try { out = cp.execFileSync(bin, ['-e', RB_HARNESS], { input: payload, timeout: 8000, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 }); }
+  catch (e) { return { error: (e && e.message ? String(e.message).split('\n')[0] : 'ruby failed') }; }
+  const line = String(out).trim().split('\n').filter(Boolean).pop() || '';
+  try { return JSON.parse(line); } catch (_) { return { error: 'unreadable harness output' }; }
+}
+
+// ── PHP adapter (out-of-VM) — same shape. Proves a pure PHP function against a PHP `ensures`.
+function isPhpLang(l) { return normLangName(l) === 'php'; }
+let PHP_BIN;
+function detectPhp() {
+  if (PHP_BIN !== undefined) return PHP_BIN;
+  try { cp.execFileSync('php', ['-r', 'echo json_encode(1);'], { stdio: 'ignore', timeout: 4000 }); PHP_BIN = 'php'; return PHP_BIN; } catch (_) {}
+  PHP_BIN = null; return PHP_BIN;
+}
+const PHP_HARNESS = [
+  '$d = json_decode(stream_get_contents(STDIN), true);',
+  '$unit = $d["unit"]; $params = $d["params"]; $ens = $d["ensures"];',
+  'try { eval("?>" . $d["source"]); } catch (\\Throwable $e) { echo json_encode(["error" => "load: " . $e->getMessage()]); exit(0); }',
+  'if (!function_exists($unit)) { echo json_encode(["error" => "unit not defined in isolation"]); exit(0); }',
+  '$threw = 0; $total = 0;',
+  'foreach ($d["inputs"] as $args) {',
+  '  $total++;',
+  '  try {',
+  '    $out = call_user_func_array($unit, $args);',
+  '    $scope = ["out" => $out]; foreach ($params as $i => $p) { $scope[$p] = $args[$i]; }',
+  '    extract($scope);',
+  '    $ok = (bool) eval("return (" . $ens . ");");',
+  '  } catch (\\Throwable $e) { $threw++; continue; }',
+  '  if (!$ok) {',
+  '    $parts = []; foreach ($params as $i => $p) { $parts[] = "$p=" . var_export($args[$i], true); }',
+  '    echo json_encode(["fail" => ["argstr" => implode(", ", $parts), "out" => $out]]); exit(0);',
+  '  }',
+  '}',
+  'if ($total > 0 && $threw >= $total) { echo json_encode(["error" => "threw on all generated inputs"]); exit(0); }',
+  'echo json_encode(["pass" => true, "cases" => $total - $threw]);',
+].join('\n');
+function runPhpBatch(bin, source, unit, paramNames, inputs, ensures) {
+  const payload = JSON.stringify({ source, unit, params: paramNames, inputs, ensures });
+  let out;
+  try { out = cp.execFileSync(bin, ['-r', PHP_HARNESS], { input: payload, timeout: 8000, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 }); }
+  catch (e) { return { error: (e && e.message ? String(e.message).split('\n')[0] : 'php failed') }; }
+  const line = String(out).trim().split('\n').filter(Boolean).pop() || '';
+  try { return JSON.parse(line); } catch (_) { return { error: 'unreadable harness output' }; }
+}
+
+// Shared prove() body for the subprocess (Ruby/PHP) adapters — mirrors the Python one.
+function proveSubprocess(runBatch, langLabel, cell, base) {
+  const params = parseIn(cell.spec);
+  if (params.some((p) => !valuesFor(p.type))) return { status: 'skip', level: 'yellow', reason: 'inputs include a type the prover can\'t generate (' + params.map((p) => p.type).join(', ') + ')' };
+  const ensures = String(cell.spec.ensures || '').trim();
+  if (!ensures) return { status: 'skip', level: 'yellow', reason: 'no `ensures:` to machine-check' };
+  const tuples = cartesian(params.map((p) => valuesFor(p.type)), 40);
+  const inputs = tuples.length ? tuples : [[]];
+  const r = runBatch(base.ctx.bin, base.ctx.source, cell.unitName, params.map((p) => p.name), inputs, ensures);
+  if (r.error) return { status: 'skip', level: 'yellow', reason: langLabel + ': ' + r.error };
+  if (r.fail) return { status: 'fail', level: 'red', cases: inputs.length, counterexample: `${cell.unitName}(${r.fail.argstr}) → ${show(r.fail.out)} — violates ensures: ${ensures}` };
+  return { status: 'pass', level: 'info', cases: (typeof r.cases === 'number' ? r.cases : inputs.length) };
+}
+
+const rubyAdapter = {
+  name: 'ruby', inVM: false, wantsJSX: false,
+  canHandle: (cell) => isRubyLang(cell.langName || cell.lang || (cell.spec && cell.spec.lang)) && /^yes\b/i.test((cell.spec && cell.spec.pure) || ''),
+  load: (source, names) => {
+    const bin = detectRuby();
+    if (!bin) return { error: 'ruby-missing' };
+    if (looseTopLevelNonJs(String(source).split(/\r?\n/), 'ruby').length) return { error: 'ruby-toplevel' };
+    const fns = {}; for (const n of names) fns[n] = function () {};
+    return { fns, ctx: { bin, source } };
+  },
+  prove: (cell, base) => proveSubprocess(runRubyBatch, 'ruby', cell, base),
+};
+
+const phpAdapter = {
+  name: 'php', inVM: false, wantsJSX: false,
+  canHandle: (cell) => isPhpLang(cell.langName || cell.lang || (cell.spec && cell.spec.lang)) && /^yes\b/i.test((cell.spec && cell.spec.pure) || ''),
+  load: (source, names) => {
+    const bin = detectPhp();
+    if (!bin) return { error: 'php-missing' };
+    if (looseTopLevelNonJs(String(source).split(/\r?\n/), 'php').length) return { error: 'php-toplevel' };
+    const fns = {}; for (const n of names) fns[n] = function () {};
+    return { fns, ctx: { bin, source } };
+  },
+  prove: (cell, base) => proveSubprocess(runPhpBatch, 'php', cell, base),
+};
+
+// Registry (order = precedence). The out-of-VM language provers (Python/Ruby/PHP) are claimed
+// before pure-call so a `pure: yes` Cell in those languages routes to its subprocess adapter,
+// not the JS-VM one. The effect/`records:` surface stays an ADVERSARY concern, not a prover mode.
+const ADAPTERS = [renderAdapter, pythonAdapter, rubyAdapter, phpAdapter, pureCallAdapter];
 
 // Stage 5 — run one Cell's generated inputs through the adapter's checker. A single
 // counterexample ⇒ Red; can't-check ⇒ honest skip; all cases hold ⇒ proven. Shared
