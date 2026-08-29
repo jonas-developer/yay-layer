@@ -678,8 +678,9 @@ ${statblocks}
     var meta=DATA.meta||{}, P=meta.plan;
     if(!P){ el.innerHTML='<div class="pnote">No system plan yet. Run <b>yay plan</b> (needs an API key in your .env), then regenerate the map.</div>'; return; }
     var subs=P.subsystems||[], flows=P.flows||[], c=meta.counts||{};
-    var chips='<span class="pm">'+meta.totalUnits+' cells</span><span class="pm">'+subs.length+' subsystems</span>'
-      +'<span class="pm '+(meta.passed?'ok':'bad')+'">gate '+(meta.passed?'PASS':'BLOCKED')+'</span>';
+    var chips='<span class="pm">'+meta.totalUnits+' cells</span><span class="pm">'+subs.length+' subsystems</span>';
+    // Per-state counts (incl. red) — the gate status is already shown by the top-bar pill, so we
+    // don't repeat "gate BLOCKED" here; a red count appears alongside the others when there are reds.
     ['GREEN','YELLOW','RED','UNSIGNED','PINK'].forEach(function(k){ if(c[k]) chips+='<span class="pm dot-'+k+'">'+c[k]+' '+k.toLowerCase()+'</span>'; });
     var rank=layerBy(subs.map(function(s){return s.name;}), flows.map(function(f){return [f.from,f.to];}));
     var cols={}; subs.forEach(function(s){ var r=rank[s.name]||0; (cols[r]=cols[r]||[]).push(s); });
@@ -787,7 +788,7 @@ ${statblocks}
       var tabs='<div style="display:inline-flex;border:1px solid var(--rule);border-radius:9px;overflow:hidden;margin:12px 0 12px">'
         +'<button class="hist-t" data-p="signed" style="'+htStyle(true)+'">As signed</button>'
         +'<button class="hist-t" data-p="current" style="'+htStyle(false)+'">Current</button>'
-        +(hasDiff?('<button class="hist-t" data-p="diff" style="'+htStyle(false)+'">What changed</button>'):'')
+        +'<button class="hist-t" data-p="diff" style="'+htStyle(false)+'">Diff'+(hasDiff?' •':'')+'</button>'
         +(tlEvents(j.cell).length?('<button class="hist-t" data-p="timeline" style="'+htStyle(false)+'">Timeline</button>'):'')
         +'</div>';
       var signedPanel=then.found
