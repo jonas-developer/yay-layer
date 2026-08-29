@@ -292,10 +292,10 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);l
 .themebtn:hover{border-color:var(--mut)}
 .viewbtn{font-family:var(--sans);font-size:.8rem;font-weight:600;background:var(--brand);color:#04231a;border:1px solid transparent;border-radius:8px;padding:7px 15px;cursor:pointer}
 .viewbtn:hover{filter:brightness(1.05)}
-.tabs{display:flex;gap:2px;background:var(--card2);border:1px solid var(--rule);border-radius:9px;padding:3px;margin-left:28px}
-.tab{font-family:var(--sans);font-size:.8rem;font-weight:500;background:none;border:none;color:var(--ink2);border-radius:6px;padding:6px 13px;cursor:pointer}
-.tab:hover{color:var(--ink)}
-.tab.active{background:var(--paper);color:var(--ink);box-shadow:var(--shadow);font-weight:600}
+.tabs{display:flex;gap:3px;background:var(--card2);border:1px solid var(--rule);border-radius:11px;padding:4px;margin-left:28px}
+.tab{position:relative;font-family:var(--sans);font-size:.82rem;font-weight:500;letter-spacing:-.005em;background:none;border:none;color:var(--ink2);border-radius:8px;padding:7px 14px;cursor:pointer;transition:color .16s ease,background .16s ease}
+.tab:hover:not(.active){color:var(--ink);background:color-mix(in srgb,var(--ink) 6%,transparent)}
+.tab.active{background:color-mix(in srgb,var(--brand) 15%,var(--paper));color:var(--accent);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.05),inset 0 0 0 1px color-mix(in srgb,var(--brand) 28%,transparent)}
 .navburger{display:none;align-items:center;justify-content:center;width:38px;height:36px;font-size:1.05rem;line-height:1;background:var(--card);color:var(--ink);border:1px solid var(--rule);border-radius:8px;cursor:pointer}
 .navburger:hover{border-color:var(--mut)}
 .navmenu{display:none}
