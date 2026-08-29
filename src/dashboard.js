@@ -68,14 +68,13 @@ function trustHTML() {
 // + an auto-poller that reloads the page when the underlying state version changes.
 function withLiveControls(mapHTML, version) {
   const bar = '<div id="yd-bar" class="yd-float">'
-    + '<div id="yd-live" class="yd-live">● live</div>'
+    + '<div class="yd-livewrap"><span id="yd-live" class="yd-live">● live</span><button id="yd-refresh" class="yd-refresh" aria-label="Refresh" title="Refresh — reload the dashboard">↻</button></div>'
     + '<button class="yd-btn yd-primary" id="yd-req" title="Describe a change you want, in plain words. It is queued as a request your AI picks up (it runs `yay requests`) and turns into a polished Brief + specs for you to sign on your phone. You never write the Brief here."><span class="yd-icon">➕</span>Request a change</button>'
     + '<button class="yd-btn" id="yd-diffs"><span class="yd-icon">≷</span>Changes</button>'
     + '<button class="yd-btn" id="yd-prev" title="Preview: run a package.json script (dev server, build, …) through the dashboard — see its URL + output and stop it."><span class="yd-icon">▷</span>Preview</button>'
     + '<button class="yd-btn" id="yd-tests"><span class="yd-icon">▶</span>Run tests</button>'
     + '<button class="yd-btn" id="yd-adv"><span class="yd-icon">⚔</span>Adversary</button>'
-    + '<button class="yd-btn" id="yd-plan"><span class="yd-icon">⟲</span>Regenerate System Plan</button>'
-    + '<button class="yd-btn yd-primary" id="yd-refresh"><span class="yd-icon">⟳</span>Refresh</button></div>'
+    + '<button class="yd-btn" id="yd-plan"><span class="yd-icon">⟲</span>Regenerate System Plan</button></div>'
     + '<div id="yd-panel" style="display:none"><div id="yd-phead" style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid #2b2b2b;position:sticky;top:0;background:#0f1115"><b id="yd-ptitle">Output</b><button class="yd-btn yd-panel-btn" id="yd-close" style="padding:3px 10px">✕ close</button></div>'
     + '<pre id="yd-pout" style="margin:0;padding:12px 14px;white-space:pre-wrap;word-break:break-word"></pre></div>'
     // Request-a-change: a proper in-page modal (theme-aware), not a native prompt().
@@ -95,7 +94,14 @@ function withLiveControls(mapHTML, version) {
     + '<style>'
     // docked into the sidebar (the default: the dashboard shell provides #yd-slot)
     + '.yd-dock{display:flex;flex-direction:column;gap:2px;padding:11px 12px}'
-    + '.yd-dock .yd-live{display:inline-flex;align-items:center;gap:6px;font-family:var(--sans);font-size:.62rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#1f9d57;padding:0 2px 6px}'
+    + '.yd-dock .yd-live{display:inline-flex;align-items:center;gap:6px;font-family:var(--sans);font-size:.62rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#1f9d57;padding:0 2px 6px;transition:color .2s ease}'
+    + '.yd-dock .yd-live.upd{color:var(--amber)}'
+    + '.yd-dock .yd-live.stopped{color:var(--mut)}'
+    + '.yd-dock .yd-livewrap{display:flex;align-items:center;justify-content:space-between;padding:2px 2px 7px}'
+    + '.yd-dock .yd-livewrap .yd-live{padding:0}'
+    + '.yd-float .yd-livewrap{display:flex;align-items:center;gap:8px;justify-content:center;margin-bottom:2px}'
+    + '.yd-refresh{background:none;border:none;color:var(--mut);cursor:pointer;font-size:1rem;line-height:1;padding:3px 5px;border-radius:7px;transition:color .14s,background .14s}'
+    + '.yd-refresh:hover{color:var(--ink);background:color-mix(in srgb,var(--ink) 8%,transparent)}'
     + '.yd-dock .yd-btn{display:flex;align-items:center;gap:11px;width:100%;text-align:left;background:none;border:none;color:var(--ink2);border-radius:9px;padding:8px 12px;font-family:var(--sans);font-size:.84rem;font-weight:500;cursor:pointer;transition:background .14s,color .14s}'
     + '.yd-dock .yd-btn:hover{background:color-mix(in srgb,var(--ink) 6%,transparent);color:var(--ink)}'
     + '.yd-dock .yd-btn.yd-primary{color:var(--accent);font-weight:600}'
@@ -103,6 +109,7 @@ function withLiveControls(mapHTML, version) {
     // floating fallback (only if no sidebar slot exists)
     + '.yd-float{position:fixed;right:16px;bottom:16px;z-index:99999;display:flex;flex-direction:column;gap:7px;align-items:stretch;font-family:ui-monospace,Menlo,monospace}'
     + '.yd-float .yd-live{align-self:center;padding:4px 12px;border-radius:100px;background:#1f9d57;color:#fff;font-size:11px;margin-bottom:2px}'
+    + '.yd-float .yd-live.upd{background:#c9860f}.yd-float .yd-live.stopped{background:#8a939b}'
     + '.yd-float .yd-btn{display:flex;align-items:center;gap:9px;width:188px;box-sizing:border-box;padding:10px 14px;border-radius:11px;border:1px solid #3ecf8e;background:#fff;color:#159a63;font-weight:700;font-size:12.5px;text-align:left;cursor:pointer;box-shadow:0 3px 12px -6px rgba(0,0,0,.3)}'
     + '.yd-float .yd-btn.yd-primary{background:#3ecf8e;color:#04231a}.yd-float .yd-btn:hover{background:#f1fbf6}.yd-float .yd-icon{flex:0 0 18px;text-align:center;font-size:14px}'
     // output panel: overlays the main column, clear of the left sidebar
@@ -155,7 +162,8 @@ function withLiveControls(mapHTML, version) {
     + 'cfModal.addEventListener("click",function(e){if(e.target===cfModal)cfDone(false);});'
     + 'document.addEventListener("keydown",function(e){if(cfModal.classList.contains("open")&&e.key==="Escape")cfDone(false);});'
     + 'document.getElementById("yd-plan").onclick=async function(){if(!(await ydConfirm("Regenerate the System Plan?","This calls your LLM provider and costs tokens.","Regenerate")))return;show("System Plan","Regenerating via your LLM provider… (a few seconds)");try{var r=await fetch("/api/plan/regen",{method:"POST"});if(r.status===403){show("System Plan","Regenerate from the dashboard on THIS computer (localhost).","err");return;}var j=await r.json();if(j.ok){show("System Plan","✓ Updated ("+j.provider+"/"+j.model+", "+j.subsystems+" subsystems). Reloading…","ok");setTimeout(function(){location.reload();},900);}else{show("System Plan","✗ "+(j.error||"failed"),"err");}}catch(e){show("System Plan","Could not regenerate: "+e,"err");}};'
-    + 'async function poll(){try{var r=await fetch("/api/version",{cache:"no-store"});var j=await r.json();if(j.v&&j.v!==V){live.textContent="● updated — refreshing";live.style.background="#c9860f";setTimeout(function(){location.reload();},500);}}catch(_){live.textContent="● server stopped";live.style.background="#d92d20";}}'
+    + 'function liveState(cls,txt){ if(!live) return; live.className="yd-live"+(cls?(" "+cls):""); live.textContent=txt; }'
+    + 'async function poll(){try{var r=await fetch("/api/version",{cache:"no-store"});var j=await r.json();if(j.v&&j.v!==V){liveState("upd","● Updated — refreshing");setTimeout(function(){location.reload();},500);}else{liveState("","● Live");}}catch(_){liveState("stopped","● Server stopped");}}'
     + 'setInterval(poll,3000);})();</script>';
   return mapHTML.indexOf('</body>') >= 0 ? mapHTML.replace('</body>', bar + js + '</body>') : mapHTML + bar + js;
 }

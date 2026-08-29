@@ -268,6 +268,8 @@ function renderMap(manifest, verified, project, changes, times, planDoc, gov, br
     commands: '<svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>',
     capability: '<svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11.5 14.5 16 9.5"/></svg>',
     manual: '<svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>',
+    grants: '<svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
+    add: '<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
   };
   const statblocks = '<div class="statgrid">' + ['GREEN', 'YELLOW', 'RED', 'UNSIGNED', 'PINK'].map((k) => {
     const m = STAT_META[k];
@@ -534,6 +536,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
 <button class="tab" data-tab="files"><span class="ti">${ICONS.files}</span>Files</button>
 <div class="navgroup">Governance</div>
 <button class="tab" data-tab="signers"><span class="ti">${ICONS.signers}</span>Signers</button>
+<button class="tab" data-tab="grants"><span class="ti">${ICONS.grants}</span>Grants</button>
 <button class="tab" data-tab="policy" id="tab-policy" style="display:none"><span class="ti">${ICONS.policy}</span>Policy</button>
 <div class="navgroup">Reference</div>
 <button class="tab" data-tab="commands"><span class="ti">${ICONS.commands}</span>Commands</button>
@@ -558,6 +561,7 @@ ${statblocks}
 <div id="tags" class="signers" style="display:none"></div>
 <div id="policy" class="signers" style="display:none"></div>
 <div id="signers" class="signers" style="display:none"></div>
+<div id="grants" class="signers" style="display:none"></div>
 <div id="files" class="files" style="display:none"></div>
 <div id="commands" class="commands" style="display:none">${commandsHTML()}</div>
 <div id="capability" class="signers" style="display:none"></div>
@@ -755,6 +759,7 @@ ${statblocks}
     if(g.signedRoster) html+='<div class="rootcard"><div><div class="rootlbl">Trust root</div><div class="rootfp">'+esc2(g.rootFp||'')+'</div></div><div class="snote">Pin this in CI (<b>yay gate</b>). Any swap of the roster fails the gate.</div></div>';
     else html+='<div class="swarn">⚠ Roster is unsigned — anyone with repo write could add a signer. Run <b>yay init</b>/<b>yay keygen</b> to establish a signed trust root.</div>';
     (g.problems||[]).forEach(function(p){ html+='<div class="swarn">✗ '+esc2(p)+'</div>'; });
+    if(isLive()) html+='<div style="margin:0 0 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button id="sg-invite" class="viewbtn">+ Invite a signer / owner</button><span class="snote" style="font-family:var(--sans);font-size:.82rem">creates a one-time join link — you approve the enrollment on your phone.</span></div>';
     g.signers.forEach(function(s){
       var init=(String(s.name).trim().charAt(0)||'?').toUpperCase();
       html+='<div class="srow"><div class="savatar" style="background:'+acolor(s.name)+'">'+esc2(init)+'</div><div style="flex:1;min-width:0">'
@@ -764,6 +769,33 @@ ${statblocks}
         +'</div></div>';
     });
     el.innerHTML=html;
+    var ib=document.getElementById('sg-invite'); if(ib) ib.onclick=openInvite;
+  }
+  // Invite a signer/owner from the dashboard — mints a one-time join link (owner-signed enroll
+  // happens when the teammate opens it and the owner approves on their phone). Reuses /api/invite/create.
+  function openInvite(){
+    var m=document.getElementById('modal'); if(!m) return; var body=m.querySelector('.modal-body');
+    body.innerHTML='<div class="mhead"><span class="mname">Invite a signer or owner</span></div>'
+      +'<div class="snote" style="font-family:var(--sans);margin:0 0 14px">Create a one-time link for a teammate. They open it (on the same Wi-Fi), create their key on their phone, and you approve the enrollment on yours — their private key never leaves their device.</div>'
+      +'<div style="display:flex;flex-direction:column;gap:12px;max-width:440px">'
+      +'<label style="font-size:.85rem;color:var(--ink2)">Name <span style="color:var(--mut)">(a suggestion — they can edit)</span><br><input id="iv-name" placeholder="e.g. Sara" style="width:100%;margin-top:4px;padding:9px 11px;border-radius:9px;border:1px solid var(--rule);background:var(--card2);color:var(--ink);font-family:var(--sans);font-size:.9rem"></label>'
+      +'<label style="font-size:.85rem;color:var(--ink2)">Role<br><select id="iv-role" style="margin-top:4px;padding:9px 11px;border-radius:9px;border:1px solid var(--rule);background:var(--card2);color:var(--ink);font-family:var(--sans);font-size:.9rem"><option value="signer">Signer — can approve/sign</option><option value="owner">Owner — can also manage the roster</option></select></label>'
+      +'<div><button id="iv-create" class="viewbtn">Create invite link</button></div>'
+      +'<div id="iv-out"></div></div>';
+    m.classList.add('open'); document.body.style.overflow='hidden';
+    var out=document.getElementById('iv-out');
+    document.getElementById('iv-create').onclick=function(){
+      var name=(document.getElementById('iv-name').value||'').trim(), role=document.getElementById('iv-role').value;
+      out.innerHTML='<div class="snote" style="font-family:var(--sans)">Creating…</div>';
+      fetch('/api/invite/create',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:name,role:role})}).then(function(r){return r.json();}).then(function(j){
+        if(j&&j.ok){ var url=location.origin+j.joinPath;
+          out.innerHTML='<div style="border:1px solid var(--rule);border-radius:11px;padding:13px 15px;background:var(--card2)"><div class="rootlbl">Share this link · expires in '+j.expiresInMin+' min · role: '+esc2(j.role)+'</div>'
+            +'<div style="display:flex;gap:8px;align-items:center;margin-top:7px"><input readonly value="'+esc2(url)+'" style="flex:1;min-width:0;padding:8px 10px;border-radius:8px;border:1px solid var(--rule);background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:.78rem"><button id="iv-copy" class="themebtn">Copy</button></div>'
+            +'<div class="snote" style="font-family:var(--sans);margin-top:9px">Open it on the same Wi-Fi (if this address says <code>localhost</code>, use this computer\\u2019s network address instead). When they submit, an approval appears on <b>your</b> phone \\u2014 confirm the 6-digit code to enroll them, then commit <code>.yaylayer/roster.json</code>.</div></div>';
+          var cp=document.getElementById('iv-copy'); if(cp) cp.onclick=function(){ try{ navigator.clipboard.writeText(url); cp.textContent='Copied \\u2713'; }catch(e){} };
+        } else { out.innerHTML='<div class="swarn" style="font-family:var(--sans)">\\u2717 '+esc2((j&&j.error)||'could not create the invite (run this on the computer hosting the dashboard)')+'</div>'; }
+      }).catch(function(e){ out.innerHTML='<div class="swarn" style="font-family:var(--sans)">\\u2717 '+esc2(String(e))+'</div>'; });
+    };
   }
 
   // ── Capabilities tab — what THIS verifier can detect & prove, its version + fingerprint ──
@@ -798,8 +830,36 @@ ${statblocks}
     el.innerHTML=html;
   }
 
+  // ── Grants tab — Autopilot delegation grants (capability envelopes) ──
+  function renderGrants(){
+    var el=document.getElementById('grants'); if(!el) return;
+    var gs=(DATA.meta&&DATA.meta.grants)||[];
+    var html='<h1>Delegation grants</h1><div class="snote" style="font-family:var(--sans);margin:0 0 16px">Autopilot: owner-signed <b>capability envelopes</b> that let the AI approve in-scope changes (delegated) without contacting your phone — until a grant expires or hits its count. Everything delegated is queued for ratification in the Briefs tab.</div>';
+    if(!gs.length){ html+='<div class="snote" style="font-family:var(--sans)">No grants issued. Start Autopilot with <code>yay grant --for 2h --count 20</code> — shape the envelope with <code>--allow "src/ui/**"</code>, <code>--deny</code>, <code>--max-risk medium</code>, <code>--child-grants</code>.</div>'; el.innerHTML=html; return; }
+    gs.slice().sort(function(a,b){ return (b.active?1:0)-(a.active?1:0); }).forEach(function(g){
+      var st=g.active?['active','#1f9d57']:g.revoked?['revoked','#cf4436']:g.expired?['expired','#7f8796']:['spent','#7f8796'];
+      var e=g.envelope||{}; var scope=[];
+      if(e.cells&&e.cells.length) scope.push(e.cells.length+' named Cell(s)');
+      if(e.allow&&e.allow.length) scope.push('allow '+e.allow.join(', '));
+      if(e.deny&&e.deny.length) scope.push('deny '+e.deny.join(', '));
+      if(e.maxRisk) scope.push('≤ '+e.maxRisk+' risk');
+      if(!scope.length) scope.push('all non-sensitive Cells');
+      var used=g.spent||0, max=g.maxCount||0, pct=max?Math.round(used/max*100):0;
+      var childBit=(e.childGrants&&e.childGrants.allowed)?'<span class="srole signer">child grants ✓ d'+e.childGrants.maxDepth+'</span>':'';
+      var parentBit=g.parent?'<span class="srole signer">child of '+esc2(g.parent)+'</span>':'';
+      var bad=(g.parent&&g.chain&&!g.chain.attenuates)?'<div class="swarn">⚠ '+esc2(g.chain.reason||'invalid chain')+'</div>':'';
+      html+='<div class="srow" style="border-left:3px solid '+st[1]+'"><div style="flex:1;min-width:0">'
+        +'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="sname" style="font-family:var(--mono)">'+esc2(g.id)+'</span><span class="srole '+(g.active?'owner':'signer')+'" style="text-transform:uppercase">'+st[0]+'</span>'+parentBit+childBit+'</div>'
+        +'<div class="smeta" style="font-family:var(--sans);color:var(--ink2)">'+esc2(scope.join(' · '))+'</div>'
+        +'<div class="smeta">'+used+' / '+(max||'∞')+' delegations used'+(max?(' · '+pct+'%'):'')+' · expires '+esc2(String(g.expiresAt||'').slice(0,16).replace('T',' '))+'</div>'
+        +bad+'</div></div>';
+    });
+    html+='<div class="snote" style="font-family:var(--sans);margin-top:14px">Issue with <code>yay grant</code> · stop one with <code>yay grant revoke [id]</code> · ratify delegated work in <b>Briefs</b>. Only a human owner can issue or revoke a grant — the AI never can.</div>';
+    el.innerHTML=html;
+  }
+
   // ── Briefs tab — the plain-English ledger of what was ordered (Standard §5) ──
-  var briefTagFilter=null, briefGroupBy=false, briefView='list'; // Briefs-tab view state
+  var briefTagFilter=null, briefGroupMode='none', briefView='list'; // Briefs-tab view state (group: none|tag|signer)
   var briefChartTag=null, briefChartSigner=null, briefChartMetric='count', briefChartRatify=false; // Chart-view filters (tag / signer / both / awaiting-ratification) + Y-axis metric
   function renderBriefs(){
     var el=document.getElementById('briefs'); if(!el) return;
@@ -1009,8 +1069,10 @@ ${statblocks}
     // View toggle: List (flat / grouped) vs Clouds (a card per tag) vs Chart (growth over time)
     function vbtn(v,label){ var on=briefView===v; return '<button class="bf-view" data-v="'+v+'" style="border:none;padding:6px 15px;font-weight:600;cursor:pointer;font-family:inherit;font-size:.8rem;'+(on?'background:var(--accent);color:#fff':'background:transparent;color:var(--ink)')+'">'+label+'</button>'; }
     var seg='<div style="display:inline-flex;border:1px solid var(--rule);border-radius:9px;overflow:hidden;margin-right:4px">'+vbtn('list','List')+vbtn('clouds','Clouds')+vbtn('chart','Chart')+'</div>';
+    // Compact group toggles (tag / signer). Own class — NOT .tab (that's the full-width sidebar style now).
+    function gbtn(mode,label){ var on=briefGroupMode===mode; return '<button class="bf-gbtn" data-g="'+mode+'" style="border:1px solid '+(on?'var(--accent)':'var(--rule)')+';background:'+(on?'color-mix(in srgb,var(--brand) 15%,transparent)':'transparent')+';color:'+(on?'var(--accent)':'var(--ink2)')+';border-radius:100px;padding:6px 13px;cursor:pointer;font-family:var(--sans);font-size:.8rem;font-weight:600;white-space:nowrap">'+(on?'✓ ':'')+label+'</button>'; }
     var toolbar='<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 14px">'+seg
-      +(briefView==='list'?('<button id="bf-group" class="tab'+(briefGroupBy?' active':'')+'" style="border:1px solid '+(briefGroupBy?'var(--accent)':'var(--rule)')+'">'+(briefGroupBy?'✓ ':'')+'Group by tag</button>'
+      +(briefView==='list'?(gbtn('tag','Group by tag')+gbtn('signer','Group by signer')
         +(briefTagFilter?('<span style="display:inline-flex;align-items:center;gap:6px;font-size:.78rem;font-weight:700;color:var(--accent);border:1px solid var(--accent);border-radius:100px;padding:3px 11px">#'+esc2(briefTagFilter)+' <span id="bf-clear" style="cursor:pointer;opacity:.7" title="Clear filter">✕</span></span>'):'')):'')
       +'</div>';
     var bcfg=(DATA.meta&&DATA.meta.batch)||{enabled:true,barrier:5};
@@ -1027,7 +1089,7 @@ ${statblocks}
       +'</div>'
       +'<div style="font-size:.77rem;color:var(--mut);margin-top:7px">Controls how the <b style="color:var(--ink2)">AI groups changes into Briefs</b> before you sign — and is shared with your team. It does <b style="color:var(--ink2)">not</b> affect how Briefs are displayed here.</div>'
       +'</div>'):'';
-    var hint=briefView==='clouds'?'Each tag is a cloud; inside, its Briefs newest-first. A Brief with several tags appears in every matching cloud — tap one to see its parts.':briefView==='chart'?'How much you’ve signed over time. <b>Count</b> = approved units (each Brief + the Cells it covers); <b>Chars</b> = the same growth by depth (Brief prose + covered specs). Filter by tag and/or signer.':'Click a tag to filter; “Group by tag” orders by tag first, date second.';
+    var hint=briefView==='clouds'?'Each tag is a cloud; inside, its Briefs newest-first. A Brief with several tags appears in every matching cloud — tap one to see its parts.':briefView==='chart'?'How much you’ve signed over time. <b>Count</b> = approved units (each Brief + the Cells it covers); <b>Chars</b> = the same growth by depth (Brief prose + covered specs). Filter by tag and/or signer.':'Click a tag to filter; group by tag or signer to organize the list.';
     // Order: description → project setting (batch) → view controls + their hint → the Briefs.
     // The List/Clouds/Group controls sit right above the Briefs they display.
     // Autopilot call-out: how many Cells across how many Briefs are delegated (produced under a grant
@@ -1099,10 +1161,14 @@ ${statblocks}
     } else {
       var list=briefTagFilter?ms.filter(function(b){return (b.tags||[]).some(function(t){return lc(t)===lc(briefTagFilter);});}):ms;
       if(!list.length){ html+='<div class="snote">No Briefs with that tag.</div>'; }
-      else if(briefGroupBy){
+      else if(briefGroupMode==='tag'){
         var byTag={}; list.forEach(function(b){ ((b.tags&&b.tags.length)?b.tags:['(untagged)']).forEach(function(t){ (byTag[t]=byTag[t]||[]).push(b); }); });
         var names=Object.keys(byTag).sort(function(a,z){return a==='(untagged)'?1:z==='(untagged)'?-1:a.localeCompare(z);});
         names.forEach(function(t){ html+='<div style="font-weight:800;font-size:.82rem;color:var(--accent);margin:14px 0 8px">'+(t==='(untagged)'?'Untagged':'#'+esc2(t))+' <span style="color:var(--mut);font-weight:600">· '+byTag[t].length+'</span></div>'; byTag[t].forEach(function(b){ html+=briefCard(b); }); });
+      } else if(briefGroupMode==='signer'){
+        var bySig={}; list.forEach(function(b){ var s=b.signer||'(unsigned)'; (bySig[s]=bySig[s]||[]).push(b); });
+        var snames=Object.keys(bySig).sort(function(a,z){return a==='(unsigned)'?1:z==='(unsigned)'?-1:a.localeCompare(z);});
+        snames.forEach(function(s){ html+='<div style="font-weight:800;font-size:.82rem;color:var(--ink);margin:14px 0 8px">'+esc2(s)+' <span style="color:var(--mut);font-weight:600">· '+bySig[s].length+'</span></div>'; bySig[s].forEach(function(b){ html+=briefCard(b); }); });
       } else { list.forEach(function(b){ html+=briefCard(b); }); }
     }
     el.innerHTML=html;
@@ -1120,7 +1186,7 @@ ${statblocks}
     function batchPill(state,text){ if(!bmsg) return; clearTimeout(bmsg._t); bmsg.className='savepill show '+state; bmsg.textContent=text; if(state==='saved'){ bmsg._t=setTimeout(function(){ bmsg.classList.remove('show'); },1500); } }
     function saveBatch(){ batchPill('saving','Saving…'); fetch('/api/batch',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({enabled:ben.checked,barrier:parseInt(bn.value,10)||5})}).then(function(r){return r.json();}).then(function(j){ batchPill((j&&j.ok)?'saved':'err',(j&&j.ok)?'✓ Saved':'✗ '+((j&&j.error)||'failed')); }).catch(function(){ batchPill('err','✗ Save failed'); }); }
     if(ben) ben.onchange=saveBatch; if(bn) bn.onchange=saveBatch;
-    var g=document.getElementById('bf-group'); if(g) g.onclick=function(){ briefGroupBy=!briefGroupBy; renderBriefs(); };
+    Array.prototype.forEach.call(el.querySelectorAll('.bf-gbtn'),function(bt){ bt.onclick=function(){ var m=bt.getAttribute('data-g'); briefGroupMode=(briefGroupMode===m?'none':m); renderBriefs(); }; });
     var clr=document.getElementById('bf-clear'); if(clr) clr.onclick=function(){ briefTagFilter=null; renderBriefs(); };
     Array.prototype.forEach.call(el.querySelectorAll('.btag'),function(ch){ ch.onclick=function(){ briefTagFilter=ch.getAttribute('data-tag'); renderBriefs(); }; });
     Array.prototype.forEach.call(el.querySelectorAll('.cbrief'),function(row){ row.onclick=function(e){ if(e.target.classList&&e.target.classList.contains('mcell')) return; var d=row.querySelector('.cbdetail'); if(d) d.style.display=(d.style.display==='none'?'block':'none'); }; });
@@ -1385,7 +1451,7 @@ ${statblocks}
     curTab=name;
     try{ sessionStorage.setItem('yay.tab', name); }catch(e){} // remember across reloads (e.g. after a tag/policy save)
     MAP_ELS.forEach(function(s){ showSel(s, name==='map'); });
-    showSel('#plan', name==='plan'); showSel('#signers', name==='signers'); showSel('#files', name==='files'); showSel('#commands', name==='commands'); showSel('#briefs', name==='briefs'); showSel('#tags', name==='tags'); showSel('#policy', name==='policy'); showSel('#capability', name==='capability');
+    showSel('#plan', name==='plan'); showSel('#signers', name==='signers'); showSel('#files', name==='files'); showSel('#commands', name==='commands'); showSel('#briefs', name==='briefs'); showSel('#tags', name==='tags'); showSel('#policy', name==='policy'); showSel('#capability', name==='capability'); showSel('#grants', name==='grants');
     Array.prototype.forEach.call(document.querySelectorAll('.tab'),function(b){ b.classList.toggle('active', b.getAttribute('data-tab')===name); });
     var nm=document.getElementById('side'); if(nm) nm.classList.remove('open');
     var sc=document.getElementById('scrim'); if(sc) sc.classList.remove('open');
@@ -1396,6 +1462,7 @@ ${statblocks}
     if(name==='tags') renderTags();
     if(name==='policy') renderPolicy();
     if(name==='capability') renderCapability();
+    if(name==='grants') renderGrants();
     if(name==='files') renderFiles();
   }
   // Live = the dashboard's control bar is on the page. Checked LAZILY (not at parse time),
