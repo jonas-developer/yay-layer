@@ -23,8 +23,8 @@ The whole architecture (all three advisor papers + our decisions) is adopted; th
 - [x] Formalize immutable Cell **revisions**; approvals reference a revision id. *(Realized by content-addressing: a Cell's specHash **is** its immutable revision identity, approvals already reference it via `items[id]=specHash`, and each is now archived. An explicit ordered revision index — "revision 1, 2, 3" labels — is deferred as cosmetic.)*
 
 ### P1.5 — Languages *(in 1.0)*
-- [ ] Per-language **effect/purity nets** for all five (Ruby, PHP, Solidity, Rust, C#) — stop the JS-regex fallback; make all five first-class on the gate (correct Pink/Red/Yellow).
-- [ ] **Behavioral proof adapters for Ruby + PHP** (Python subprocess pattern → pure funcs reach Green), with graceful toolchain degradation.
+- [x] Per-language **effect/purity nets** for all five (Ruby, PHP, Solidity, Rust, C#) — stop the JS-regex fallback; make all five first-class on the gate (correct Pink/Red/Yellow).
+- [x] **Behavioral proof adapters for Ruby + PHP** (Python subprocess pattern → pure funcs reach Green), with graceful toolchain degradation.
 
 ### P2 — Verifier attestation *(the leap to "provenance system")*
 - [ ] Canonical Verification object (spec-set/code-tree/verifier-pkg/ruleset/config/evidence hashes + result + timestamp).

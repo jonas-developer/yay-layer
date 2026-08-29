@@ -78,6 +78,44 @@ So a grant only ever carries constraints the running verifier version can enforc
 
 The authorization boundary lives **outside** the authority being delegated. If the agent edits YayLayer policy/config, that must not grant it more scope. (Grants are owner-signed events; the agent holds no owner key. Audit item: confirm *everything* that determines grant scope — including sensitivity classification — sits outside the delegated surface.)
 
+### Child grants — bounded sub-agents 🔭 Later
+
+`child grants` in the envelope decides whether the delegated agent may issue a **sub-grant** under its own authority — a *subset* of its envelope handed to a helper sub-agent, with **no new human signature**. Off by default (`prohibited`); it's the highest-risk lever, so it ships later and only in a strictly-attenuating form.
+
+**What it's for.** Fan-out. An orchestrator agent holding a grant over `src/**` spawns focused helpers, each under a thinner slice — all laddering back to the *one* human root grant:
+
+```
+Human ── signs ──▶ Grant G42   (allowed: src/**, max-cells: 12, expires 14:00)
+                     ├─ child G42.1 → refactor-helper   (allowed: src/ui/**,    max-cells: 4)
+                     ├─ child G42.2 → test-helper        (allowed: test/**,      max-cells: 4)
+                     └─ child G42.3 → docs-helper        (allowed: docs/**,      max-cells: 2)
+```
+
+Each helper's work is **Delegated → awaiting ratification** like any grant output; child grants restructure the *delegation tree*, they don't reduce human oversight of the *result* — everything still lands in your ratification queue.
+
+**What a child grant looks like** — it references its parent and can only *narrow*:
+
+```
+Grant G42.1
+  parent:        G42                 (chained → verify validates back to the human root)
+  issued-by:     grant key of G42    (not an owner — descends from G42's authority)
+  allowed:       src/ui/**           ⊆ parent.allowed (src/**)
+  prohibited:    (inherits parent's, may only ADD)
+  max cells:     4                   ≤ parent.remaining
+  expires:       13:30               ≤ parent.expires
+  max risk:      low                 ≤ parent.risk
+  child grants:  prohibited          (depth-bounded)
+```
+
+**Why it's safe (when it is).** A capability-security pattern (attenuated delegation, à la macaroons / OAuth down-scoping):
+
+- **Monotonic narrowing** — a child's scope/expiry/count/risk is always ⊆ the parent's. The verifier **refuses** any child that exceeds its parent, whatever the agent claims — so no new authority is ever created below the human.
+- **Non-delegable stays non-delegable** — a child can't re-enable a category the parent (or policy) forbids.
+- **Cryptographically chained** — each child references the parent's hash and is signed by the parent's grant key; `yay verify` validates the whole chain back to a human-signed root.
+- **Depth-bounded** — the parent carries `child grants: allowed, max-depth: N`; off by default.
+
+So even though the *agent* mints the child, it can't cheat: the human root remains the sole source of authority, and children only ever divide it into smaller pieces. Pairs naturally with [earned autonomy](#rejected-ratifications-are-valuable-history) — categories that keep getting rejected get auto-excluded from what children may cover.
+
 ## Non-delegable by default
 
 🔜 v1 (defaults) / 🔭 Later (pre-execution gate). "Autopilot" ≠ "freedom everywhere." High-risk categories — authentication/authorization, signing infrastructure, secret access, payment logic, destructive DB operations, production deployment, CI security policy, YayLayer's own trust config, supply-chain/dependency changes — should default to **human approval before execution**, not execute-then-ratify.
