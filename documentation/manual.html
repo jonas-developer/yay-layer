@@ -359,12 +359,13 @@ Ratified                   Green</code></pre>
       <p class="eyebrow">04 — Languages</p>
       <h2>Three tiers of support</h2>
       <p>Which tier a language reaches is part of the verifier's <strong>capability version</strong> — so a language moving from static to proven is a capability bump that can re-verify history.</p>
+      <p>The <strong>Ceiling</strong> column is the <em>best</em> state a well-formed, <em>signed</em> Cell can reach at that tier — not the only state. <span class="state s-pink">Pink</span> (a unit with no Cell) and <span class="state s-red">Red</span> (code that contradicts its spec) are outcomes for <em>problem</em> code and happen at <strong>every</strong> tier — they're failures, not ceilings. The tiers differ only in how high <em>good</em> code climbs: Green (proven) vs Yellow (checked but not executed).</p>
       <div class="tw"><table>
-        <thead><tr><th>Tier</th><th>What the verifier does</th><th>Best state</th></tr></thead>
+        <thead><tr><th>Tier</th><th>What the verifier does</th><th>Ceiling (good, signed Cell)</th></tr></thead>
         <tbody>
-          <tr><td><strong>Proven</strong></td><td>Executes code against its <code>ensures</code> (behavioral prover) + effect/purity nets + coverage + rename detection</td><td><span class="state s-green">Green</span></td></tr>
-          <tr><td><strong>Static</strong></td><td>Cells, un-specced code → Pink, coverage, per-language effect/purity nets, rename detection — no execution</td><td><span class="state s-yellow">Yellow</span></td></tr>
-          <tr><td><strong>Scanned</strong></td><td>Marker-parsed only</td><td><span class="state s-yellow">Yellow</span> (weaker)</td></tr>
+          <tr><td><strong>Proven</strong></td><td>Cells · Pink for un-specced code · effect/purity nets · coverage · rename detection · <strong>executes</strong> against <code>ensures</code> (behavioral prover)</td><td><span class="state s-green">Green</span></td></tr>
+          <tr><td><strong>Static</strong></td><td>Same checks, but <strong>no execution</strong></td><td><span class="state s-yellow">Yellow</span></td></tr>
+          <tr><td><strong>Scanned</strong></td><td>Marker-parsed only (no effect net)</td><td><span class="state s-yellow">Yellow</span> (weaker)</td></tr>
         </tbody>
       </table></div>
       <h3>Support matrix</h3>

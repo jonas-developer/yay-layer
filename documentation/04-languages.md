@@ -4,13 +4,15 @@ YayLayer handles languages at **three tiers**. Which tier a language reaches is 
 
 ## The tiers
 
-| Tier | What the verifier does | Best state reachable |
-|------|------------------------|----------------------|
-| **Proven** | Executes the code against its `ensures` / spec (behavioral prover) + per-language effect/purity nets + coverage + rename detection | **Green** (machine-proven) |
-| **Static** | Extracts Cells, grabs unit bodies, flags un-specced code **Pink**, checks coverage, per-language effect/purity nets, rename detection — but does **not** execute | **Yellow** (honest cap) |
-| **Scanned** | Recognized and marker-parsed only (no per-language effect net) | Yellow, weaker checks |
+The **"Ceiling"** column is the *best* state a **well-formed, signed Cell** can reach at that tier — not the only possible state. **Pink** (a unit with no Cell) and **Red** (code that contradicts its spec, e.g. `pure: yes` but does I/O) are outcomes for *problem* code and can happen at **every** tier; they're failures, not ceilings. So the tiers differ only in how high *good* code can climb: **Green** (proven) vs **Yellow** (statically checked but not executed).
 
-Enforcement is by **detection**: even at the Static tier, a language is first-class on the gate — un-specced code goes Pink, declared-pure-but-effectful goes Red — it just can't reach *machine-proven* Green until an executing adapter exists.
+| Tier | What the verifier does | Ceiling for a good, signed Cell |
+|------|------------------------|----------------------|
+| **Proven** | Extracts Cells · flags un-specced code Pink · per-language effect/purity nets · coverage · rename detection · **executes** the code against its `ensures` (behavioral prover) | **Green** (machine-proven) |
+| **Static** | Same checks — Cells · Pink for un-specced code · effect/purity nets · coverage · rename detection — but **does not execute** | **Yellow** (honest cap; can't reach Green without a prover) |
+| **Scanned** | Recognized and marker-parsed only (no per-language effect net) | **Yellow** (weaker — no effect net) |
+
+Enforcement is by **detection**: even at the Static tier a language is first-class on the gate — un-specced code goes Pink, declared-pure-but-effectful goes Red — it just can't reach *machine-proven* Green until an executing adapter exists.
 
 ## Support matrix
 
