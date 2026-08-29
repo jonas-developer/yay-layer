@@ -81,6 +81,18 @@ const EFFECT_SIGNALS_CSHARP = [
   ['nondeterminism', /\bnew\s+Random\b|\bDateTime\s*\.\s*(Now|UtcNow|Today)\b|\bGuid\s*\.\s*NewGuid\b|\bStopwatch\b/],
 ];
 const isPyLang = (l) => /^py(thon)?w?$/i.test(String(l || ''));
+// A machine-readable descriptor of the per-language effect nets: { lang: [signal labels] }. Used by
+// the verifier-capability fingerprint (src/capability.js) so adding/removing a signal or a whole net
+// changes the fingerprint — forcing a capability-version bump instead of a silent expansion.
+function effectNetDescriptor() {
+  const labels = (arr) => arr.map((s) => s[0]).sort();
+  return {
+    js: labels(EFFECT_SIGNALS), python: labels(EFFECT_SIGNALS_PY), ruby: labels(EFFECT_SIGNALS_RUBY),
+    php: labels(EFFECT_SIGNALS_PHP), solidity: labels(EFFECT_SIGNALS_SOLIDITY), rust: labels(EFFECT_SIGNALS_RUST),
+    csharp: labels(EFFECT_SIGNALS_CSHARP),
+  };
+}
+
 function effectSignalsFor(lang) {
   if (!lang || isJsLang(lang)) return EFFECT_SIGNALS;
   if (isPyLang(lang)) return EFFECT_SIGNALS_PY;
@@ -477,4 +489,4 @@ function verifyManifest(manifest, lock, config, opts) {
   return { results, counts, passed, grants, rosterProblems, rootFp, rosterOk, signedRoster, policy };
 }
 
-module.exports = { verifyManifest, worst };
+module.exports = { verifyManifest, worst, effectNetDescriptor };

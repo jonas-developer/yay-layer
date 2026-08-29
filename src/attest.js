@@ -22,11 +22,10 @@ const C = require('./crypto');
 const { canonical } = require('./util');
 const rosterMod = require('./roster');
 
-// The verifier's capability version. Bump on a change to what the verifier can DETECT/PROVE:
-//   PATCH = bug fix, same verdicts;  MINOR = new detectors/provers (a Yellow may become Green/Red);
-//   MAJOR = a semantics change that can flip existing verdicts. Recorded in every attestation so
-//   old Green can be re-verified against a newer capability (P4) without rewriting history.
-const CAPABILITY = '1.0.0';
+// The verifier's capability version + fingerprint live in src/capability.js, DERIVED from the live
+// provers/effect-nets/checks so a forgotten version bump can't silently claim more than the verifier
+// can do (assertCapability). Every attestation records both the declared version and the fingerprint.
+const { CAPABILITY, capabilityFingerprint } = require('./capability');
 
 function pkgVersion() {
   try { return require('../package.json').version || '0.0.0'; } catch (_) { return '0.0.0'; }
@@ -129,6 +128,7 @@ function buildVerification(manifest, verified, opts) {
     kind: 'verification',
     project: (opts.config && opts.config.project) || null,
     capability: CAPABILITY,
+    capabilityFingerprint: capabilityFingerprint(), // binds the verdict to the EXACT detector set that produced it
     verifierPkg: pkgVersion(),
     specSetHash: C.sha256(canonical(specSet)),
     codeTreeHash: C.sha256(canonical(codeTree)),

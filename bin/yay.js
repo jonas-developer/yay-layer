@@ -17,6 +17,7 @@ const C = require('../src/crypto');
 const R = require('../src/ratify');
 const O = require('../src/objects');
 const A = require('../src/attest');
+const CAP = require('../src/capability');
 const AS = require('../src/assurance');
 const D = require('../src/durable');
 const { buildManifest } = require('../src/manifest');
@@ -1670,6 +1671,13 @@ function cmdAttest(flags, positional) {
   if (!Object.keys(manifest.cells).length) return fail('no Cells to attest — write/adopt specs first.');
   const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), grants: loadGrants(p), root: trustRootPin(flags) });
 
+  // Capability self-check: the declared verifier version must match the live detector set, so an
+  // attestation can never claim a capability the verifier doesn't actually have (drift = a detector
+  // changed without a version bump). A shipped package never drifts; a modified one does.
+  const capChk = CAP.assertCapability();
+  if (capChk.drift && !flags['allow-capability-drift']) {
+    return fail(`verifier capability DRIFT — the active detectors don't match the fingerprint registered for ${capChk.declared}.\n  registered: ${String(capChk.expected).slice(0, 16)}…\n  actual:     ${capChk.actual.slice(0, 16)}…\n  The verifier's provers/effect-nets/checks changed without a capability bump. Bump CAPABILITY in src/capability.js and set REGISTERED[<new>] = "${capChk.actual}" (or pass --allow-capability-drift to attest anyway).`);
+  }
   // Refuse to sign a verdict that doesn't pass, unless explicitly told to record a failing one.
   if (!verified.passed && !flags.force) {
     return fail('gate is BLOCKED — refusing to attest a failing verdict. Fix the reds, or pass --force to record a failing attestation on purpose.');
@@ -1801,6 +1809,23 @@ async function cmdArchive(flags, positional) {
 function getArchivePass(flags) { return process.env.YAY_ARCHIVE_KEY ? Promise.resolve(null) : getPassphrase(flags, 'Enter the project archive passphrase (never stored)'); }
 function localSignerName(p, config) { try { const owners = (config && config.owners) || []; return owners.find((n) => fs.existsSync(path.join(p.keys, `${n}.keystore`))) || owners[0] || null; } catch (_) { return null; } }
 
+// `yay capability` — print the verifier's derived capability descriptor + fingerprint, and whether
+// the declared version matches (drift = detectors changed without a version bump).
+function cmdCapability(flags) {
+  const chk = CAP.assertCapability();
+  const d = CAP.describeCapability();
+  console.log(U.c.bold('Verifier capability ') + U.c.accent(chk.declared) + U.c.dim('  · fingerprint ' + chk.actual.slice(0, 16) + '…'));
+  console.log('  ' + U.c.dim('provers: ') + d.provers.join(', '));
+  console.log('  ' + U.c.dim('effect nets: ') + Object.keys(d.effectNets).join(', '));
+  console.log('  ' + U.c.dim('checks: ') + d.checks.join(', '));
+  console.log('  ' + U.c.dim('policy kinds: ') + d.policyKinds.join(', '));
+  console.log('\n  ' + (chk.drift
+    ? U.c.red('DRIFT') + U.c.dim(` — live fingerprint ≠ the one registered for ${chk.declared}. Bump CAPABILITY + register ${chk.actual.slice(0, 16)}…`)
+    : U.c.green('✓ matches the registered fingerprint') + U.c.dim(' — the declared version honestly describes the verifier.')));
+  if (flags.json) console.log('\n' + JSON.stringify({ ...chk, descriptor: d }, null, 2));
+  if (flags.strict) process.exit(chk.drift ? 1 : 0);
+}
+
 // `yay reverify` (P4) — re-run verification at the CURRENT verifier capability and, if anything
 // changed (a capability bump, a verdict moving Yellow→Green as a prover lands, or code drift),
 // APPEND a new attestation that chains to the prior one. Never rewrites old attestations: a better
@@ -1830,6 +1855,8 @@ function cmdReverify(flags) {
   }
   console.log(U.c.dim(`  ${diff.improved} improved · ${diff.regressed} regressed · ${diff.changes.length} changed`));
   if (!verified.passed && !flags.force) return fail('gate is BLOCKED — refusing to append a failing re-verification. Pass --force to record it anyway.');
+  const capChk = CAP.assertCapability();
+  if (capChk.drift && !flags['allow-capability-drift']) return fail(`verifier capability DRIFT — detectors changed without a version bump (actual ${capChk.actual.slice(0, 16)}…). Bump CAPABILITY in src/capability.js + register it, or pass --allow-capability-drift.`);
   const id = A.verifierIdentity(p, config);
   A.pinVerifier(config, id) && U.writeJSON(p.config, config);
   const att = A.signAttestation(verObj, id);
@@ -2785,6 +2812,8 @@ const HELP = `yay — a protocol for provable, signed AI code
                              capability-versioned. "list" shows the ledger; "verify" re-checks every attestation
                              (--strict exits non-zero on any invalid). Key stays machine-side (gitignored); the
                              public verifier of record is pinned in config (committed) so anyone can verify.
+  yay capability [--json]    the verifier's DERIVED capability descriptor + fingerprint (provers, effect
+                             nets, checks, policy kinds); flags DRIFT if detectors changed without a version bump
   yay reverify               re-run verification at the current verifier capability; if a capability bump,
                              a verdict change (e.g. Yellow→Green), or code drift is found, APPEND a new
                              attestation chained to the prior one (never rewrites old Green). Prints an upgrade report.
@@ -2834,6 +2863,7 @@ async function main() {
     case 'verify': case 'check': return cmdVerify(flags);
     case 'attest': case 'attestation': return cmdAttest(flags, positional);
     case 'reverify': return cmdReverify(flags);
+    case 'capability': case 'caps': return cmdCapability(flags);
     case 'witness': return cmdWitness(flags);
     case 'metrics': return cmdMetrics(flags);
     case 'archive': return cmdArchive(flags, positional);

@@ -1495,5 +1495,24 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     }
   }
 
+  // 24) Verifier capability is DERIVED + self-asserting — a forgotten version bump can't claim more.
+  {
+    const CAP = require('../src/capability');
+    const d = CAP.describeCapability();
+    ok(Array.isArray(d.provers) && d.provers.includes('pure-call') && d.provers.includes('python'), 'capability: descriptor lists the live prover adapters');
+    ok(d.effectNets && d.effectNets.ruby && d.effectNets.solidity, 'capability: descriptor includes the per-language effect nets');
+    const chk = CAP.assertCapability();
+    ok(chk.ok === true && chk.drift === false, 'capability: the declared version matches the registered fingerprint (no drift) — shipped code is honest');
+    ok(chk.actual === CAP.capabilityFingerprint(), 'capability: assertion reports the live fingerprint');
+    // drift is detectable: a different descriptor yields a different fingerprint than the registered one
+    const otherFp = C.sha256(canonical({ ...d, provers: d.provers.concat(['NEW-PROVER']) }));
+    ok(otherFp !== chk.expected, 'capability: adding a prover changes the fingerprint (would trip the drift guard until the version is bumped)');
+    // the attestation records the fingerprint
+    const A = require('../src/attest');
+    const manifest = { cells: { 'C-1': { specHash: 'a', unitBody: 'x' } } };
+    const verObj = A.buildVerification(manifest, { results: { 'C-1': { state: 'GREEN', proven: true } }, counts: { GREEN: 1 }, passed: true, policy: { rules: [] } }, {});
+    ok(verObj.capabilityFingerprint === CAP.capabilityFingerprint() && verObj.capability === CAP.CAPABILITY, 'capability: the verification object binds both the declared version and the live fingerprint');
+  }
+
   console.log(`\nAll ${n} checks passed.`);
 })().catch((e) => { console.error('smoke failed:', e); process.exit(1); });
