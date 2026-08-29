@@ -72,14 +72,14 @@ The first identity is the **genesis owner**. Who-may-sign lives in an **append-o
 Not "everything gets signed" — three distinct things, each proving a different fact:
 
 1. **Artifact hashes** — *what exact thing are we talking about?* (specHash, code-tree hash, evidence hash).
-2. **Verifier attestation** — *what did the trusted machine verifier conclude?* Signed by the **verifier's own key**. 🔜 v1/later.
+2. **Verifier attestation** — *what did the trusted machine verifier conclude?* Signed by the **verifier's own key**. 
 3. **Human signature** — *what did the human authorize/ratify?* Signed by the **phone key**. ✅ Shipped.
 
 A human ratification references the **verifier attestation hash**, so the human is tied not merely to the word "Green" but to the exact verification result that existed when they signed.
 
 ## The two axes
 
-Authority and verification are **orthogonal** and should never be collapsed into one traffic light: 🔜 v1.
+Authority and verification are **orthogonal** and should never be collapsed into one traffic light: 
 
 ```
 AUTHORITY (human)          VERIFICATION (machine)

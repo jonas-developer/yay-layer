@@ -7,7 +7,7 @@ Task-oriented recipes. Commands are detailed in [06 — CLI reference](06-cli-re
 ```bash
 yay init
 ```
-Guided setup: create files → choose a **signing key** (local / mobile-LAN / mobile-relay) → optional **adopt** existing code → pick a **Brief-tag** starter set → write the **Constitution** into your AI harness → optional System Plan. 🔜 v1 also asks **Standard vs Durable** provenance.
+Guided setup: create files → choose a **signing key** (local / mobile-LAN / mobile-relay) → optional **adopt** existing code → pick a **Brief-tag** starter set → write the **Constitution** into your AI harness → optional System Plan. also asks **Standard vs Durable** provenance.
 
 ## Bring an existing codebase under YayLayer (adopt)
 
@@ -41,7 +41,7 @@ yay grant --for 2h --cell C-012,C-013    # scope to specific Cells
 yay grant list                           # active grants
 yay grant revoke [id]                     # stop delegating
 ```
-You sign the grant once on your phone; the AI then produces within the envelope, marked **Delegated · Awaiting ratification**. 🔜 v1 expands the grant into a capability envelope (paths, deps, risk…); see [03](03-autopilot-delegated-execution.md).
+You sign the grant once on your phone; the AI then produces within the envelope, marked **Delegated · Awaiting ratification**. expands the grant into a capability envelope (paths, deps, risk…); see [03](03-autopilot-delegated-execution.md).
 
 ## Ratify delegated work
 
@@ -49,7 +49,7 @@ You sign the grant once on your phone; the AI then produces within the envelope,
 yay ratify           # list delegated Cells awaiting review (read-only)
 yay ratify --sign    # review, then human-sign them for real
 ```
-Review the spec **and** the code it built (both are present) plus the boundary report, then Ratify or Send back. `--sign` signs the **exact bundle you reviewed** and refuses if it changed since (🔜 v1 TOCTOU fix). In the dashboard, the Briefs tab surfaces a **⚡ Ratify now** action.
+Review the spec **and** the code it built (both are present) plus the boundary report, then Ratify or Send back. `--sign` signs the **exact bundle you reviewed** and refuses if it changed since. In the dashboard, the Briefs tab surfaces a **⚡ Ratify now** action.
 
 **If you don't like it:** don't ratify — **Send back** with a note. The AI revises and presents a normal forward Brief you sign; that supersedes the delegated version (which becomes superseded history, never human-blessed). `yay grant revoke` halts further delegation meanwhile.
 

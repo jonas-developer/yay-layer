@@ -12,7 +12,7 @@ Each section is numbered. Concepts (01) and Architecture (02–03) are the "what
 Everything is tagged with a **status** so the docs never claim unbuilt things exist:
 
 - ✅ **Shipped** — in the current engine today.
-- 🔜 **v1** — being built for the fresh `1.0` relaunch.
+- ✅ **1.0** — shipped in the fresh `1.0` relaunch.
 - 🔭 **Later** — planned for a post-1.0 version.
 
 ## Index

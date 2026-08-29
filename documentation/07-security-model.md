@@ -9,14 +9,14 @@ No actor grades its own work. The agent **proposes**, the verifier **measures**,
 | Identity | Key | Attests |
 |----------|-----|---------|
 | **Human** | Phone key (ed25519, biometric-gated) | "I authorized / ratified this intent." |
-| **Verifier** | Verifier key (separate) 🔜 | "This verifier's semantics evaluated this code against this spec → Z." |
+| **Verifier** | Verifier key (separate) ✅ | "This verifier's semantics evaluated this code against this spec → Z." |
 | **Artifacts** | Content hashes (no key) | "This is the exact thing referred to." |
 
 Never conflate them. A human ratification *references* the verifier attestation hash but is signed with the **phone** key; the verifier attestation is signed with the **verifier** key. The human signature means *a person decided*; the verifier signature means *the machine measured*.
 
 ## The verifier-key rule (do not get this wrong)
 
-🔜 v1/later. **Never ship the verifier's signing key inside the npm package.** If the key is public, anyone can forge a `GREEN` attestation and the entire machine-attestation half is worthless. The verifier signature only carries trust if its key is **not universally available**:
+ **Never ship the verifier's signing key inside the npm package.** If the key is public, anyone can forge a `GREEN` attestation and the entire machine-attestation half is worthless. The verifier signature only carries trust if its key is **not universally available**:
 
 - **v1:** a **project/CI-scoped** verifier key (enrolled like a machine signer). Meaning: "our trusted CI verifier said Green" — trustworthy within the org.
 - **Later:** optionally a **hosted YayLayer attestation service** signing with a central key, for cross-org third-party-checkable attestations.
@@ -52,11 +52,11 @@ So injected code can't reach Green without either matching an approved spec or g
 
 ## TOCTOU safety in ratification
 
-🔜 v1 (P0, not-optional). `yay ratify --sign` must sign the **exact bundle the human reviewed** (reviewed-bundle hash over grant+brief+spec-set+code-tree+evidence; refuse on drift). Otherwise a human reviews T93 and unknowingly signs T94 — turning ratification into a false record. See [03](03-autopilot-delegated-execution.md#toctou-safety--not-optional-for-the-relaunch).
+✅ 1.0 (P0). `yay ratify --sign` must sign the **exact bundle the human reviewed** (reviewed-bundle hash over grant+brief+spec-set+code-tree+evidence; refuse on drift). Otherwise a human reviews T93 and unknowingly signs T94 — turning ratification into a false record. See [03](03-autopilot-delegated-execution.md#toctou-safety--not-optional-for-the-relaunch).
 
 ## Silent-drift detection
 
-✅ Shipped (per-Brief health) / 🔜 v1 (history diff). A validly-signed Brief whose covered Cell has since drifted must not read as green. The Briefs view shows covered-Cell health; the history lens shows a **What changed** diff against the signed version. A valid seal over drifted code is exactly the "silent false green" YayLayer exists to catch.
+✅ Shipped (per-Brief health) / (history diff). A validly-signed Brief whose covered Cell has since drifted must not read as green. The Briefs view shows covered-Cell health; the history lens shows a **What changed** diff against the signed version. A valid seal over drifted code is exactly the "silent false green" YayLayer exists to catch.
 
 ## Independent integrity witness
 
@@ -64,7 +64,7 @@ So injected code can't reach Green without either matching an approved spec or g
 
 ## Grant containment
 
-🔜 v1. Only a human can issue a grant (the agent holds no owner key). The agent **must never broaden its own grant** — grant-scope-determining config lives *outside* the delegated surface. Non-delegable categories (auth, payments, secrets, deploy, CI/security, trust config) default to human-approval-before-execution. See [03](03-autopilot-delegated-execution.md#non-delegable-by-default).
+ Only a human can issue a grant (the agent holds no owner key). The agent **must never broaden its own grant** — grant-scope-determining config lives *outside* the delegated surface. Non-delegable categories (auth, payments, secrets, deploy, CI/security, trust config) default to human-approval-before-execution. See [03](03-autopilot-delegated-execution.md#non-delegable-by-default).
 
 ## Trust roster & the constitution
 

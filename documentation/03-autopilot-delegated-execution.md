@@ -26,7 +26,7 @@ Human ── signs ──▶ Grant G42  ("what the agent may do")
 
 ## State vocabulary
 
-🔜 v1. Never say "auto-approved." The states on the **authority** axis (orthogonal to the Green/Yellow/Red verification axis — see [01](01-concepts.md#the-two-axes)):
+✅ 1.0. Never say "auto-approved." The states on the **authority** axis (orthogonal to the Green/Yellow/Red verification axis — see [01](01-concepts.md#the-two-axes)):
 
 | State | Meaning |
 |-------|---------|
@@ -46,7 +46,7 @@ Review the specs, implementation, and evidence, then ratify with `yay ratify --s
 
 ## The grant is a capability envelope
 
-🔜 v1 (scope constraints) / 🔭 Later (detection-gated constraints). Today a grant is only `--for <time> --count <n> --cell <ids>` + a hardcoded sensitive-cell exclusion. That's coarse. The envelope makes authority precise and signed:
+✅ 1.0 (scope constraints: allow/deny paths, cells, max-risk, child-grants) / 🔭 Later (detection-gated content constraints: deps/deployment/network — recorded now, enforced as detectors land). The envelope makes authority precise and signed:
 
 ```
 Grant G42
@@ -118,13 +118,13 @@ So even though the *agent* mints the child, it can't cheat: the human root remai
 
 ## Non-delegable by default
 
-🔜 v1 (defaults) / 🔭 Later (pre-execution gate). "Autopilot" ≠ "freedom everywhere." High-risk categories — authentication/authorization, signing infrastructure, secret access, payment logic, destructive DB operations, production deployment, CI security policy, YayLayer's own trust config, supply-chain/dependency changes — should default to **human approval before execution**, not execute-then-ratify.
+✅ 1.0 (owner-signed non-delegable policy + verifier backstop) / 🔭 Later (cooperative pre-execution pause). "Autopilot" ≠ "freedom everywhere." High-risk categories — authentication/authorization, signing infrastructure, secret access, payment logic, destructive DB operations, production deployment, CI security policy, YayLayer's own trust config, supply-chain/dependency changes — are marked non-delegable in owner-signed policy (`{ "delegable": false }`); a delegated approval that lands there is a gate-blocking grant violation. (The stronger *pre-execution* pause-and-ask is the later cooperative layer.)
 
 > **"Won't auto-sign it" ≠ "won't let the agent do it."** Today a sensitive Cell is merely *excluded from auto-approval* — the agent still writes the code, which then sits Unsigned in your tree. The stronger stance: on entering a non-delegable area the agent **pauses and requests a forward signature** *before* writing it. Two layers make this real: (1) the cooperative path — the Constitution instructs the agent to pause-and-ask; (2) the backstop — the verifier **detects** that a grant touched a prohibited area and flags a grant violation regardless of whether the agent behaved (the agent is untrusted).
 
 ## Ratification
 
-🔜 v1. Ratification is the human catching up on authorization that never happened forward. It is a real **authorization-of-intent** act, done retrospectively with the code + verifier evidence in front of you.
+✅ 1.0. Ratification is the human catching up on authorization that never happened forward. It is a real **authorization-of-intent** act, done retrospectively with the code + verifier evidence in front of you.
 
 ### Design against ratification fatigue
 
@@ -158,7 +158,7 @@ If code was Delegated 10:04–12:41 and Ratified at 12:41, the record must say e
 
 ### TOCTOU safety — not-optional for the relaunch
 
-🔜 v1 (P0). Ratification's whole purpose is a human vouching for the exact thing they reviewed. So `yay ratify --sign` **must sign the exact bundle the human inspected**:
+✅ 1.0 (P0). Ratification's whole purpose is a human vouching for the exact thing they reviewed. So `yay ratify --sign` **signs the exact bundle the human inspected**:
 
 1. At review time, compute a **reviewed-bundle hash** over `{grant, brief, spec-set, code-tree, evidence}`.
 2. At `--sign`, recompute it; if anything material changed, **refuse**:
@@ -168,7 +168,7 @@ Without this, a human can read T93 and unknowingly sign T94 (the agent kept runn
 
 ## Rejected ratifications are valuable history
 
-🔜 v1 (persist) / 🔭 Later (metrics). Don't erase a rejection — it's some of the most valuable provenance there is: a record of where agent autonomy failed human judgment. Persisting `REJECTED` events (with category + reason) is the substrate for **earned autonomy**:
+✅ 1.0. Don't erase a rejection — it's some of the most valuable provenance there is: a record of where agent autonomy failed human judgment. Persisting `REJECTED` events (with category + reason, `yay ratify --reject`) is the substrate for **earned autonomy** (`yay metrics`):
 
 > Over time: "`refactor` delegated changes — 97% ratified unchanged; `dependency` changes — 31% rejected → exclude from grants by default." The agent *earns* broad delegation where it's reliably ratified and *loses* it where humans keep rejecting. None of this exists until rejections are recorded — so it's the payoff of the provenance work, not an early feature.
 

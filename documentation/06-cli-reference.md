@@ -1,12 +1,12 @@
 # 06 — CLI reference
 
-Every command and its main flags. ✅ = shipped today; 🔜 = flags/behavior changing for v1. Passphrases/keys come from `.env` or env vars. Run `yay help` for the terse version.
+Every command and its main flags. ✅ = shipped in 1.0. Passphrases/keys come from `.env` or env vars. Run `yay help` for the terse version.
 
 ## Setup & identity
 
 **`yay init [dir]`** ✅ — Guided setup: files → signing key → adopt → Brief tags → Constitution → optional System Plan.
 - `--key local|mobile` · `--relay` / `--lan` (mobile transport) · `--name <you>` · `--tags <set>` · `--adopt` / `--no-adopt` · `--constitution <keys|all>` · `--plan` / `--no-plan` · `--provider anthropic|openai|custom`
-- 🔜 v1: `--provenance standard|durable`.
+- `--durable` ✅ — start in Durable mode (encrypted, sha256-anchored source archive). Switch anytime with `yay archive enable|disable`.
 
 **`yay keygen --name <you>`** ✅ — Create your ed25519 signing key (public → roster, private → encrypted keystore). `--passphrase <p>`.
 
@@ -21,19 +21,30 @@ Every command and its main flags. ✅ = shipped today; 🔜 = flags/behavior cha
 **`yay sign [--cell IDs]`** ✅ — Approve the current specs; append a signed seal. Uses the project's signing method automatically.
 - `--brief "<text>"` (required by default) · `--title "<headline>"` · `--tags "A,B"` · `--name "<signer>"` (route to a teammate) · `--check [id]` · `--phone` / `--local` · `--no-brief` · `--relay` / `--lan` · `--cell <ids>`.
 
-**`yay verify`** ✅ — Colour every Cell against the working tree. `--strict` (CI: non-zero on Red/Unsigned/Pink) · `--dir <path>`.
-- 🔜 v1/later: mints a signed **verification attestation** at commit/verify-pass.
+**`yay verify`** ✅ — Colour every Cell against the working tree. `--strict` (CI: non-zero on Red/Unsigned/Pink) · `--dir <path>`. Reports whether a signed verifier attestation covers the exact current tree (stale on drift).
 
 **`yay batch <n>` / `yay batch off`** ✅ — Set the batch barrier (group N small changes into one Brief) or disable batching.
 
 ## Autopilot (Delegated execution)
 
-**`yay grant [--for 2h] [--count 20]`** ✅ — Issue bounded delegated authority (owner-signed). The AI then auto-produces in-scope, non-sensitive Cells until the grant expires or hits the count.
-- `--for <dur>` (2h/90m/1d) · `--count <n>` · `--cell <ids>` · `list` · `revoke [id]`.
-- 🔜 v1: capability-envelope flags (allowed/prohibited paths, `--no-deps`, `--max-cells`, `--risk`, `--no-deploy`, `--no-child-grants`); signature covers the exact envelope.
+**`yay grant [--for 2h] [--count 20]`** ✅ — Issue a bounded, owner-signed **capability envelope**. The AI then auto-produces in-scope, non-sensitive Cells until the grant expires or hits the count. The signature covers the exact envelope.
+- `--for <dur>` (2h/90m/1d) · `--count <n>` · `--cell <ids>` · `--allow "<glob>"` · `--deny "<glob>"` · `--max-risk low|medium|high` · `--child-grants` `[--max-depth N]` · `--deps` / `--deploy` (recorded, detector-gated) · `list` · `revoke [id]`.
+- **Non-delegable areas** come from owner-signed policy (`{ "delegable": false }`, path/tag/module) — outside the AI-writable surface. A delegated approval that lands outside its envelope is a gate-blocking **grant violation** (the verifier backstop).
 
-**`yay ratify [--sign]`** ✅ 🔜 — List Cells delegated under a grant (not human-reviewed); `--sign` human-signs them for real.
-- 🔜 v1: shows the built code + boundary/deviation report; `--sign` is **TOCTOU-safe** (signs the exact reviewed bundle, refuses on drift); persists **Rejected** events; state vocabulary is Delegated/Awaiting/Ratified/Rejected (never "auto-approved").
+**`yay ratify [--sign]`** ✅ — List Cells delegated under a grant (not human-reviewed); `--sign` human-signs them for real. Shows grant scope + a **boundary/deviation report** + the verifier attestation. `--sign` is **TOCTOU-safe** (signs the exact reviewed bundle, refuses on drift). State vocabulary: Delegated / Awaiting / Ratified / Rejected / Superseded (never "auto-approved").
+- `--reject --reason "<why>" [--category <…>] [--cell IDs]` ✅ — record a signed, append-only **Rejection** (kept as provenance; the code stays unsigned until fixed).
+
+## Provenance & assurance
+
+**`yay attest [list|verify]`** ✅ — Mint a **signed verifier attestation** over the current verdict (the verifier signs its own result — the third crypto identity). Run at commit / after a green verify. Refuses a blocked gate unless `--force`. Append-only, chained, capability-versioned. `list` shows the ledger; `verify` re-checks every attestation (`--strict` exits non-zero on any invalid). The verifier private key stays machine-side (gitignored); the public verifier of record is pinned in `config.verifier` (committed).
+
+**`yay reverify`** ✅ — Re-run verification at the current verifier capability; if a capability bump, a verdict change (e.g. Yellow→Green), or code drift is found, **append** a new attestation chained to the prior one (never rewrites old Green). Prints an upgrade report. `--force` records a failing re-verification.
+
+**`yay witness [--strict]`** ✅ — Integrity witness: cross-check the attestation chain, the spec archive, and whether the latest attestation still covers the code (git/tree vs ledger vs archive).
+
+**`yay metrics`** ✅ — Earned-autonomy metrics from the delegation + ratification + rejection history (per-category rejection rates; suggests categories to stop delegating).
+
+**`yay archive [enable|disable|--forget|--restore|--verify|install]`** ✅ — Durable mode. `enable`/`disable` the mode; (default) archive the covered signed files (encrypted AES-256-GCM, sha256-anchored); `--forget <hash> --reason "…"` writes a signed **tombstone** (honest erasure); `--restore <hash>` decrypts; `--verify` checks every blob decrypts + anchors; `install` adds a git post-commit hook. Key is project-held (`$YAY_ARCHIVE_KEY` or a passphrase), **never stored by YayLayer**; a pre-archive **secret scan** refuses to seal secrets.
 
 ## Dashboard & maps
 
@@ -57,7 +68,7 @@ Every command and its main flags. ✅ = shipped today; 🔜 = flags/behavior cha
 
 **`yay requests`** ✅ — Pick up queued change-requests (turned into Briefs + specs).
 
-## Planned commands
+## Later versions
 
-- **`yay archive --install`** 🔭 — install the commit-time git hook for Durable-mode code archival.
-- **`yay reverify [--since <verifier-version>]`** 🔭 — re-evaluate historical attestations with the current verifier; append new results (never rewrite).
+- **Behavioral proof for C# / Rust / Solidity** (compile/EVM harnesses), **class/instance-method proving** (Ruby/PHP → pure Rails service objects), and **framework-boot provers** — see [04 — Languages](04-languages.md#current-proving-limits-rubyphp--rails).
+- **Hosted attestation service** — the verifier key is project/CI-scoped today; a hosted signing/verification service is a later option.

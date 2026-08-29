@@ -1,6 +1,6 @@
 # 02 — Provenance architecture
 
-This is the durable-audit heart of YayLayer. Most of it is 🔜 v1 / 🔭 Later; the parts already shipped are marked. The design principle everything serves:
+This is the durable-audit heart of YayLayer — shipped in 1.0 (spec archive, verifier attestation, reverify, integrity witness, Durable mode). The design principle everything serves:
 
 > **Every statement material to an approval remains reconstructable forever unless an explicit retention policy says otherwise — and nothing is ever silently rewritten.**
 
@@ -37,7 +37,7 @@ Every node is an **immutable, content-addressed object**. Nothing in this chain 
 
 ## Preserve every historical spec — always
 
-🔜 v1. Specs are tiny; deleting them destroys information that can't be reconstructed. So **every** signed Cell spec is archived, in **both** Standard and Durable modes. This is what kills the "history comes back blank" problem: the "as signed" spec never depends on git being intact.
+✅ 1.0. Specs are tiny; deleting them destroys information that can't be reconstructed. So **every** signed Cell spec is archived (content-addressed in `.yaylayer/objects/`), in **both** Standard and Durable modes. This is what kills the "history comes back blank" problem: the "as signed" spec never depends on git being intact.
 
 - On sign, the normalized spec block is written to a content-addressed store keyed by its **specHash** (the hash the seal already signs).
 - The history lens reads the spec **store-first**; git is a fallback/cross-check, not the source of truth.
@@ -56,7 +56,7 @@ The two chains have **two birthdays** — state this explicitly or attestation t
 
 ## Verifier attestation
 
-🔜 v1/later. Today `yay verify` is *ephemeral* — re-derived every run, never stored. The attestation makes a "Green" a durable, signed fact. Minted at commit/verify-pass, it records:
+✅ 1.0 (`yay attest`). `yay verify` is *ephemeral* — re-derived every run. The attestation makes a "Green" a durable, **signed** fact. Minted at commit/verify-pass, it records:
 
 ```
 Verification V22
@@ -92,7 +92,7 @@ See [04 — Languages](04-languages.md): a language's behavioral prover landing 
 
 ## Storage — the hybrid model
 
-🔜 v1 (spec store) / 🔭 Later (code archive). We invent as little as possible:
+✅ 1.0 (spec store + encrypted code archive). We invent as little as possible:
 
 - **Small YayLayer-native objects** — spec blocks, verification attestations, evidence manifests, grant/ratification objects — live in a tiny **content-addressed store** in `.yaylayer/objects/` (sha256, deduped). These are the must-never-blank audit core; they're tiny, so we don't need git's packing machinery.
 - **Bulk source code** (Durable mode) is archived via **git** (a shared, incremental object pack/bundle) — battle-tested, delta-compressed, interoperable.
