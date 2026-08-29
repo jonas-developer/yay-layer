@@ -340,7 +340,7 @@ function startDashboard(deps, opts) {
       try { return sendJSON(res, 200, await deps.policyApply()); }
       catch (e) { return sendJSON(res, 200, { ok: false, error: String((e && e.message) || e) }); }
     }
-    // Freedom mode: ratify (human-sign for real) the Cells auto-approved under a grant. Routes
+    // Autopilot: ratify (human-sign for real) the Cells auto-approved under a grant. Routes
     // the signature to the phone (or local key), same as any sign — supersedes the delegation.
     if (req.method === 'POST' && url === '/api/ratify') {
       if (!isLocal(req)) return sendJSON(res, 403, { error: 'local only' });

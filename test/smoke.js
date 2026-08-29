@@ -958,9 +958,9 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     const block = '//∷YAY⟨C-1⟩\n//  unit: add\n//  intent: x\n//  ensures: out === a + b\n//∷YAY-END⟨C-1⟩\nfunction add(a,b){return a+b;}\n';
     fs.writeFileSync(require('path').join(sd, 'm.js'), block);
     const h1 = buildManifest(sd).cells['C-1'].specHash;
-    fs.writeFileSync(require('path').join(sd, 'm.js'), '//∷YAY-AUTO⟨C-1⟩ auto-approved · grant G-001 · not human-reviewed\n' + block);
+    fs.writeFileSync(require('path').join(sd, 'm.js'), '//∷YAY-DELEGATED⟨C-1⟩ delegated · grant G-001 · awaiting ratification\n' + block);
     const m2 = buildManifest(sd);
-    ok(m2.cells['C-1'] && m2.cells['C-1'].specHash === h1, 'auto-stamp: a //∷YAY-AUTO line above the marker does NOT change the specHash (the seal survives stamping)');
+    ok(m2.cells['C-1'] && m2.cells['C-1'].specHash === h1, 'delegated-stamp: a //∷YAY-DELEGATED line above the marker does NOT change the specHash (the seal survives stamping)');
     fs.rmSync(sd, { recursive: true, force: true });
   }
 

@@ -55,7 +55,7 @@ function trustOf(cell, lock, roster, grants) {
     if (ap.items[cell.id] !== cell.specHash) continue;
     const { signature, ...rest } = ap;
     if (ap.autoApproved && ap.grant) {
-      // Freedom mode: signed by the machine-held GRANT key, valid only if a good grant
+      // Autopilot: signed by the machine-held GRANT key, valid only if a good grant
       // covers it (owner-signed, unexpired, unrevoked-before-this, in-count, in-scope).
       const g = (grants || {})[ap.grant];
       const chk = g && G.autoApprovalOk(g, ap, cell.id, cell);
@@ -173,7 +173,7 @@ function verifyManifest(manifest, lock, config, opts) {
     roster = (config && config.signers) || {};
     ownerPubs = ((config && config.owners) || []).reduce((a, n) => a.concat(pubKeysOf(roster[n])), []);
   }
-  // Freedom mode: validated delegation grants (empty when the project doesn't use them).
+  // Autopilot: validated delegation grants (empty when the project doesn't use them).
   const grants = opts.grants ? G.deriveGrants(opts.grants, ownerPubs, lock.approvals) : {};
   const results = {};
 
@@ -195,7 +195,7 @@ function verifyManifest(manifest, lock, config, opts) {
       sc.notes.push({ level: 'info', text: 'no static callers found — possible dead code / bloat candidate (or an entry point called dynamically)' });
     }
     if (trust.auto) {
-      sc.notes.push({ level: 'info', text: `AUTO-APPROVED under grant ${trust.grant} — delegated, not human-reviewed. Run \`yay ratify\` to sign it for real.` });
+      sc.notes.push({ level: 'info', text: `DELEGATED under grant ${trust.grant} (Autopilot) — awaiting ratification, not human-reviewed. Run \`yay ratify\` to sign it for real.` });
     }
 
     results[id] = {
@@ -366,7 +366,7 @@ function verifyManifest(manifest, lock, config, opts) {
   let proven = 0, unproven = 0;
   for (const r of Object.values(results)) if (r.state === 'GREEN') { if (r.proven) proven++; else if (r.hasEnsures) unproven++; }
   counts.proven = proven; counts.unproven = unproven;
-  // Freedom mode: of the signed Cells, how many are AUTO (delegated, awaiting ratification).
+  // Autopilot: of the signed Cells, how many are AUTO (delegated, awaiting ratification).
   let auto = 0;
   for (const r of Object.values(results)) if (r.trust && r.trust.auto && r.state !== 'UNSIGNED') auto++;
   counts.auto = auto;

@@ -86,7 +86,7 @@ State combines **VERIFY** (does code match spec?) and **TRUST** (who approved th
 - **RED** — signed but code ≠ spec (missing unit, purity violated, mismatch), or a tampered signature.
 - **UNSIGNED** — no valid seal covers the current spec.
 - **PINK** — code with **no formal specification at all** (untracked, never described or signed). Total coverage is mandatory, so PINK is the most dangerous state and **blocks the gate** like Red/Unsigned. Untagged code is never silently ignored. *(Detected via a real parser (`@babel/parser`) for **JS, TypeScript, JSX, TSX** — every named unit at any depth: functions, object/class methods, arrow-props — plus top-level imperative code. Unparseable files degrade to file-level grouping.)*
-- **AUTO** (trust overlay) — approved under a freedom-mode grant, not personally reviewed; green-on-verify is possible but marked, and sits in the ratification queue.
+- **Delegated** (trust overlay) — approved under an Autopilot grant, not personally reviewed; green-on-verify is possible but marked, and sits in the ratification queue.
 
 A container Cell's color **rolls up** to the worst of its descendants.
 
@@ -110,9 +110,9 @@ A container Cell's color **rolls up** to the worst of its descendants.
 - **Enforcement:** a local git hook is fast feedback only. The real gate is **CI + branch protection** running `yay verify --strict` — Red/Unsigned fails the check and the merge is blocked. Build/deploy verify is the solo fallback. *(MVP: `yay verify --strict` exit code; local keystore stands in for the phone signer.)*
 - **Key recovery:** back up as a 24-word mnemonic + passphrase, plus a second enrolled key. Lost phone → restore the same key → no re-seal. "Re-seal" (new trust root) is a rare one-signature fallback.
 
-## 10. Freedom mode (auto-approve)
+## 10. Autopilot (delegated execution)
 
-A **delegation grant** — signed once on the phone (Face ID), scoped and time/count-boxed. Within it the AI auto-approves in-scope Cells with **no further phone contact** (the grant is the authorization; verify checks it). Sensitive/code-pinned Cells are excluded. Everything auto-approved is stamped `AUTO` and queued for **ratification**. Stop early with a signed **revocation**, honored at the CI gate. *(Shipped: `yay grant --for … --count …`, `yay ratify`, `yay grant list|revoke`.)*
+A **delegation grant** — signed once on the phone (Face ID), scoped and time/count-boxed. Within it the AI approves in-scope Cells (delegated) with **no further phone contact** (the grant is the authorization; verify checks it). Sensitive/code-pinned Cells are excluded. Everything delegated is stamped `Delegated` and queued for **ratification**. Stop early with a signed **revocation**, honored at the CI gate. *(Shipped: `yay grant --for … --count …`, `yay ratify`, `yay grant list|revoke`.)*
 
 ## 11. Teams
 

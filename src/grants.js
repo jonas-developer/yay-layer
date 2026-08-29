@@ -1,5 +1,5 @@
 'use strict';
-// Freedom mode — scoped, owner-signed delegation GRANTS.
+// Autopilot — scoped, owner-signed delegation GRANTS.
 //
 // A grant lets the machine AUTO-APPROVE in-scope, non-sensitive Cells for a bounded
 // window (time + count) without contacting the phone. It binds a machine-held grant
@@ -18,6 +18,15 @@ function safeVerify(msg, sig, pub) { try { return !!(sig && pub && C.verify(msg,
 
 // A Cell is SENSITIVE — never auto-approvable — if it is code-pinned or marked sensitive.
 // These always require a real human signature, grant or not.
+//
+// KNOWN LIMITATION (P0 grant-broadening audit, to close in P3): sensitivity here is derived
+// ONLY from AI-writable spec fields, so an agent under a grant could strip `sensitive:` / a
+// code-pin marker to pull a previously-sensitive Cell into the grant's scope. Grant EVENTS are
+// owner-signed and tamper-proof (the AI can't mint/widen one, or edit scope.cells) — this is the
+// single remaining broadening vector, and it's mitigated because the marker's removal is visible
+// in the ratification spec-diff. P3 closes it fully by moving non-delegable classification to
+// OWNER-SIGNED policy (path/tag/module), which lives outside the delegated surface, per the
+// principle: the authorization boundary must not be editable by the authority being delegated.
 function isSensitive(cell) {
   if (!cell) return true;
   const sp = cell.spec || {};

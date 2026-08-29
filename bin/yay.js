@@ -75,7 +75,7 @@ function loadRoster(p) { return U.readJSON(rosterPath(p), null); }
 function localPath(p) { return path.join(path.dirname(p.config), 'local.json'); }
 function loadLocalSigner(p) { const d = U.readJSON(localPath(p), null); return d && d.signer ? d.signer : null; }
 function saveLocalSigner(p, name) { try { if (name) { U.writeJSON(localPath(p), { signer: name }); ensureGitignored(p.root, '.yaylayer/local.json'); } } catch (_) {} }
-// Freedom mode: the append-only, owner-signed grants log (committed) + the machine-held
+// Autopilot: the append-only, owner-signed grants log (committed) + the machine-held
 // grant private keys (in the gitignored keys/, used for UNATTENDED auto-signing).
 function grantsPath(p) { return path.join(path.dirname(p.config), 'grants.json'); }
 function loadGrants(p) { return U.readJSON(grantsPath(p), null); }
@@ -86,9 +86,9 @@ function parseDuration(s) {
   const mult = { s: 1e3, m: 6e4, h: 36e5, d: 864e5 }[m[2].toLowerCase()];
   return Number(m[1]) * mult;
 }
-// Stamp a Cell's SOURCE (a `//∷YAY-AUTO⟨id⟩` comment ABOVE its opening marker, so it never
-// touches the spec block / specHash) to mark it auto-approved, and remove it on ratify. So
-// the file itself says "delegated, not human-reviewed" — visible in the code, not just the seal.
+// Stamp a Cell's SOURCE (a `//∷YAY-DELEGATED⟨id⟩` comment ABOVE its opening marker, so it never
+// touches the spec block / specHash) to mark it delegated (Autopilot), and remove it on ratify.
+// So the file itself says "delegated, awaiting ratification" — visible in the code, not just the seal.
 function stampAutoCell(p, cell, grant) {
   try {
     const abs = path.join(p.root, cell.file);
@@ -96,11 +96,11 @@ function stampAutoCell(p, cell, grant) {
     const lines = fs.readFileSync(abs, 'utf8').split('\n');
     const idRe = cell.id.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&');
     const openRe = new RegExp('∷YAY⟨\\s*' + idRe + '\\s*⟩');
-    const autoRe = new RegExp('∷YAY-AUTO⟨\\s*' + idRe + '\\s*⟩');
+    const autoRe = new RegExp('∷YAY-DELEGATED⟨\\s*' + idRe + '\\s*⟩');
     const i = lines.findIndex((l) => openRe.test(l));
     if (i < 0) return;
     const indent = (lines[i].match(/^\s*/) || [''])[0];
-    const stamp = indent + '//∷YAY-AUTO⟨' + cell.id + '⟩ auto-approved · grant ' + grant + ' · not human-reviewed — run `yay ratify`';
+    const stamp = indent + '//∷YAY-DELEGATED⟨' + cell.id + '⟩ delegated · grant ' + grant + ' · awaiting ratification — run `yay ratify`';
     if (i > 0 && autoRe.test(lines[i - 1])) lines[i - 1] = stamp; else lines.splice(i, 0, stamp);
     fs.writeFileSync(abs, lines.join('\n'));
   } catch (_) { /* best effort — the seal in lock.json is the source of truth */ }
@@ -111,7 +111,7 @@ function unstampAutoCell(p, cell) {
     if (!fs.existsSync(abs)) return;
     const lines = fs.readFileSync(abs, 'utf8').split('\n');
     const idRe = cell.id.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&');
-    const autoRe = new RegExp('∷YAY-AUTO⟨\\s*' + idRe + '\\s*⟩');
+    const autoRe = new RegExp('∷YAY-DELEGATED⟨\\s*' + idRe + '\\s*⟩');
     const i = lines.findIndex((l) => autoRe.test(l));
     if (i >= 0) { lines.splice(i, 1); fs.writeFileSync(abs, lines.join('\n')); }
   } catch (_) { /* best effort */ }
@@ -926,8 +926,8 @@ async function cmdSign(flags, positional) {
     && !flags.local && phoneTransport(config, flags) === 'relay';
   if (isCross) return sendToInbox(p, config, lock, manifest, items, approval, name, flags);
 
-  // ── Freedom mode ── if an active grant covers ALL target Cells (none sensitive), the
-  // machine auto-approves with the grant key — no phone, no passphrase. Queued for ratify.
+  // ── Autopilot ── if an active grant covers ALL target Cells (none sensitive), the
+  // machine approves with the grant key (delegated) — no phone, no passphrase. Queued for ratify.
   if (!flags['no-auto']) {
     const glog = loadGrants(p);
     if (glog && glog.events && glog.events.length) {
@@ -944,10 +944,10 @@ async function cmdSign(flags, positional) {
           approval.signature = C.sign(U.canonical(approval), Buffer.from(rec.priv, 'base64'));
           lock.approvals = lock.approvals || []; lock.approvals.push(approval); U.writeJSON(p.lock, lock);
           Object.keys(items).forEach((id) => { if (manifest.cells[id]) stampAutoCell(p, manifest.cells[id], g.id); }); // in-code AUTO stamp
-          console.log(U.c.yellow(`⚡ auto-approved ${Object.keys(items).length} Cell(s)`) + U.c.dim(` under grant ${g.id} — approval ${approval.id} (freedom mode).`));
+          console.log(U.c.yellow(`⚡ delegated ${Object.keys(items).length} Cell(s)`) + U.c.dim(` under grant ${g.id} — approval ${approval.id} (Autopilot).`));
           if (approval.brief) console.log('  ' + U.c.dim('brief: ') + approval.brief.text);
           const left = g.remaining != null ? Math.max(0, g.remaining - 1) : '∞';
-          console.log('  ' + U.c.dim(`delegated, NOT human-reviewed — ratify later with `) + U.c.bold('yay ratify') + U.c.dim(`. ${left} auto-approval(s) left · grant expires ${String(g.expiresAt).slice(0, 16).replace('T', ' ')}.`));
+          console.log('  ' + U.c.dim(`delegated, NOT human-reviewed — ratify later with `) + U.c.bold('yay ratify') + U.c.dim(`. ${left} delegation(s) left · grant expires ${String(g.expiresAt).slice(0, 16).replace('T', ' ')}.`));
           return;
         }
         console.log(U.c.yellow(`  grant ${g.id} is active but its key is missing on this machine — falling back to a normal signature.`));
@@ -1171,14 +1171,14 @@ async function authorizeRosterEvent(p, config, log, ev, flags, summary) {
   return ev;
 }
 
-// ── Freedom mode commands ──────────────────────────────────────────────────
+// ── Autopilot commands ──────────────────────────────────────────────────
 function listGrants(p, config, lock) {
   const glog = loadGrants(p);
-  if (!glog || !glog.events.filter((e) => e.type === 'grant').length) { console.log(U.c.dim('no grants issued — start freedom mode with `yay grant --for 2h --count 20`.')); return; }
+  if (!glog || !glog.events.filter((e) => e.type === 'grant').length) { console.log(U.c.dim('no grants issued — start Autopilot with `yay grant --for 2h --count 20`.')); return; }
   const drv = rosterMod.deriveRoster(loadRoster(p) || { events: [] });
   const ownerPubs = Object.keys(drv.roles || {}).filter((n) => drv.roles[n] === 'owner').reduce((a, n) => a.concat(drv.roster[n] || []), []);
   const grants = grantsMod.deriveGrants(glog, ownerPubs, (lock && lock.approvals) || []);
-  console.log(U.c.bold('Grants (freedom mode):'));
+  console.log(U.c.bold('Grants (Autopilot):'));
   for (const id of Object.keys(grants)) {
     const g = grants[id];
     const status = g.active ? U.c.green('● active') : g.revoked ? U.c.red('revoked') : g.expired ? U.c.dim('expired ') : U.c.dim('spent  ');
@@ -1193,11 +1193,11 @@ async function grantRevoke(p, config, rlog, flags, positional) {
   const target = positional[1] || ((flags.grant && flags.grant !== true) ? flags.grant : gEvents[gEvents.length - 1].id);
   const prev = glog.events[glog.events.length - 1].id;
   const ev = { id: 'GR-' + String(glog.events.length + 1).padStart(3, '0'), type: 'grant-revoke', grant: target, prev, nonce: C.randomNonce(), at: new Date().toISOString() };
-  const summary = { title: `Revoke grant ${target} — stop freedom mode`, rows: [{ k: 'revokes', v: target }], warn: 'After this, NO new auto-approvals under this grant are accepted. Auto-approvals already made stay valid but must still be ratified.' };
+  const summary = { title: `Revoke grant ${target} — stop Autopilot`, rows: [{ k: 'revokes', v: target }], warn: 'After this, NO new delegated approvals under this grant are accepted. Delegated approvals already made stay valid but must still be ratified.' };
   const signed = await authorizeRosterEvent(p, config, rlog, ev, flags, summary);
   if (!signed) return;
   glog.events.push(signed); U.writeJSON(grantsPath(p), glog);
-  console.log('\n' + U.c.green(`✓ grant ${target} revoked`) + U.c.dim(' — freedom mode off for it. Commit ') + U.c.bold('.yaylayer/grants.json') + U.c.dim('.'));
+  console.log('\n' + U.c.green(`✓ grant ${target} revoked`) + U.c.dim(' — Autopilot off for it. Commit ') + U.c.bold('.yaylayer/grants.json') + U.c.dim('.'));
 }
 async function cmdGrant(flags, positional) {
   const { p, config, lock } = loadState();
@@ -1206,7 +1206,7 @@ async function cmdGrant(flags, positional) {
   const rlog = loadRoster(p);
   if (sub === 'list' || flags.list) return listGrants(p, config, lock);
   if (sub === 'revoke' || flags.revoke) return grantRevoke(p, config, rlog, flags, positional);
-  if (!rlog) return fail('freedom mode needs a signed trust root — pair your phone or run `yay keygen` first.');
+  if (!rlog) return fail('Autopilot needs a signed trust root — pair your phone or run `yay keygen` first.');
   const durMs = parseDuration((flags.for && flags.for !== true) ? flags.for : '2h');
   if (!durMs) return fail('bad --for duration — use e.g. 2h, 90m, 1d.');
   const count = (flags.count && flags.count !== true) ? parseInt(flags.count, 10) : 20;
@@ -1219,16 +1219,16 @@ async function cmdGrant(flags, positional) {
   const expiresAt = new Date(Date.now() + durMs).toISOString();
   const ev = { id, type: 'grant', grantPub: gk.pubB64, scope, expiresAt, maxCount: count, prev, nonce: C.randomNonce(), at: new Date().toISOString() };
   const scopeStr = scope.cells ? `${scope.cells.length} named Cell(s)` : 'all non-sensitive Cells';
-  const summary = { title: 'Grant FREEDOM MODE (auto-approval)', rows: [
-    { k: 'scope', v: scopeStr }, { k: 'expires', v: expiresAt.slice(0, 16).replace('T', ' ') }, { k: 'max', v: `${count} auto-approvals` },
-  ], warn: 'While active, the AI auto-approves in-scope changes WITHOUT contacting your phone. Sensitive / code-pinned Cells still need a real signature. Stop anytime with `yay grant revoke`.' };
+  const summary = { title: 'Grant Autopilot (delegated execution)', rows: [
+    { k: 'scope', v: scopeStr }, { k: 'expires', v: expiresAt.slice(0, 16).replace('T', ' ') }, { k: 'max', v: `${count} delegated approvals` },
+  ], warn: 'While active, the AI approves in-scope changes under the grant (delegated, awaiting ratification) WITHOUT contacting your phone. Sensitive / code-pinned Cells still need a real signature. Stop anytime with `yay grant revoke`.' };
   const signed = await authorizeRosterEvent(p, config, rlog, ev, flags, summary);
   if (!signed) return; // authorizeRosterEvent already reported why
   glog.events.push(signed); U.writeJSON(grantsPath(p), glog);
   fs.mkdirSync(p.keys, { recursive: true });
   U.writeJSON(grantKeyPath(p, id), { pub: gk.pubB64, priv: Buffer.from(gk.privDer).toString('base64') });
-  console.log('\n' + U.c.green(`✓ freedom mode ON — grant ${id}`) + U.c.dim(` (${scopeStr}; until ${expiresAt.slice(0, 16).replace('T', ' ')} or ${count} approvals).`));
-  console.log('  ' + U.c.dim('the AI now auto-approves in-scope change-sets with no phone contact. Commit ') + U.c.bold('.yaylayer/grants.json') + U.c.dim(' (key stays in gitignored keys/).'));
+  console.log('\n' + U.c.green(`✓ Autopilot ON — grant ${id}`) + U.c.dim(` (${scopeStr}; until ${expiresAt.slice(0, 16).replace('T', ' ')} or ${count} approvals).`));
+  console.log('  ' + U.c.dim('the AI now approves in-scope change-sets under the grant (delegated) with no phone contact. Commit ') + U.c.bold('.yaylayer/grants.json') + U.c.dim(' (key stays in gitignored keys/).'));
   console.log('  ' + U.c.dim('ratify later with ') + U.c.bold('yay ratify') + U.c.dim(' · stop with ') + U.c.bold('yay grant revoke') + U.c.dim(' · check with ') + U.c.bold('yay grant list') + U.c.dim('.'));
 }
 async function cmdRatify(flags) {
@@ -1515,7 +1515,7 @@ function printReport(manifest, verified, details, problemsOnly) {
         const meta = [];
         const when = (v) => (v ? String(v).slice(0, 16).replace('T', ' ') : '');
         if (r.trust && r.trust.signed) {
-          meta.push((r.trust.auto ? 'AUTO·' + (r.trust.grant || 'grant') : 'by ' + r.trust.signer) + (r.trust.at ? ' on ' + when(r.trust.at) : ''));
+          meta.push((r.trust.auto ? 'Delegated·' + (r.trust.grant || 'grant') : 'by ' + r.trust.signer) + (r.trust.at ? ' on ' + when(r.trust.at) : ''));
         } else meta.push('unsigned');
         if (r.trust && r.trust.firstAt && r.trust.firstAt !== r.trust.at) meta.push('first signed ' + when(r.trust.firstAt));
         meta.push('spec ' + cell.specHash.slice(0, 12) + '…');
@@ -2117,7 +2117,7 @@ function cmdBatch(flags, positional) {
   }
   console.log(U.c.bold('Batch mode') + (cur.enabled ? U.c.green(' ON') + U.c.dim(` · barrier ${cur.barrier}`) : U.c.yellow(' OFF')));
   console.log(U.c.dim('  Small, low-risk changes are grouped into one Brief; at the barrier the AI asks whether to close it and sign'));
-  console.log(U.c.dim('  (in freedom mode it auto-approves the batched Brief instead). Sensitive / behaviour-changing edits always get their own Brief.'));
+  console.log(U.c.dim('  (in Autopilot the batched Brief is delegated under the grant instead). Sensitive / behaviour-changing edits always get their own Brief.'));
   console.log(U.c.dim('  set: ') + U.c.bold('yay batch <n>') + U.c.dim(' · disable: ') + U.c.bold('yay batch off') + U.c.dim(' · enable: ') + U.c.bold('yay batch on'));
 }
 
@@ -2339,10 +2339,10 @@ const HELP = `yay — a protocol for provable, signed AI code
                              authorize with a local owner key, or --phone to approve on an owner's phone
   yay revoke --name X [--pubkey <b64>]  revoke one key (or the whole identity) via an owner-signed event (--phone)
   yay reroot [--phone]        retire the current trust root and establish a new one (key lost/compromised)
-  yay grant [--for 2h] [--count 20]  FREEDOM MODE: owner-signed grant → the AI auto-approves in-scope,
+  yay grant [--for 2h] [--count 20]  Autopilot: owner-signed grant → the AI approves in-scope (delegated),
                              non-sensitive Cells unattended (no phone) until it expires. --cell to narrow scope.
                              yay grant list · yay grant revoke [id] (stop it) · sensitive/code-pinned always need a real sign
-  yay ratify [--sign]        list auto-approved (delegated) Cells; --sign signs them for real (human)
+  yay ratify [--sign]        list delegated Cells awaiting ratification; --sign signs them for real (human)
   yay sign [--cell IDs]       approve specs using THIS project's method (phone or local) — no flag needed
                              override with --phone / --local · SSL on by default (--no-https) · --cell to sign a subset
                              a Brief is required by default (Standard §5): --brief "<what you ordered>" supplies it,
@@ -2394,7 +2394,7 @@ async function main() {
     case 'invite': return cmdInvite(flags, positional);
     case 'revoke': return cmdRevoke(flags);
     case 'reroot': return cmdReroot(flags);
-    case 'grant': case 'freedom': return cmdGrant(flags, positional);
+    case 'grant': case 'autopilot': return cmdGrant(flags, positional);
     case 'ratify': return cmdRatify(flags);
     case 'verify': case 'check': return cmdVerify(flags);
     case 'map': return cmdMap(flags);
