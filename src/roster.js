@@ -41,6 +41,8 @@ function deriveRoster(log, opts) {
   const problems = [];
   let rootFp = null;
   let policy = { rules: [] }; // signing policy — set by owner-signed `policy` events (latest wins)
+  let foundation = null;      // foundation seal payload — set by owner-signed `foundation` events (latest wins)
+  let foundationMode = 'off'; // off | guarded | strict
 
   const ownerKeys = () => {
     const out = [];
@@ -83,6 +85,12 @@ function deriveRoster(log, opts) {
       // tamper-evident and chained like every other governance event. Latest wins;
       // an empty ruleset returns to neutral.
       policy = { rules: Array.isArray(e.rules) ? e.rules : [] };
+    } else if (e.type === 'foundation') {
+      // Owner-signed FOUNDATION SEAL — the baseline of the fixed core files (see foundation.js).
+      // Being an owner-signed, chained roster event makes it un-removable: deleting it breaks
+      // the pinned chain and is itself flagged. Latest wins; mode 'off' retires the seal.
+      foundationMode = ['guarded', 'strict', 'off'].includes(e.mode) ? e.mode : 'guarded';
+      foundation = (foundationMode === 'off') ? null : (e.seal || null);
     } else {
       problems.push(`event ${e.id || i}: unknown type "${e.type}"`);
     }
@@ -94,7 +102,7 @@ function deriveRoster(log, opts) {
   const pinned = opts && opts.root ? String(opts.root).toUpperCase() : null;
   if (pinned && rootFp && pinned !== rootFp) problems.push(`TRUST-ROOT MISMATCH: expected ${pinned}, found ${rootFp} — the roster may have been swapped`);
 
-  return { roster, roles, rootFp, problems, ok: problems.length === 0, policy };
+  return { roster, roles, rootFp, problems, ok: problems.length === 0, policy, foundation, foundationMode };
 }
 
 // Next event id given a log.

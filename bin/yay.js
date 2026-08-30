@@ -20,6 +20,7 @@ const A = require('../src/attest');
 const CAP = require('../src/capability');
 const AS = require('../src/assurance');
 const D = require('../src/durable');
+const F = require('../src/foundation');
 const { buildManifest } = require('../src/manifest');
 const { verifyManifest } = require('../src/verify');
 const { renderMap } = require('../src/map');
@@ -1198,6 +1199,56 @@ async function authorizeRosterEvent(p, config, log, ev, flags, summary) {
   return ev;
 }
 
+// ── Foundation seal ───────────────────────────────────────────────────────
+// The git-tracked file set — the seal's structural watch keys off this, so gitignored
+// files (.env…) are naturally out. Returns null when git is unavailable (the seal needs git).
+function trackedFiles(root) {
+  try {
+    const out = require('child_process').execSync('git ls-files', { cwd: root, encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 });
+    return out.split('\n').map((s) => s.trim()).filter(Boolean);
+  } catch (_) { return null; }
+}
+
+// `yay protect` — an owner signs a baseline of the fixed core files, so any later change is
+// REVEALED at verify (src/foundation.js). Stored as an owner-signed, trust-root-pinned roster
+// event (un-removable); the posture also lives in committed config so it survives a reroot and
+// tells verify a seal is EXPECTED.
+async function cmdProtect(flags, positional) {
+  const { p, config } = loadState();
+  if (!config) return fail('run `yay init` first');
+  const rlog = loadRoster(p);
+  if (!rlog || !rlog.events || !rlog.events.length) return fail('no trust root yet — run `yay init` (the seal is owner-signed).');
+  const drv = rosterMod.deriveRoster(rlog);
+  const prevSeal = drv.foundation || {};
+  const off = !!flags.off || positional[0] === 'off';
+  const mode = off ? 'off'
+    : (flags.mode && flags.mode !== true ? String(flags.mode).toLowerCase()
+      : (drv.foundationMode !== 'off' ? drv.foundationMode : 'guarded'));
+  if (!['off', 'guarded', 'strict'].includes(mode)) return fail('--mode must be guarded or strict (or pass --off).');
+  const list = (v) => (v && v !== true) ? String(v).split(',').map((s) => s.trim()).filter(Boolean) : [];
+  let seal = null;
+  if (mode !== 'off') {
+    const tracked = trackedFiles(p.root);
+    if (tracked == null) return fail('the foundation seal needs git (it watches the tracked-file set) — run `git init` and commit first.');
+    // Carry prior customizations forward; --ignore/--add extend, --unignore/--remove drop.
+    const ignore = [...new Set([...(prevSeal.ignore || []), ...list(flags.ignore)])].filter((g) => !list(flags.unignore).includes(g));
+    const extra = [...new Set([...(prevSeal.extra || []), ...list(flags.add)])].filter((g) => !list(flags.remove).includes(g));
+    seal = F.buildSeal(p.root, tracked, { ignore, extra });
+  }
+  const ev = { id: rosterMod.nextEventId(rlog), type: 'foundation', mode, seal, prev: rlog.events[rlog.events.length - 1].id, nonce: C.randomNonce(), at: new Date().toISOString() };
+  const nFiles = seal ? Object.keys(seal.files).length : 0;
+  const summary = off
+    ? { title: 'Disable the foundation seal', rows: [{ k: 'action', v: 'retire foundation protection' }], warn: 'The fixed-core files will no longer be watched for tampering or corruption. Re-enable any time with `yay protect`.' }
+    : { title: 'Seal the project foundation', rows: [{ k: 'mode', v: mode + (mode === 'strict' ? ' — drift blocks the gate' : ' — drift warns') }, { k: 'files', v: nFiles + ' core file(s) hashed' }, { k: 'zones', v: Object.keys(seal.zones).join(', ') }], warn: 'You are vouching that the current fixed-core files are correct. Any later change to them is revealed at verify until you re-seal.' };
+  const signed = await authorizeRosterEvent(p, config, rlog, ev, flags, summary);
+  if (!signed) return;
+  rlog.events.push(signed); U.writeJSON(rosterPath(p), rlog);
+  config.foundation = mode; U.writeJSON(p.config, config); // posture survives reroot; the "expected" flag
+  if (off) { console.log('\n' + U.c.yellow('• foundation seal disabled') + U.c.dim(' — core files are no longer watched. Commit .yaylayer/roster.json + config.json.')); return; }
+  console.log('\n' + U.c.green(`✓ foundation sealed (${mode})`) + U.c.dim(` — ${nFiles} core file(s) + zones ${Object.keys(seal.zones).join(', ')}. Commit .yaylayer/roster.json + config.json.`));
+  console.log('  ' + U.c.dim('any later change to a sealed file (or a new/removed file in a watched zone) is revealed by ') + U.c.bold('yay verify') + U.c.dim('. Re-seal after a legitimate change.'));
+}
+
 // ── Autopilot commands ──────────────────────────────────────────────────
 function listGrants(p, config, lock) {
   const glog = loadGrants(p);
@@ -1304,7 +1355,7 @@ async function cmdRatify(flags) {
   const { p, config, lock } = loadState();
   if (!config) return fail('run `yay init` first');
   const manifest = buildManifest(flags.dir || p.root);
-  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: loadRoster(p), grants: loadGrants(p), rejections: loadRejections(p),root: trustRootPin(flags) });
+  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: loadRoster(p), grants: loadGrants(p), rejections: loadRejections(p), tracked: trackedFiles(p.root),root: trustRootPin(flags) });
   const auto = R.autoCellIds(verified);
   if (flags.reject) return ratifyReject(p, config, lock, manifest, verified, auto, flags);
   if (!auto.length) { console.log(U.c.green('✓ nothing to ratify') + U.c.dim(' — no delegated Cells awaiting your signature.')); return; }
@@ -1641,11 +1692,12 @@ function cmdVerify(flags) {
   if (!Object.keys(manifest.cells).length && !manifest.problems.length && !(manifest.untracked || []).length) {
     console.log(U.c.dim('no code found. Write a spec block (see README/STANDARD), or run `yay adopt`.')); return;
   }
-  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), grants: loadGrants(p), rejections: loadRejections(p),root: trustRootPin(flags) });
+  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), grants: loadGrants(p), rejections: loadRejections(p), tracked: trackedFiles(p.root),root: trustRootPin(flags) });
   printReport(manifest, verified, !!(flags.details || flags.d), !!(flags.problems || flags.issues || flags.p));
   if (verified.signedRoster) console.log('  ' + U.c.dim('trust root ' + verified.rootFp));
   else console.log('  ' + U.c.yellow('⚠ roster is unsigned') + U.c.dim(' — no signed trust root; run `yay init`/`yay keygen` to establish one.'));
   for (const pb of verified.rosterProblems || []) console.log('  ' + U.c.red('✗ roster: ') + pb);
+  reportFoundation(verified);
   // Verifier attestation status (P2): is the current tree covered by a signed attestation?
   reportAttestStatus(p, config, manifest, verified);
   const blocked = !verified.passed || manifest.problems.length;
@@ -1658,6 +1710,24 @@ function cmdVerify(flags) {
 // One line under `yay verify`: whether a signed verifier attestation covers the EXACT current tree.
 // Drift (code/spec changed since the last attestation) is surfaced so the human knows the signed
 // verdict no longer describes what's on disk — re-mint with `yay attest`.
+// Foundation seal status — REVEAL any drift in the fixed core (warn in Guarded, block in Strict).
+function reportFoundation(verified) {
+  const fnd = verified.foundation;
+  if (!fnd) return;
+  if (fnd.clean) { console.log('  ' + U.c.dim('🛡 foundation seal intact (' + fnd.mode + ')')); return; }
+  if (fnd.expectedButMissing) {
+    console.log('  ' + U.c.red('🛡 FOUNDATION PROTECTION EXPECTED — no valid seal under the current root') + U.c.dim(' — run ') + U.c.bold('yay protect') + U.c.dim(' to (re-)seal.' + (fnd.mode === 'strict' ? ' (strict → gate blocked)' : '')));
+    return;
+  }
+  const bits = [];
+  if (fnd.changed.length) bits.push(fnd.changed.length + ' changed (' + fnd.changed.join(', ') + ')');
+  if (fnd.missing.length) bits.push(fnd.missing.length + ' missing (' + fnd.missing.join(', ') + ')');
+  if (fnd.addedFiles.length) bits.push(fnd.addedFiles.length + ' new file(s) (' + fnd.addedFiles.join(', ') + ')');
+  if (fnd.removedFiles.length) bits.push(fnd.removedFiles.length + ' removed (' + fnd.removedFiles.join(', ') + ')');
+  console.log('  ' + U.c.red('⚠ FOUNDATION CHANGED') + U.c.dim(' — ' + bits.join(' · ')));
+  console.log('    ' + U.c.dim('a sealed core file (or watched zone) changed since it was sealed. If this was you, re-seal: ') + U.c.bold('yay protect') + U.c.dim('. If not, investigate — this reveals tampering or corruption.' + (fnd.mode === 'strict' ? ' (strict → gate BLOCKED until re-sealed)' : ' (guarded → warning only)')));
+}
+
 function reportAttestStatus(p, config, manifest, verified) {
   const last = A.latestEntry(p, config);
   if (!last) { console.log('  ' + U.c.dim('no verifier attestation yet — mint one with ') + U.c.bold('yay attest') + U.c.dim(' (signs this verdict).')); return; }
@@ -1678,7 +1748,7 @@ function cmdAttest(flags, positional) {
   if (!config) return fail('run `yay init` first');
   const manifest = buildManifest(flags.dir || p.root);
   if (!Object.keys(manifest.cells).length) return fail('no Cells to attest — write/adopt specs first.');
-  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), grants: loadGrants(p), rejections: loadRejections(p),root: trustRootPin(flags) });
+  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), grants: loadGrants(p), rejections: loadRejections(p), tracked: trackedFiles(p.root),root: trustRootPin(flags) });
 
   // Capability self-check: the declared verifier version must match the live detector set, so an
   // attestation can never claim a capability the verifier doesn't actually have (drift = a detector
@@ -1783,7 +1853,7 @@ async function cmdArchive(flags, positional) {
   // Default: archive the covered (signed) source files.
   const quiet = !!flags.quiet;
   const manifest = buildManifest(flags.dir || p.root);
-  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: loadRoster(p), grants: loadGrants(p), rejections: loadRejections(p),root: trustRootPin(flags) });
+  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: loadRoster(p), grants: loadGrants(p), rejections: loadRejections(p), tracked: trackedFiles(p.root),root: trustRootPin(flags) });
   // Files that hold at least one signed Cell — "the source as signed."
   const coveredFiles = {};
   for (const id of Object.keys(verified.results)) { const r = verified.results[id]; const c = manifest.cells[id]; if (r.trust && r.trust.signed && c && c.file) (coveredFiles[c.file] = coveredFiles[c.file] || []).push(id); }
@@ -1852,7 +1922,7 @@ function cmdReverify(flags) {
   if (!last) return fail('no prior attestation to reverify against — mint the first with `yay attest`.');
   const prevAtt = A.loadAttestation(p, config, last.hash);
   if (!prevAtt) return fail('the latest attestation object is missing or fails its integrity check — cannot reverify against it.');
-  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), grants: loadGrants(p), rejections: loadRejections(p),root: trustRootPin(flags) });
+  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), grants: loadGrants(p), rejections: loadRejections(p), tracked: trackedFiles(p.root),root: trustRootPin(flags) });
   const verObj = A.buildVerification(manifest, verified, { config, policy: verified.policy });
   const diff = AS.reverifyDiff(prevAtt, verObj);
 
@@ -2042,7 +2112,7 @@ async function regeneratePlan(p, config, lock, flags) {
   if (auth.error) return { ok: false, error: auth.error };
   const manifest = buildManifest(flags.dir || p.root);
   if (!Object.keys(manifest.cells).length) return { ok: false, error: 'no Cells to plan yet — write/adopt some specs first.' };
-  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: loadRoster(p), grants: loadGrants(p), rejections: loadRejections(p),root: trustRootPin(flags) });
+  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: loadRoster(p), grants: loadGrants(p), rejections: loadRejections(p), tracked: trackedFiles(p.root),root: trustRootPin(flags) });
   const digest = plan.buildDigest(manifest, config.project);
   let result;
   try { result = await plan.synthesize(digest, auth); }
@@ -2134,7 +2204,7 @@ function buildMapHTML(p, config, lock, flags) {
   const manifest = buildManifest(flags.dir || p.root);
   // Per-Cell spec diff vs last commit, so each Cell's detail can show what changed there.
   for (const id of Object.keys(manifest.cells)) { manifest.cells[id].diff = specDiffForCell(p.root, manifest.cells[id]); }
-  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), grants: loadGrants(p), rejections: loadRejections(p),root: trustRootPin(flags) });
+  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), grants: loadGrants(p), rejections: loadRejections(p), tracked: trackedFiles(p.root),root: trustRootPin(flags) });
   const { changes, times } = cellChanges(manifest.root, lock, manifest.cells);
   // P4: attach each Cell's semantic timeline (approvals/attestations/rejections) to its times entry.
   const timelines = buildCellTimelines(p, config, manifest, lock);
@@ -2568,7 +2638,7 @@ async function cmdDashboard(flags) {
 async function cmdMap(flags) {
   const { p, config, lock } = loadState();
   const manifest = buildManifest(flags.dir || p.root);
-  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), grants: loadGrants(p), rejections: loadRejections(p),root: trustRootPin(flags) });
+  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), grants: loadGrants(p), rejections: loadRejections(p), tracked: trackedFiles(p.root),root: trustRootPin(flags) });
   await maybePlanForMap(p, config, manifest, verified, flags);
   const { html, count } = buildMapHTML(p, config, lock, flags);
   const out = (flags.o && flags.o !== true) ? flags.o : (flags.out && flags.out !== true ? flags.out : 'yay-layer-map.html');
@@ -2616,7 +2686,7 @@ function cmdStatus(flags) {
   const { p, config, lock } = loadState();
   if (!config) return console.log(U.c.dim('not initialized — run `yay init`'));
   const manifest = buildManifest(p.root);
-  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: loadRoster(p), grants: loadGrants(p), rejections: loadRejections(p),root: trustRootPin(flags) });
+  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: loadRoster(p), grants: loadGrants(p), rejections: loadRejections(p), tracked: trackedFiles(p.root),root: trustRootPin(flags) });
   const c = verified.counts;
   console.log(U.c.bold(config.project) + U.c.dim(`  · ${Object.keys(manifest.cells).length} Cells · ${Object.keys(config.signers).length} signer(s)`));
   console.log('  ' + U.c.green(`${c.GREEN}●`) + ' ' + U.c.yellow(`${c.YELLOW}●`) + ' ' + U.c.red(`${c.RED}●`) + ' ' + U.c.gray(`${c.UNSIGNED}○`) + '  ' + (verified.passed ? U.c.green('PASS') : U.c.red('BLOCKED')));
@@ -2774,7 +2844,7 @@ async function cmdPolicy(flags) {
   }
 
   const manifest = buildManifest(p.root);
-  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: rlog, grants: loadGrants(p), rejections: loadRejections(p),root: trustRootPin(flags) });
+  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: rlog, grants: loadGrants(p), rejections: loadRejections(p), tracked: trackedFiles(p.root),root: trustRootPin(flags) });
   const viol = Object.values(verified.results).filter((x) => x.policyOk === false);
   if (viol.length) {
     console.log('\n' + U.c.red(`  ${viol.length} Cell(s) violate the enforced policy:`));
@@ -2912,6 +2982,7 @@ async function main() {
     case 'invite': return cmdInvite(flags, positional);
     case 'revoke': return cmdRevoke(flags);
     case 'reroot': return cmdReroot(flags);
+    case 'protect': return cmdProtect(flags, positional);
     case 'grant': case 'autopilot': return cmdGrant(flags, positional);
     case 'ratify': return cmdRatify(flags);
     case 'verify': case 'check': return cmdVerify(flags);

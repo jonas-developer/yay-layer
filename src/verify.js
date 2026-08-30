@@ -15,6 +15,7 @@ const { proveManifest } = require('./prove');
 const { requiredSigners, inertLevel, ignoreAllowed, coverageRequired } = require('./policy');
 const { deriveRoster } = require('./roster');
 const G = require('./grants');
+const F = require('./foundation');
 
 // Shallow side-effect signals used for the MVP purity / minimality checks — per
 // LANGUAGE, so a `pure: yes` claim is policed in every language we can run, not just
@@ -257,10 +258,12 @@ function verifyManifest(manifest, lock, config, opts) {
   let roster, rosterProblems = [], rootFp = null, rosterOk = true, signedRoster = false;
   let ownerPubs = [];
   let rosterPolicy = { rules: [] }; // the ENFORCED policy comes from the owner-signed roster (tamper-evident)
+  let foundationSeal = null, foundationMode = 'off';
   if (opts.roster && opts.roster.events) {
     const d = deriveRoster(opts.roster, { root: opts.root });
     roster = d.roster; rosterProblems = d.problems; rootFp = d.rootFp; rosterOk = d.ok; signedRoster = true;
     rosterPolicy = d.policy || { rules: [] };
+    foundationSeal = d.foundation || null; foundationMode = d.foundationMode || 'off';
     ownerPubs = Object.keys(d.roles || {}).filter((n) => d.roles[n] === 'owner').reduce((a, n) => a.concat(roster[n] || []), []);
   } else {
     roster = (config && config.signers) || {};
@@ -503,12 +506,29 @@ function verifyManifest(manifest, lock, config, opts) {
   let auto = 0;
   for (const r of Object.values(results)) if (r.trust && r.trust.auto && r.state !== 'UNSIGNED') auto++;
   counts.auto = auto;
+  // Foundation seal (owner-signed baseline of the fixed core files) — reveal any drift. The
+  // posture is authoritative from the signed roster event; config.foundation mirrors it and
+  // survives a reroot, so if it EXPECTS a seal but none exists under the current root, that's
+  // itself flagged (e.g. after a reroot, until the new owner re-seals).
+  let foundation = null;
+  const expectMode = foundationMode !== 'off' ? foundationMode
+    : ((config && config.foundation && config.foundation !== 'off') ? config.foundation : 'off');
+  if (expectMode !== 'off') {
+    if (!foundationSeal) {
+      foundation = { mode: expectMode, clean: false, expectedButMissing: true, changed: [], missing: [], addedFiles: [], removedFiles: [] };
+    } else {
+      const cmp = F.compareSeal(manifest.root, foundationSeal, Array.isArray(opts.tracked) ? opts.tracked : null);
+      foundation = { mode: expectMode, expectedButMissing: false, ...cmp };
+    }
+  }
+  // Strict foundation posture blocks the gate on drift; Guarded reveals (warns) without blocking.
+  const foundationBlocks = !!(foundation && foundation.mode === 'strict' && !foundation.clean);
   // A tampered / unauthorized / root-mismatched roster blocks the gate: if we can't
   // trust WHO may sign, we can't trust any signature.
-  const passed = counts.RED === 0 && counts.UNSIGNED === 0 && counts.PINK === 0 && rosterOk;
+  const passed = counts.RED === 0 && counts.UNSIGNED === 0 && counts.PINK === 0 && rosterOk && !foundationBlocks;
   // `policy` is the EFFECTIVE ruleset the verdicts were produced under — exposed so an attestation
   // (P2) can hash exactly what the verifier used (rulesetHash), not re-guess it.
-  return { results, counts, passed, grants, rosterProblems, rootFp, rosterOk, signedRoster, policy };
+  return { results, counts, passed, grants, rosterProblems, rootFp, rosterOk, signedRoster, policy, foundation };
 }
 
 module.exports = { verifyManifest, worst, effectNetDescriptor };

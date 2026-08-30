@@ -1537,5 +1537,61 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     ok(verObj.capabilityFingerprint === CAP.capabilityFingerprint() && verObj.capability === CAP.CAPABILITY, 'capability: the verification object binds both the declared version and the live fingerprint');
   }
 
+  // ── Foundation seal: content + structural drift, ignore, verify integration ──
+  {
+    const F = require('../src/foundation');
+    const rmod = require('../src/roster');
+    const fdir = fs.mkdtempSync(require('path').join(os.tmpdir(), 'yay-fnd-'));
+    fs.writeFileSync(require('path').join(fdir, 'CLAUDE.md'), 'intro\n<!-- YAYLAYER:BEGIN x -->\nRULES v1\n<!-- YAYLAYER:END -->\nmy notes');
+    fs.writeFileSync(require('path').join(fdir, '.gitignore'), 'node_modules\n');
+    fs.writeFileSync(require('path').join(fdir, 'CHANGELOG.md'), 'v1');
+    const tracked = ['CLAUDE.md', '.gitignore', 'CHANGELOG.md', 'src/app.js'];
+    const seal = F.buildSeal(fdir, tracked, { coreFiles: ['.gitignore'], ignore: ['CHANGELOG.md'] });
+    ok(!!seal.files['CLAUDE.md'] && seal.files['CLAUDE.md'].block === true, 'foundation: a rule file is sealed on its YAYLAYER block');
+    ok(!!seal.files['.gitignore'], 'foundation: .gitignore is sealed by default (it controls the blind spot)');
+    ok(!seal.files['CHANGELOG.md'] && seal.zones['.'].files.indexOf('CHANGELOG.md') === -1, 'foundation: an --ignore glob excludes a churning tracked file');
+    ok(F.compareSeal(fdir, seal, tracked).clean === true, 'foundation: an untouched tree is clean');
+    // editing my own notes OUTSIDE the block stays clean (block-only content seal)
+    fs.writeFileSync(require('path').join(fdir, 'CLAUDE.md'), 'intro CHANGED\n<!-- YAYLAYER:BEGIN x -->\nRULES v1\n<!-- YAYLAYER:END -->\nother');
+    ok(F.compareSeal(fdir, seal, tracked).clean === true, 'foundation: editing content OUTSIDE the block does not trip the seal');
+    // tampering the RULES block → changed
+    fs.writeFileSync(require('path').join(fdir, 'CLAUDE.md'), 'intro\n<!-- YAYLAYER:BEGIN x -->\nRULES HACKED\n<!-- YAYLAYER:END -->\nx');
+    ok(F.compareSeal(fdir, seal, tracked).changed.join() === 'CLAUDE.md', 'foundation: tampering the block is revealed as content drift');
+    // structural: a new tracked root file appears
+    ok(F.compareSeal(fdir, seal, tracked.concat(['preinstall.sh'])).addedFiles.join() === 'preinstall.sh', 'foundation: a new tracked file in a watched zone is revealed');
+    // structural: an existing sealed-zone file untracked/removed
+    ok(F.compareSeal(fdir, seal, ['.gitignore', 'CHANGELOG.md', 'src/app.js']).removedFiles.join() === 'CLAUDE.md', 'foundation: a removed/untracked file in a watched zone is revealed');
+    // content-only compare (no tracked list) never false-reports structural drift
+    fs.writeFileSync(require('path').join(fdir, 'CLAUDE.md'), 'intro\n<!-- YAYLAYER:BEGIN x -->\nRULES v1\n<!-- YAYLAYER:END -->\nx');
+    ok(F.compareSeal(fdir, seal, null).clean === true, 'foundation: content-only compare (no tracked list) does not report false structural drift');
+
+    // verify integration: a signed `foundation` roster event drives verified.foundation + the gate
+    fs.writeFileSync(require('path').join(fdir, 'a.js'), '//∷YAY⟨C-1⟩\n//  unit: add\n//  intent: add\n//  in: (a:number,b:number)\n//  out: number\n//  pure: yes\n//  ensures: out === a + b\n//∷YAY-END⟨C-1⟩\nfunction add(a,b){return a+b;}\n');
+    const fman = buildManifest(fdir);
+    const fsh = fman.cells['C-1'].specHash;
+    const fowner = C.generateKeypair();
+    const fgen = { id: 'R-0001', type: 'genesis', role: 'owner', prev: 'genesis', nonce: 'n', at: '2026-01-01T00:00:00Z', name: 'Alex', pub: fowner.pubB64, by: 'Alex' };
+    fgen.signature = C.sign(rmod.eventBytes(fgen), fowner.privDer);
+    const ftracked = ['CLAUDE.md', '.gitignore', 'a.js'];
+    const goodSeal = F.buildSeal(fdir, ftracked, { coreFiles: ['.gitignore'] }); // sealed over the GOOD state, reused across checks
+    const mkFnd = (mode) => { const e = { id: 'R-0002', type: 'foundation', mode, seal: goodSeal, prev: 'R-0001', nonce: 'fn', at: '2026-01-02T00:00:00Z', by: 'Alex' }; e.signature = C.sign(rmod.eventBytes(e), fowner.privDer); return e; };
+    const fap = (() => { const a = { id: 'A-1', project: 'f', prev: 'genesis', nonce: 'an', at: '2026-02-01T00:00:00Z', signer: 'Alex', items: { 'C-1': fsh } }; a.signature = C.sign(canonical(a), fowner.privDer); return a; })();
+    const fcfg = { signers: { Alex: fowner.pubB64 }, owners: ['Alex'] };
+    const V = (mode) => verifyManifest(fman, { approvals: [fap] }, fcfg, { mutate: false, roster: { events: [fgen, mkFnd(mode)] }, tracked: ftracked });
+    let fv = V('guarded');
+    ok(fv.foundation && fv.foundation.clean === true && fv.foundation.mode === 'guarded', 'foundation: verify reports an intact seal from the signed roster event');
+    ok(fv.passed === true, 'foundation: an intact guarded seal does not block the gate');
+    // now tamper the block and re-verify (seal was over the old block)
+    fs.writeFileSync(require('path').join(fdir, 'CLAUDE.md'), 'intro\n<!-- YAYLAYER:BEGIN x -->\nRULES HACKED\n<!-- YAYLAYER:END -->\nx');
+    const gView = V('guarded'), sView = V('strict');
+    ok(gView.foundation.clean === false && gView.foundation.changed.indexOf('CLAUDE.md') >= 0, 'foundation: verify reveals block tampering via the roster seal');
+    ok(gView.passed === true, 'foundation: GUARDED drift reveals but does NOT block the gate');
+    ok(sView.passed === false, 'foundation: STRICT drift blocks the gate');
+    // expected-but-missing: config expects a seal but the roster has none (e.g. after a reroot)
+    const fvMissing = verifyManifest(fman, { approvals: [fap] }, Object.assign({}, fcfg, { foundation: 'strict' }), { mutate: false, roster: { events: [fgen] }, tracked: ftracked });
+    ok(fvMissing.foundation && fvMissing.foundation.expectedButMissing === true && fvMissing.passed === false, 'foundation: posture expected but no seal under the current root is flagged (and strict blocks)');
+    fs.rmSync(fdir, { recursive: true, force: true });
+  }
+
   console.log(`\nAll ${n} checks passed.`);
 })().catch((e) => { console.error('smoke failed:', e); process.exit(1); });
