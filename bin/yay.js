@@ -924,6 +924,27 @@ function cmdInbox(flags) {
   console.log(U.c.dim('   requests others address to you (') + U.c.bold('yay sign --name "' + me + '"') + U.c.dim(') appear here; approve them like any sign.'));
 }
 
+// Local signing is a terminal action, so bring the phone's "see what you're signing" moment to the CLI:
+// print each Cell + its changes-vs-last-committed-spec diff (the SAME diff the phone shows), the Brief,
+// and its verifier state, before the key is unlocked. Skipped for non-TTY / --yes (scripts, CI, ratify).
+function printSignReview(summary, name, brief) {
+  console.log('\n' + U.c.bold('Review before signing') + U.c.dim(` — ${summary.length} Cell(s) as "${name}"`));
+  if (brief && brief.text) console.log('  ' + U.c.dim('brief: ') + U.c.accent(brief.text) + (brief.tags && brief.tags.length ? U.c.dim('  [' + brief.tags.join(', ') + ']') : ''));
+  for (const c of summary) {
+    console.log('  ' + U.c.yellow('•') + ' ' + U.c.bold(c.id) + U.c.dim(' · ' + (c.unit || '')) + '  ' + ratifyStateChip(c.state) + (c.intent ? U.c.dim(' — ' + c.intent) : ''));
+    if (c.diff && c.diff.length) {
+      console.log('      ' + U.c.dim('changes vs last committed spec:'));
+      for (const d of c.diff) {
+        if (d.t === '+') console.log(U.c.green('      + ' + d.text));
+        else if (d.t === '-') console.log(U.c.red('      - ' + d.text));
+        else console.log(U.c.dim('        ' + d.text));
+      }
+    } else {
+      console.log('      ' + U.c.dim('(new Cell — no prior signed spec to compare)'));
+    }
+  }
+}
+
 async function cmdSign(flags, positional) {
   const { p, config, lock } = loadState();
   if (!config) return fail('run `yay init` first');
@@ -1108,6 +1129,13 @@ async function cmdSign(flags, positional) {
     }
     }
   } else {
+    // Local key: show the same review the phone shows (spec + diff + Brief + state), then confirm,
+    // BEFORE unlocking the key. --yes / --no-review or a non-TTY (scripts, CI, ratify) skip the prompt.
+    if (process.stdin.isTTY && !flags.yes && !flags.y && !flags['no-review']) {
+      printSignReview(signSummary(p, config, lock, manifest, items), name, approval.brief);
+      const ans = (await ask(`\n  Sign these ${Object.keys(items).length} Cell(s) as "${name}"? (y/N): `)).trim();
+      if (!/^y/i.test(ans)) return fail('not signed — nothing written.');
+    }
     const ksPath = path.join(p.keys, `${name}.keystore`);
     if (!fs.existsSync(ksPath)) return fail(`no keystore for "${name}" — if this signer is a phone, use \`yay sign --phone\``);
     const pass = await getPassphrase(flags, `Enter ${name}'s passphrase to sign`);
