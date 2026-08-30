@@ -941,6 +941,18 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     v = V([autoAp('2026-06-01T00:00:00Z'), human], [grant]);
     ok(v.results['C-1'].trust.auto === false && v.results['C-1'].trust.signed === true, 'grants: a human ratification supersedes the AUTO seal (trust becomes human)');
 
+    // ── Reject withdraws the delegated approval (like removing a signature) ──
+    const Vr = (approvals, gevents, rejections) => verifyManifest(gm, { approvals }, { signers: {} }, { roster: rosterLog, grants: { events: gevents }, rejections });
+    const rej = (at, hash) => ({ events: [{ id: 'X-1', type: 'reject', cells: ['C-1'], specHashes: { 'C-1': hash }, reason: 'redo it.', at, signer: 'Alex' }] });
+    const vRej = Vr([autoAp('2026-06-01T00:00:00Z')], [grant], rej('2026-06-15T00:00:00Z', sh));
+    ok(vRej.results['C-1'].state === 'UNSIGNED' && vRej.results['C-1'].trust.rejected === true, 'reject: a rejection over the current spec withdraws the delegated approval → UNSIGNED');
+    ok(vRej.counts.UNSIGNED === 1 && vRej.passed === false, 'reject: a rejected delegated Cell blocks the gate');
+    ok(vRej.results['C-1'].notes.some((nt) => /rejected by Alex/.test(nt.text)), 'reject: the rejection reason + author surface as a note');
+    const vStale = Vr([autoAp('2026-06-01T00:00:00Z')], [grant], rej('2026-06-15T00:00:00Z', 'not-the-current-spec-hash'));
+    ok(vStale.results['C-1'].state === 'GREEN' && !vStale.results['C-1'].trust.rejected, 'reject: a rejection over a DIFFERENT spec (reworked code) no longer applies');
+    const vReReview = Vr([autoAp('2026-06-01T00:00:00Z'), human], [grant], rej('2026-06-15T00:00:00Z', sh));
+    ok(vReReview.results['C-1'].trust.signed === true && vReReview.results['C-1'].trust.auto === false && !vReReview.results['C-1'].trust.rejected, 'reject: a human approval AFTER the reject supersedes it (human changed their mind)');
+
     // TOCTOU: the reviewed-bundle hash is deterministic and MOVES when the delegated code changes,
     // so `yay ratify --sign` can refuse to sign anything other than exactly what was reviewed.
     const Rt = require('../src/ratify');

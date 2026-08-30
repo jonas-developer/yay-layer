@@ -109,7 +109,7 @@ function effectSignalsFor(lang) {
 const SEV = { GREEN: 0, YELLOW: 1, UNSIGNED: 2, RED: 3 };
 const worst = (a, b) => (SEV[a] >= SEV[b] ? a : b);
 
-function trustOf(cell, lock, roster, grants, policy) {
+function trustOf(cell, lock, roster, grants, policy, rejections) {
   let match = null;
   let violation = null; // a delegated approval whose grant-key signature is real but broke its envelope
   let firstAt = null; // earliest approval that ever covered this Cell → "created in the system"
@@ -142,6 +142,25 @@ function trustOf(cell, lock, roster, grants, policy) {
     if (pubs.some((pub) => sigVerify(canonical(rest), signature, pub))) {
       // Keep the most recent valid signature over the current spec as "signed at".
       match = { signed: true, signer: ap.signer, auto: false, grant: null, at: ap.at || null };
+    }
+  }
+  // Rejection withdraws approval (P3). A human turning down delegated work is like removing a
+  // signature: the Cell drops behind the gate until it's reworked and re-approved. A reject targets
+  // an EXACT specHash, so reworking the code (which changes the specHash) naturally clears the old
+  // reject; and a later HUMAN approval over that same spec — the human changing their mind — also
+  // supersedes it. A delegated (grant-key) re-approval never clears a human rejection. Forging a
+  // rejection can only BLOCK a Cell (fail-safe), never approve one, so a signature check isn't
+  // required for soundness here.
+  let rejected = null;
+  for (const ev of (rejections && rejections.events) || []) {
+    if (!ev || ev.type !== 'reject' || !ev.cells || !ev.cells.includes(cell.id)) continue;
+    if (!ev.specHashes || ev.specHashes[cell.id] !== cell.specHash) continue; // only the exact reviewed spec
+    if (!rejected || Date.parse(ev.at || 0) > Date.parse(rejected.at || 0)) rejected = ev;
+  }
+  if (rejected) {
+    const humanAfter = match && match.auto === false && match.at && Date.parse(match.at) > Date.parse(rejected.at || 0);
+    if (!humanAfter) {
+      return { signed: false, rejected: true, rejectReason: rejected.reason || '', rejectBy: rejected.signer || rejected.by || null, firstAt, violation };
     }
   }
   if (match) return { ...match, firstAt };
@@ -253,7 +272,7 @@ function verifyManifest(manifest, lock, config, opts) {
 
   for (const id of Object.keys(manifest.cells)) {
     const cell = manifest.cells[id];
-    const trust = trustOf(cell, lock, roster, grants, rosterPolicy);
+    const trust = trustOf(cell, lock, roster, grants, rosterPolicy, opts.rejections);
     const sc = staticChecks(cell);
 
     let state;
@@ -274,6 +293,9 @@ function verifyManifest(manifest, lock, config, opts) {
     }
     if (trust.violation) {
       sc.notes.push({ level: 'red', text: `GRANT VIOLATION — a delegated (Autopilot) approval under grant ${trust.violation.grant} covered this Cell, but it is outside that grant's envelope: ${trust.violation.reason}. The agent cannot widen its own grant; this needs a real human signature. (verifier backstop)` });
+    }
+    if (trust.rejected) {
+      sc.notes.push({ level: 'red', text: `🚫 rejected by ${trust.rejectBy || 'a human'}${trust.rejectReason ? ` — ${String(trust.rejectReason).replace(/[.\s]+$/, '')}` : ''}. The delegated approval was withdrawn (like removing a signature); rework and re-approve to clear it. (yay ratify --reject)` });
     }
 
     results[id] = {

@@ -1295,7 +1295,7 @@ async function cmdRatify(flags) {
   const { p, config, lock } = loadState();
   if (!config) return fail('run `yay init` first');
   const manifest = buildManifest(flags.dir || p.root);
-  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: loadRoster(p), grants: loadGrants(p), root: trustRootPin(flags) });
+  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: loadRoster(p), grants: loadGrants(p), rejections: loadRejections(p),root: trustRootPin(flags) });
   const auto = R.autoCellIds(verified);
   if (flags.reject) return ratifyReject(p, config, lock, manifest, verified, auto, flags);
   if (!auto.length) { console.log(U.c.green('✓ nothing to ratify') + U.c.dim(' — no delegated Cells awaiting your signature.')); return; }
@@ -1632,7 +1632,7 @@ function cmdVerify(flags) {
   if (!Object.keys(manifest.cells).length && !manifest.problems.length && !(manifest.untracked || []).length) {
     console.log(U.c.dim('no code found. Write a spec block (see README/STANDARD), or run `yay adopt`.')); return;
   }
-  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), grants: loadGrants(p), root: trustRootPin(flags) });
+  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), grants: loadGrants(p), rejections: loadRejections(p),root: trustRootPin(flags) });
   printReport(manifest, verified, !!(flags.details || flags.d), !!(flags.problems || flags.issues || flags.p));
   if (verified.signedRoster) console.log('  ' + U.c.dim('trust root ' + verified.rootFp));
   else console.log('  ' + U.c.yellow('⚠ roster is unsigned') + U.c.dim(' — no signed trust root; run `yay init`/`yay keygen` to establish one.'));
@@ -1669,7 +1669,7 @@ function cmdAttest(flags, positional) {
   if (!config) return fail('run `yay init` first');
   const manifest = buildManifest(flags.dir || p.root);
   if (!Object.keys(manifest.cells).length) return fail('no Cells to attest — write/adopt specs first.');
-  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), grants: loadGrants(p), root: trustRootPin(flags) });
+  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), grants: loadGrants(p), rejections: loadRejections(p),root: trustRootPin(flags) });
 
   // Capability self-check: the declared verifier version must match the live detector set, so an
   // attestation can never claim a capability the verifier doesn't actually have (drift = a detector
@@ -1774,7 +1774,7 @@ async function cmdArchive(flags, positional) {
   // Default: archive the covered (signed) source files.
   const quiet = !!flags.quiet;
   const manifest = buildManifest(flags.dir || p.root);
-  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: loadRoster(p), grants: loadGrants(p), root: trustRootPin(flags) });
+  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: loadRoster(p), grants: loadGrants(p), rejections: loadRejections(p),root: trustRootPin(flags) });
   // Files that hold at least one signed Cell — "the source as signed."
   const coveredFiles = {};
   for (const id of Object.keys(verified.results)) { const r = verified.results[id]; const c = manifest.cells[id]; if (r.trust && r.trust.signed && c && c.file) (coveredFiles[c.file] = coveredFiles[c.file] || []).push(id); }
@@ -1843,7 +1843,7 @@ function cmdReverify(flags) {
   if (!last) return fail('no prior attestation to reverify against — mint the first with `yay attest`.');
   const prevAtt = A.loadAttestation(p, config, last.hash);
   if (!prevAtt) return fail('the latest attestation object is missing or fails its integrity check — cannot reverify against it.');
-  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), grants: loadGrants(p), root: trustRootPin(flags) });
+  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), grants: loadGrants(p), rejections: loadRejections(p),root: trustRootPin(flags) });
   const verObj = A.buildVerification(manifest, verified, { config, policy: verified.policy });
   const diff = AS.reverifyDiff(prevAtt, verObj);
 
@@ -2033,7 +2033,7 @@ async function regeneratePlan(p, config, lock, flags) {
   if (auth.error) return { ok: false, error: auth.error };
   const manifest = buildManifest(flags.dir || p.root);
   if (!Object.keys(manifest.cells).length) return { ok: false, error: 'no Cells to plan yet — write/adopt some specs first.' };
-  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: loadRoster(p), grants: loadGrants(p), root: trustRootPin(flags) });
+  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: loadRoster(p), grants: loadGrants(p), rejections: loadRejections(p),root: trustRootPin(flags) });
   const digest = plan.buildDigest(manifest, config.project);
   let result;
   try { result = await plan.synthesize(digest, auth); }
@@ -2125,7 +2125,7 @@ function buildMapHTML(p, config, lock, flags) {
   const manifest = buildManifest(flags.dir || p.root);
   // Per-Cell spec diff vs last commit, so each Cell's detail can show what changed there.
   for (const id of Object.keys(manifest.cells)) { manifest.cells[id].diff = specDiffForCell(p.root, manifest.cells[id]); }
-  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), grants: loadGrants(p), root: trustRootPin(flags) });
+  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), grants: loadGrants(p), rejections: loadRejections(p),root: trustRootPin(flags) });
   const { changes, times } = cellChanges(manifest.root, lock, manifest.cells);
   // P4: attach each Cell's semantic timeline (approvals/attestations/rejections) to its times entry.
   const timelines = buildCellTimelines(p, config, manifest, lock);
@@ -2556,7 +2556,7 @@ async function cmdDashboard(flags) {
 async function cmdMap(flags) {
   const { p, config, lock } = loadState();
   const manifest = buildManifest(flags.dir || p.root);
-  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), grants: loadGrants(p), root: trustRootPin(flags) });
+  const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), grants: loadGrants(p), rejections: loadRejections(p),root: trustRootPin(flags) });
   await maybePlanForMap(p, config, manifest, verified, flags);
   const { html, count } = buildMapHTML(p, config, lock, flags);
   const out = (flags.o && flags.o !== true) ? flags.o : (flags.out && flags.out !== true ? flags.out : 'yay-layer-map.html');
@@ -2604,7 +2604,7 @@ function cmdStatus(flags) {
   const { p, config, lock } = loadState();
   if (!config) return console.log(U.c.dim('not initialized — run `yay init`'));
   const manifest = buildManifest(p.root);
-  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: loadRoster(p), grants: loadGrants(p), root: trustRootPin(flags) });
+  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: loadRoster(p), grants: loadGrants(p), rejections: loadRejections(p),root: trustRootPin(flags) });
   const c = verified.counts;
   console.log(U.c.bold(config.project) + U.c.dim(`  · ${Object.keys(manifest.cells).length} Cells · ${Object.keys(config.signers).length} signer(s)`));
   console.log('  ' + U.c.green(`${c.GREEN}●`) + ' ' + U.c.yellow(`${c.YELLOW}●`) + ' ' + U.c.red(`${c.RED}●`) + ' ' + U.c.gray(`${c.UNSIGNED}○`) + '  ' + (verified.passed ? U.c.green('PASS') : U.c.red('BLOCKED')));
@@ -2762,7 +2762,7 @@ async function cmdPolicy(flags) {
   }
 
   const manifest = buildManifest(p.root);
-  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: rlog, grants: loadGrants(p), root: trustRootPin(flags) });
+  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: rlog, grants: loadGrants(p), rejections: loadRejections(p),root: trustRootPin(flags) });
   const viol = Object.values(verified.results).filter((x) => x.policyOk === false);
   if (viol.length) {
     console.log('\n' + U.c.red(`  ${viol.length} Cell(s) violate the enforced policy:`));
