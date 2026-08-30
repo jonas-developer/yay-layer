@@ -279,8 +279,10 @@ function verifyManifest(manifest, lock, config, opts) {
     const sc = staticChecks(cell);
 
     let state;
+    // assumeSigned: reverify re-judges a reconstructed HISTORICAL (already-approved) tree on code⇔spec
+    // alone — there's no lock in the temp dir, so we skip the UNSIGNED gate and report the machine verdict.
     if (trust.violation) state = 'RED';       // grant-envelope violation → gate-blocking backstop
-    else if (!trust.signed) state = 'UNSIGNED';
+    else if (!trust.signed && !opts.assumeSigned) state = 'UNSIGNED';
     else if (sc.red) state = 'RED';
     else if (sc.yellow) state = 'YELLOW';
     else state = 'GREEN';
