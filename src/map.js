@@ -405,6 +405,16 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);l
 .scrim{display:none}
 #yd-slot:empty{display:none}
 #yd-slot{border-top:1px solid var(--rule)}
+/* Static replica of the live-dashboard dock, shown in the demo (mirrors dashboard.js .yd-dock). */
+.yd-dock{display:flex;flex-direction:column;gap:0;padding:7px 12px 9px}
+.yd-dock .yd-livewrap{display:flex;align-items:center;justify-content:space-between;padding:0 2px 5px}
+.yd-dock .yd-live{font-family:var(--sans);font-size:.62rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#1f9d57;padding:0 2px}
+.yd-dock .yd-refresh{color:var(--mut);font-size:1rem;line-height:1;padding:2px 5px;border-radius:7px}
+.yd-dock .yd-btn{display:flex;align-items:center;gap:11px;width:100%;text-align:left;color:var(--ink2);border-radius:8px;padding:5px 12px;line-height:1.25;font-family:var(--sans);font-size:.84rem;font-weight:500;cursor:default}
+.yd-dock.yd-demo .yd-btn:hover{background:color-mix(in srgb,var(--ink) 5%,transparent)}
+.yd-dock .yd-btn.yd-primary{color:var(--accent);font-weight:600}
+.yd-dock .yd-icon{flex:0 0 18px;display:inline-flex;align-items:center;justify-content:center;font-size:13px;opacity:.85}
+.yd-demo-note{font-family:var(--sans);font-size:.6rem;color:var(--mut);padding:6px 2px 0;line-height:1.4}
 /* ── state stat blocks (the 5 gate states as gradient cards) ── */
 .statgrid{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin:0 0 22px}
 .statcard{position:relative;border-radius:14px;padding:15px 17px;color:#fff;min-height:114px;display:flex;flex-direction:column;justify-content:space-between;box-shadow:0 8px 20px -12px rgba(0,0,0,.45);overflow:hidden}
@@ -1659,7 +1669,21 @@ ${statblocks}
   (function(){
     // Show the System Plan row when a plan exists, or when live (so the ↻ can generate the first one).
     if((DATA.meta && DATA.meta.plan) || isLive()){ var _pr=document.getElementById('planrow'); if(_pr) _pr.style.display=''; }
-    if(isLive()){ var _prf=document.getElementById('plan-refresh'); if(_prf) _prf.style.display=''; }
+    var _demo=!!(DATA.meta && DATA.meta.demo);
+    if(isLive() || _demo){ var _prf=document.getElementById('plan-refresh'); if(_prf) _prf.style.display=''; }
+    // Demo only: render a STATIC replica of the live dock (lower-left) so the demo shows the Live menu —
+    // shown, never runnable (the real controls need a running yay dashboard; a static map has no server).
+    if(_demo && !isLive()){
+      var slot=document.getElementById('yd-slot');
+      if(slot){
+        var b=function(icon,label,pri){ return '<div class="yd-btn'+(pri?' yd-primary':'')+'" title="Live dashboard only — shown for the demo; run it with yay dashboard"><span class="yd-icon">'+icon+'</span>'+label+'</div>'; };
+        slot.innerHTML='<div class="yd-dock yd-demo">'
+          +'<div class="yd-livewrap"><span class="yd-live">● live</span><span class="yd-refresh" title="Refresh">↻</span></div>'
+          +b('➕','Request a change',true)+b('≷','Changes')+b('▷','Preview')+b('▶','Run tests')+b('⚔','Adversary')+b('🛡','Re-seal foundation')
+          +'<div class="yd-demo-note">Live controls — shown for the demo. Run them with <b>yay dashboard</b>.</div>'
+          +'</div>';
+      }
+    }
     function revealTags(){ if(isLive() || (DATA.meta && DATA.meta.tags && DATA.meta.tags.length)) Array.prototype.forEach.call(document.querySelectorAll('[data-tab="tags"]'),function(t){ t.style.display=''; }); }
     revealTags(); window.addEventListener('load', revealTags);
     var pol=(DATA.meta&&DATA.meta.policy)||{};

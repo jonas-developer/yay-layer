@@ -22,7 +22,7 @@ node "$HERE/write-src.js" "$WORK" >/dev/null
 node "$YAY" init --key local --name "Alex Rivera" --no-adopt --no-plan >/dev/null
 
 # Human-signed Briefs → Green (C-1), signed-but-unproven / Yellow (C-2, C-4, C-8), Red (C-3).
-node "$YAY" sign --cell C-1 --title "Portfolio math"   --brief "Add coins to a running total, floored at zero." >/dev/null
+node "$YAY" sign --cell C-1 --title "Portfolio math"   --brief "Add a coin amount to the running portfolio total for a single asset and return the new total. The amount can be negative to represent a sell or a correction, and any result that would fall below zero is floored to exactly zero so a holding can never go negative. This keeps the total a safe, always-non-negative number that the dashboard, the allocation chart, and the exported report can all rely on without adding their own guards." >/dev/null
 node "$YAY" sign --cell C-2 --title "Money formatting"  --brief "Show amounts as USD price strings." >/dev/null
 node "$YAY" sign --cell C-3 --title "Live price sync"   --brief "Fetch latest prices for a set of symbols." >/dev/null
 node "$YAY" sign --cell C-4 --title "Access control"    --tags security --brief "Gate portfolio viewing by session." >/dev/null
@@ -43,7 +43,7 @@ node "$YAY" keygen --name "Sara Okoro" >/dev/null
 # Autopilot: a grant + one delegated (awaiting) + one rejected Cell → governance views.
 node "$YAY" grant --for 2h --count 5 --allow "src/**" --max-risk medium >/dev/null
 node "$HERE/write-delegated.js" "$WORK" >/dev/null
-node "$YAY" sign --cell C-6 --title "Sparkline points" --brief "Scale a price series into sparkline coordinates." >/dev/null
+node "$YAY" sign --cell C-6 --title "Sparkline points" --brief "Scale a window of raw prices into pixel y-coordinates for the inline sparkline, mapping the lowest price to the bottom of the chart and the highest to the top so the shape fills the available height. When every price in the window is identical the span would be zero, so the code treats the span as one to avoid a divide-by-zero and renders a flat line along the baseline instead of failing. The result is always an integer array the same length as the input, with each value kept within the given height so it can be handed straight to the SVG renderer." >/dev/null
 node "$YAY" sign --cell C-7 --title "Trend badge"      --brief "Label a percent change up/down/flat." >/dev/null
 node "$YAY" ratify --reject --cell C-7 --reason "Prefer arrows over words; redo with icon set." --category ui >/dev/null
 
