@@ -2479,7 +2479,8 @@ async function askRepo(question, flags) {
   const grants = (((loadGrants(p) || {}).events) || []).filter((e) => e.type === 'grant').map((e) => ({ id: e.id, envelope: e.envelope, expiresAt: e.expiresAt, maxCount: e.maxCount }));
   const rejections = (((loadRejections(p) || {}).events) || []).map((e) => ({ cells: e.cells, reason: e.reason, category: e.category, at: e.at, by: e.signer || e.by }));
   const digest = { project: config.project, gate: verified.passed ? 'PASS' : 'BLOCKED', counts: verified.counts, foundation: verified.foundation || null, cells, briefs, grants, rejections };
-  const system = 'You are the YayLayer assistant for THIS project. You are given (1) the live PROJECT STATE as JSON — every Cell with its verifier state (GREEN/YELLOW/RED/UNSIGNED/PINK), signer, whether it is delegated, plus briefs, grants, rejections and the gate status — and (2) the YayLayer MANUAL. Answer the user\'s question accurately and concisely. For list/count questions use the PROJECT STATE (UNSIGNED = needs a human signature/approval; RED = code contradicts its spec; PINK = un-specced code; delegated = approved under a grant, awaiting human ratification). For "how does X work" questions use the MANUAL. Never invent Cells, states, or features; if the data does not contain the answer, say so plainly. Prefer short bullet lists, and cite Cell ids.';
+  const system = 'You are the YayLayer assistant for THIS project. You are given (1) the live PROJECT STATE as JSON — every Cell with its verifier state (GREEN/YELLOW/RED/UNSIGNED/PINK), signer, whether it is delegated, plus briefs, grants, rejections and the gate status — and (2) the YayLayer MANUAL. Answer the user\'s question accurately and concisely. For list/count questions use the PROJECT STATE (UNSIGNED = needs a human signature/approval; RED = code contradicts its spec; PINK = un-specced code; delegated = approved under a grant, awaiting human ratification). For "how does X work" questions use the MANUAL. Never invent Cells, states, or features; if the data does not contain the answer, say so plainly. Prefer short bullet lists. '
+    + 'When you reference a Cell, cite its id EXACTLY as it appears in the PROJECT STATE "id" field — copy it character-for-character, add no prefix and change nothing (ids may look like C-3f2a-7, C-041, or a PINK id in «guillemets» such as «module-level code»). Do NOT wrap a Cell id in backticks or code formatting — write the bare id so the dashboard can turn it into a clickable link. PINK Cells are un-specced code with no real Cell yet: refer to them by their exact «guillemet» id and their file, and note they need `yay adopt` to bring them under a spec.';
   const user = 'PROJECT STATE (JSON):\n' + JSON.stringify(digest) + '\n\nMANUAL (reference):\n' + readManualText() + '\n\nQUESTION: ' + q;
   try {
     const answer = await plan.chat(system, user, { provider: auth.provider, model: auth.model, apiKey: auth.apiKey, baseUrl: auth.baseUrl, maxTokens: 1400 });
@@ -2878,15 +2879,33 @@ function cmdMerge(flags) {
   process.exitCode = dups.length ? 1 : 0;
 }
 
+// Loose module-level code (a bare statement/call at import scope) can't be safely auto-wrapped — that
+// means rewriting import-time behaviour — so `adopt` never touches it. Surface it clearly and hand it to
+// the AI (Constitution Art. 6), rather than skipping it silently and leaving someone to think it's covered.
+function reportLooseCode(target) {
+  try {
+    const man = buildManifest(path.resolve(target));
+    const loose = (man.untracked || []).filter((u) => u.kind === 'loose');
+    if (!loose.length) return;
+    console.log('\n' + U.c.pink(`◆ ${loose.length} module-level (loose) code region(s) stay Pink`) + U.c.dim(' — adopt won\'t rewrite code, so these aren\'t auto-wrapped:'));
+    for (const u of loose.slice(0, 10)) console.log('    ' + U.c.dim(u.file + ':' + u.line) + (u.count ? U.c.dim(`  (~${u.count} line(s))`) : ''));
+    if (loose.length > 10) console.log('    ' + U.c.dim(`… and ${loose.length - 10} more`));
+    console.log('  ' + U.c.dim('Ask your AI to wrap each into a spec\'d unit (Constitution Art. 6 — an IIFE around a spec\'d function in JS/TS, or an entry point in Python); it understands the code, so it wraps it safely.'));
+  } catch (_) {}
+}
+
 async function cmdAdopt(flags, positional) {
   const target = positional[0] || '.';
   const pAd = U.paths(path.resolve(target));
   const res = adopt(target, { dry: !!flags.dry, shard: ensureLocalShard(pAd), ledgerIds: ledgerCellIds(pAd) });
-  if (!res.total) { console.log(U.c.dim('nothing to adopt — no un-tagged top-level functions found.')); return; }
-  console.log((res.dry ? U.c.yellow('(dry run) ') : U.c.green('✓ ')) + `${res.total} draft Cell(s) across ${res.report.length} file(s):`);
-  for (const r of res.report) console.log('  ' + U.c.dim(r.file) + '  +' + r.added);
-  console.log('\n  Next: prune each DERIVED spec, then ' + U.c.bold('yay sign') + '.');
-  if (!flags.dry) { try { const { p, config } = loadState(); if (config) await foundationPosturePrompt(p, config, flags, process.stdin.isTTY); } catch (_) {} }
+  if (!res.total) console.log(U.c.dim('nothing to adopt — no un-specced named units found (functions/methods).'));
+  else {
+    console.log((res.dry ? U.c.yellow('(dry run) ') : U.c.green('✓ ')) + `${res.total} draft Cell(s) across ${res.report.length} file(s):`);
+    for (const r of res.report) console.log('  ' + U.c.dim(r.file) + '  +' + r.added);
+    console.log('\n  Next: prune each DERIVED spec, then ' + U.c.bold('yay sign') + '.');
+  }
+  reportLooseCode(target); // pink loose code adopt can't wrap → point to the AI (Art. 6)
+  if (!flags.dry && res.total) { try { const { p, config } = loadState(); if (config) await foundationPosturePrompt(p, config, flags, process.stdin.isTTY); } catch (_) {} }
 }
 
 // Batch settings live in config.json (committed, shared). Default: on, barrier 5.

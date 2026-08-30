@@ -460,6 +460,7 @@ yay init        <span class="cm"># guided: signing mode → adopt? → tag set �
       <h3>Set up / adopt</h3>
       <pre><code>yay init      <span class="cm"># files → signing key → adopt → tags → Constitution → Standard/Durable</span>
 yay adopt     <span class="cm"># scaffold specs over an existing codebase</span></code></pre>
+      <p><code>yay adopt</code> scaffolds a draft spec over every <b>named unit</b> (function / method). It deliberately does <b>not</b> rewrite code, so <b>loose module-level code</b> (bare statements that run at import) is <i>reported, not auto-wrapped</i> — it stays Pink and adopt points you to it. Your AI then wraps each such region into a spec'd unit (Constitution Art. 6: an IIFE around a spec'd function in JS/TS, or an entry point in Python), preserving order and scope. That split is intentional: the mechanical part is automated; the one part that changes runtime behaviour is left to the actor that understands the code. Existing Cells are never touched, renumbered, or re-signed — adopt only adds over code that has no Cell yet.</p>
       <h3>The normal loop (forward-signing)</h3>
       <p>Spec first → <code>yay sign --title "…" --brief "…"</code> → implement to match → <code>yay verify</code> → on Green, commit code + <code>.yaylayer/</code> together (don't push unless asked).</p>
       <h3>Sign at your own pace (batch)</h3>

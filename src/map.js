@@ -338,9 +338,9 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);l
 .brandsep{color:var(--mut)}
 .brandproj{color:var(--ink2);font-family:var(--mono);font-size:.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sidenav{flex:1;overflow-y:auto;padding:8px 12px 20px}
-.navgroup{font-family:var(--sans);font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:var(--mut);padding:15px 10px 6px}
+.navgroup{font-family:var(--sans);font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:var(--mut);padding:12px 10px 5px;line-height:1.2}
 .navgroup:first-child{padding-top:8px}
-.tab{display:flex;align-items:center;gap:11px;width:100%;text-align:left;font-family:var(--sans);font-size:.88rem;font-weight:500;letter-spacing:-.005em;background:none;border:none;color:var(--ink2);border-radius:9px;padding:9px 12px;cursor:pointer;transition:color .15s ease,background .15s ease}
+.tab{display:flex;align-items:center;gap:11px;width:100%;text-align:left;font-family:var(--sans);font-size:.88rem;font-weight:500;line-height:1.3;letter-spacing:-.005em;background:none;border:none;color:var(--ink2);border-radius:9px;padding:8px 12px;cursor:pointer;transition:color .15s ease,background .15s ease}
 .tab .ti{width:18px;height:18px;flex:none;display:inline-flex;align-items:center;justify-content:center;opacity:.75}
 .tab .ti svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .projrow{display:flex;align-items:flex-start;gap:11px;padding:8px 12px;margin:0 2px;border-radius:9px;background:color-mix(in srgb,var(--ink) 4%,transparent);border:1px solid var(--rule)}
@@ -422,6 +422,12 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);l
 .ask-ans code{font-family:var(--mono);font-size:.82em;background:var(--card2);border:1px solid var(--rule);border-radius:5px;padding:.05em .35em}
 .ask-ref{font-family:var(--mono);font-size:.82em;color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);border-radius:5px;padding:.03em .32em;cursor:pointer;white-space:nowrap;text-decoration:none}
 .ask-ref:hover{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.ask-spin{width:12px;height:12px;border:2px solid color-mix(in srgb,var(--accent) 28%,transparent);border-top-color:var(--accent);border-radius:50%;display:inline-block;vertical-align:-2px;margin-right:7px;animation:ask-spin .7s linear infinite}
+.ask-think .ad{display:inline-block;width:4px;height:4px;margin:0 1px;border-radius:50%;background:var(--accent);animation:ask-blink 1.2s infinite both}
+.ask-think .ad:nth-child(2){animation-delay:.18s}.ask-think .ad:nth-child(3){animation-delay:.36s}
+@keyframes ask-spin{to{transform:rotate(360deg)}}
+@keyframes ask-blink{0%,80%,100%{opacity:.2}40%{opacity:1}}
+@media (prefers-reduced-motion:reduce){.ask-spin{animation:none}.ask-think .ad{animation:none;opacity:.6}}
 .ask-ex-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px}
 .ask-ex-grid .ask-ex{width:100%;text-align:left;font-weight:500}
 @media(max-width:760px){.ask-ex-grid{grid-template-columns:1fr}}
@@ -838,10 +844,16 @@ ${statblocks}
   // Format an LLM answer (markdown-ish) into readable, YayLayer-styled HTML: escape first (safe),
   // then headings/lists/bold/code, clickable Cell + Brief refs, and coloured verifier states.
   function askStateColor(s){ return ({GREEN:'#1f9d57',YELLOW:'#c9860f',RED:'#cf4436',UNSIGNED:'#7f8796',PINK:'#d6519a'})[s]; }
+  function askRef(uid,label){ return (DATA.nodes&&DATA.nodes[uid]) ? '<a class="ask-ref" data-open="'+uid+'">'+label+'</a>' : '<code>'+label+'</code>'; }
   function askInline(s){
+    // Pink/untracked Cells carry a «guillemet» id (e.g. «module-level code»); the model sometimes glues
+    // a stray C- prefix onto them — strip it, then link the id to its node. Run before the C- id pass.
+    s=s.replace(/\\bC-(?=«)/g,'');
+    s=s.replace(/«([^»]+)»/g,function(m,inner){ return askRef('u:«'+inner+'»','«'+inner+'»'); });
     s=s.replace(/\\x60([^\\x60]+)\\x60/g,'<code>$1</code>');
     s=s.replace(/\\*\\*([^*]+)\\*\\*/g,'<b>$1</b>');
-    s=s.replace(/\\bC-[A-Za-z0-9._]+/g,function(id){ return (DATA.nodes&&DATA.nodes['u:'+id]) ? '<a class="ask-ref" data-open="u:'+id+'">'+id+'</a>' : id; });
+    // Real Cell ids — now include the hyphen so SHARDED ids (C-3f2a-7) match fully, not just C-3f2a.
+    s=s.replace(/\\bC-[A-Za-z0-9._-]+/g,function(id){ return (DATA.nodes&&DATA.nodes['u:'+id]) ? '<a class="ask-ref" data-open="u:'+id+'">'+id+'</a>' : id; });
     s=s.replace(/\\bA-[0-9]{3,}\\b/g,function(id){ return '<a class="ask-ref" data-brief="1">'+id+'</a>'; });
     s=s.replace(/\\b(GREEN|YELLOW|RED|UNSIGNED|PINK)\\b/g,function(w){ return '<span style="color:'+askStateColor(w)+';font-weight:600">'+w+'</span>'; });
     return s;
@@ -876,7 +888,7 @@ ${statblocks}
     function ask(){
       var text=(q.value||'').trim(); if(!text){ q.focus(); return; }
       if(!live){ ansEl.innerHTML='<div class="snote" style="font-family:var(--sans)">Run <code>yay dashboard</code> to get real answers here — a static view cannot call your AI.</div>'; return; }
-      go.disabled=true; go.style.opacity='.6'; stt.style.color='var(--mut)'; stt.textContent='Thinking… (a few seconds)'; ansEl.innerHTML='';
+      go.disabled=true; go.style.opacity='.6'; stt.style.color='var(--mut)'; stt.innerHTML='<span class="ask-spin"></span>Thinking<span class="ask-think"><span class="ad"></span><span class="ad"></span><span class="ad"></span></span>'; ansEl.innerHTML='';
       fetch('/api/ask',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({question:text})}).then(function(r){return r.json();}).then(function(j){
         go.disabled=false; go.style.opacity='1';
         if(j&&j.ok){ ansEl.innerHTML=fmtAsk(j.answer); stt.style.color='var(--mut)'; stt.textContent='— '+(j.provider||'')+'/'+(j.model||''); }
