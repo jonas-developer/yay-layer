@@ -1615,8 +1615,20 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     chk('gitlab', '.gitlab-ci.yml', /image: node/);
     chk('bitbucket', 'bitbucket-pipelines.yml', /pull-requests/);
     chk('gitea', '.gitea/workflows/yaylayer.yml', /runs-on: ubuntu-latest/);
+    // gerrit is special: the .zuul.yaml holds the job/pipelines, the command lives in a companion playbook.
+    {
+      const gdir = fs.mkdtempSync(require('path').join(os.tmpdir(), 'yay-gerrit-'));
+      const r = gate.writeWorkflow(gdir, { platform: 'gerrit', root: 'AAAA-BBBB' });
+      const zuul = fs.readFileSync(require('path').join(gdir, r.path), 'utf8');
+      ok(r.path === '.zuul.yaml' && /check:/.test(zuul) && /gate:/.test(zuul) && /yaylayer-gate/.test(zuul), 'gate: --for gerrit → .zuul.yaml with check + gate pipelines');
+      ok(Array.isArray(r.extra) && r.extra[0] && r.extra[0].path === 'playbooks/yaylayer-gate.yaml' && fs.existsSync(require('path').join(gdir, r.extra[0].path)), 'gate: gerrit also writes the companion playbook');
+      const play = fs.readFileSync(require('path').join(gdir, r.extra[0].path), 'utf8');
+      ok(/yay verify --strict/.test(play) && /--root AAAA-BBBB/.test(play), 'gate: gerrit playbook runs `yay verify --strict` with the pinned root');
+      ok(/Verified/.test(gate.branchProtectionSteps('gerrit')) && /submit requirement/i.test(gate.branchProtectionSteps('gerrit')), 'gate: gerrit steps explain the Verified submit requirement');
+      fs.rmSync(gdir, { recursive: true, force: true });
+    }
     ok(/Build Validation/i.test(gate.branchProtectionSteps('azure')) && /Protected branch/i.test(gate.branchProtectionSteps('gitlab')) && /Rulesets/i.test(gate.branchProtectionSteps('github')), 'gate: per-platform branch-protection steps differ correctly');
-    ok(gate.normPlatform('ado') === 'azure' && gate.normPlatform('AZURE') === 'azure' && gate.normPlatform('bogus') === 'github', 'gate: platform aliases resolve (ado→azure, unknown→github)');
+    ok(gate.normPlatform('ado') === 'azure' && gate.normPlatform('AZURE') === 'azure' && gate.normPlatform('bogus') === 'github' && gate.normPlatform('gerrit') === 'gerrit', 'gate: platform aliases resolve (ado→azure, unknown→github, gerrit→gerrit)');
   }
 
   // ── Cell-id sharding + monotonic never-reuse (distributed merge safety) ──

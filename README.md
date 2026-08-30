@@ -265,6 +265,7 @@ Anything Red or Unsigned fails the check, so it can't be merged. The real enforc
 | `gitlab` | `.gitlab-ci.yml` | Protected branch + **"Pipelines must succeed"** |
 | `bitbucket` | `bitbucket-pipelines.yml` | Branch restrictions → require a passing build |
 | `gitea` | `.gitea/workflows/yaylayer.yml` | Branch protection → require the `gate` check |
+| `gerrit` | `.zuul.yaml` + `playbooks/yaylayer-gate.yaml` | Gates via the **Verified** label — make Verified+1 a **submit requirement** (CI: Zuul, or Jenkins via the Gerrit Trigger plugin) |
 
 The contract is identical everywhere — run `yay verify --strict` on a protected branch, root pinned; only the syntax differs. The core is pure git, so it works on any host or none.
 
