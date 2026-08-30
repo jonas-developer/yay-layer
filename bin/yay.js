@@ -2493,6 +2493,24 @@ async function cmdDashboard(flags) {
           ? { ok: true, output: out.replace(/\x1b\[[0-9;]*m/g, '').trim() }
           : { ok: false, error: (out.replace(/\x1b\[[0-9;]*m/g, '').trim() || ('enroll exited ' + code)) }));
       }),
+      // Issue an Autopilot grant (owner-signed) from the dashboard — spawns `yay grant … --phone`,
+      // routing the owner approval to the phone (same pattern as enroll). Only a human can issue it.
+      grant: (o) => new Promise((resolve) => {
+        o = o || {};
+        const args = ['grant', '--for', String(o.dur || '2h'), '--count', String(parseInt(o.count, 10) || 20), '--phone'];
+        if (o.allow) args.push('--allow', String(o.allow));
+        if (o.deny) args.push('--deny', String(o.deny));
+        if (o.maxRisk) args.push('--max-risk', String(o.maxRisk));
+        if (o.childGrants) args.push('--child-grants');
+        const child = require('child_process').spawn(process.execPath, [process.argv[1], ...args], { cwd: p.root });
+        let out = '';
+        child.stdout.on('data', (d) => { out += d; });
+        child.stderr.on('data', (d) => { out += d; });
+        child.on('error', (e) => resolve({ ok: false, error: String((e && e.message) || e) }));
+        child.on('exit', (code) => resolve(code === 0
+          ? { ok: true, output: out.replace(/\x1b\[[0-9;]*m/g, '').trim() }
+          : { ok: false, error: (out.replace(/\x1b\[[0-9;]*m/g, '').trim() || ('grant exited ' + code)) }));
+      }),
     }, { port, tls, caPem, caFilename });
   } catch (e) {
     if (e && e.code === 'EADDRINUSE') return fail(`port ${port} is already in use — a dashboard may already be running (open http://localhost:${port}), or pass --port.`);

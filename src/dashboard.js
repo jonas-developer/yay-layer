@@ -256,6 +256,14 @@ function startDashboard(deps, opts) {
       invites.set(token, { name, role, exp: Date.now() + INVITE_TTL, used: false, done: null, result: null, code: null });
       return sendJSON(res, 200, { ok: true, token, name, role, joinPath: '/join?t=' + token, expiresInMin: INVITE_TTL / 60000 });
     }
+    // Owner issues an Autopilot grant (localhost only; the approval routes to the owner's phone).
+    if (req.method === 'POST' && url === '/api/grant/create') {
+      if (!isLocal(req)) return sendJSON(res, 403, { error: 'issue a grant from the dashboard on THIS computer (localhost).' });
+      if (!deps.grant) return sendJSON(res, 200, { error: 'grant issuance is not available on this dashboard' });
+      const b = await readBody(req);
+      const r = await deps.grant(b);
+      return sendJSON(res, 200, r);
+    }
 
     // ── phone-facing ──
     if (req.method === 'GET' && (url === '/phone' || url === '/phone.html')) return sendHTML(res, phoneHTML);

@@ -835,7 +835,8 @@ ${statblocks}
     var el=document.getElementById('grants'); if(!el) return;
     var gs=(DATA.meta&&DATA.meta.grants)||[];
     var html='<h1>Delegation grants</h1><div class="snote" style="font-family:var(--sans);margin:0 0 16px">Autopilot: owner-signed <b>capability envelopes</b> that let the AI approve in-scope changes (delegated) without contacting your phone — until a grant expires or hits its count. Everything delegated is queued for ratification in the Briefs tab.</div>';
-    if(!gs.length){ html+='<div class="snote" style="font-family:var(--sans)">No grants issued. Start Autopilot with <code>yay grant --for 2h --count 20</code> — shape the envelope with <code>--allow "src/ui/**"</code>, <code>--deny</code>, <code>--max-risk medium</code>, <code>--child-grants</code>.</div>'; el.innerHTML=html; return; }
+    if(isLive()) html+='<div style="margin:0 0 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button id="gr-new" class="viewbtn">+ New grant</button><span class="snote" style="font-family:var(--sans);font-size:.82rem">you approve the grant on your phone; only a human can issue it.</span></div>';
+    if(!gs.length){ html+='<div class="snote" style="font-family:var(--sans)">No grants issued yet.'+(isLive()?' Click <b>+ New grant</b> above, or use':' Start Autopilot with')+' <code>yay grant --for 2h --count 20</code> — shape the envelope with <code>--allow "src/ui/**"</code>, <code>--deny</code>, <code>--max-risk medium</code>, <code>--child-grants</code>.</div>'; el.innerHTML=html; var nb0=document.getElementById('gr-new'); if(nb0) nb0.onclick=openGrantModal; return; }
     gs.slice().sort(function(a,b){ return (b.active?1:0)-(a.active?1:0); }).forEach(function(g){
       var st=g.active?['active','#1f9d57']:g.revoked?['revoked','#cf4436']:g.expired?['expired','#7f8796']:['spent','#7f8796'];
       var e=g.envelope||{}; var scope=[];
@@ -854,8 +855,37 @@ ${statblocks}
         +'<div class="smeta">'+used+' / '+(max||'∞')+' delegations used'+(max?(' · '+pct+'%'):'')+' · expires '+esc2(String(g.expiresAt||'').slice(0,16).replace('T',' '))+'</div>'
         +bad+'</div></div>';
     });
-    html+='<div class="snote" style="font-family:var(--sans);margin-top:14px">Issue with <code>yay grant</code> · stop one with <code>yay grant revoke [id]</code> · ratify delegated work in <b>Briefs</b>. Only a human owner can issue or revoke a grant — the AI never can.</div>';
+    html+='<div class="snote" style="font-family:var(--sans);margin-top:14px">Issue with <b>+ New grant</b> or <code>yay grant</code> · stop one with <code>yay grant revoke [id]</code> · ratify delegated work in <b>Briefs</b>. Only a human owner can issue or revoke a grant — the AI never can.</div>';
     el.innerHTML=html;
+    var nb=document.getElementById('gr-new'); if(nb) nb.onclick=openGrantModal;
+  }
+  // Issue an Autopilot grant from the dashboard — owner approves on the phone (POST /api/grant/create
+  // spawns "yay grant … --phone"). Only a human can issue a grant; the AI never can.
+  function openGrantModal(){
+    var m=document.getElementById('modal'); if(!m) return; var body=m.querySelector('.modal-body');
+    var fld='width:100%;box-sizing:border-box;margin-top:4px;padding:9px 11px;border-radius:9px;border:1px solid var(--rule);background:var(--card2);color:var(--ink);font-family:var(--sans);font-size:.9rem';
+    body.innerHTML='<div class="mhead"><span class="mname">New delegation grant</span></div>'
+      +'<div class="snote" style="font-family:var(--sans);margin:0 0 14px">Hand the AI a bounded, signed envelope. It approves in-scope changes (delegated) without contacting your phone until this expires or hits the count — everything queues for ratification. You approve <i>this grant</i> on your phone.</div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:520px">'
+      +'<label style="font-size:.85rem;color:var(--ink2)">Duration<input id="gr-for" value="2h" placeholder="2h, 90m, 1d" style="'+fld+'"></label>'
+      +'<label style="font-size:.85rem;color:var(--ink2)">Max approvals<input id="gr-count" type="number" min="1" value="20" style="'+fld+'"></label>'
+      +'<label style="font-size:.85rem;color:var(--ink2);grid-column:1/3">Allow paths <span style="color:var(--mut)">(glob, optional)</span><input id="gr-allow" placeholder="src/ui/**" style="'+fld+'"></label>'
+      +'<label style="font-size:.85rem;color:var(--ink2);grid-column:1/3">Deny paths <span style="color:var(--mut)">(glob, optional)</span><input id="gr-deny" placeholder="src/auth/**" style="'+fld+'"></label>'
+      +'<label style="font-size:.85rem;color:var(--ink2)">Max risk<select id="gr-risk" style="'+fld+'"><option value="">(any)</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select></label>'
+      +'<label style="font-size:.85rem;color:var(--ink2);display:flex;align-items:center;gap:8px;align-self:end;padding-bottom:9px"><input id="gr-child" type="checkbox"> allow child grants</label>'
+      +'</div>'
+      +'<div style="margin-top:16px;display:flex;gap:10px;align-items:center"><button id="gr-issue" class="viewbtn">Issue grant → approve on phone</button><span id="gr-out" class="snote" style="font-family:var(--sans)"></span></div>';
+    m.classList.add('open'); document.body.style.overflow='hidden';
+    var out=document.getElementById('gr-out');
+    document.getElementById('gr-issue').onclick=function(){
+      var btn=this; btn.disabled=true; btn.style.opacity='.6';
+      out.style.color='var(--mut)'; out.textContent='Sent to your phone — approve there…';
+      var payload={ dur:(document.getElementById('gr-for').value||'2h').trim(), count:parseInt(document.getElementById('gr-count').value,10)||20, allow:(document.getElementById('gr-allow').value||'').trim(), deny:(document.getElementById('gr-deny').value||'').trim(), maxRisk:document.getElementById('gr-risk').value, childGrants:document.getElementById('gr-child').checked };
+      fetch('/api/grant/create',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)}).then(function(r){return r.json();}).then(function(j){
+        if(j&&j.ok){ out.style.color='#1f9d57'; out.textContent='✓ Grant issued — reloading…'; setTimeout(function(){ location.reload(); },1100); }
+        else { out.style.color='#cf4436'; out.textContent='✗ '+((j&&j.error)||'failed'); btn.disabled=false; btn.style.opacity='1'; }
+      }).catch(function(e){ out.style.color='#cf4436'; out.textContent='✗ '+String(e); btn.disabled=false; btn.style.opacity='1'; });
+    };
   }
 
   // ── Briefs tab — the plain-English ledger of what was ordered (Standard §5) ──
