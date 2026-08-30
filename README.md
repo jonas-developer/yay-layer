@@ -97,9 +97,13 @@ Run these **from inside your project** (`cd` there first) — `init` sets up wha
 1. **Signing mode** — **Local** (encrypted key on this machine), **Mobile · LAN** (key stays on your phone, phone ↔ laptop over your Wi-Fi), or **Mobile · relay** (phone via the end-to-end-encrypted `relay.yaylayer.com`, works from any network). All three are built.
 2. If Local, it asks for your **name** and a **passphrase**, and creates the key; Mobile modes print a QR to pair your phone once (key created there, 24-word backup, PIN).
 3. **Adopt** — asks whether the project already has code; if yes, it runs `adopt` to scaffold draft specs over it.
-4. **Brief tags**, the **Constitution** (written into your AI harness), and **Standard vs Durable** provenance (`--durable` to archive signed source encrypted).
+4. **Brief tags** and the **Constitution** (written into your AI harness).
+5. **Project AI** — one provider (Anthropic / OpenAI / custom, key in `.env`) that powers *all* the AI features: the **System Plan** overview, the **Ask** assistant, and the **spec-adversary**.
+6. **Foundation seal** — a posture (**Guarded** by default) that reveals any change to your fixed core files.
 
-Prefer to script it (or skip the prompts)? Pass flags: `yay init --key local --name you --adopt` (or `--no-adopt`, `--relay`/`--lan`, `--durable`). The manual equivalents of each step:
+Two steps happen automatically, no prompt: a `.gitattributes` so the append-only ledgers **auto-merge** instead of conflicting, and this working copy's own **Cell-id shard** so ids never collide when branches merge. (Durable provenance — an encrypted archive of signed source — is opt-in via `--durable` or `yay archive`.)
+
+Prefer to script it (or skip the prompts)? Pass flags: `yay init --key local --name you --adopt` (or `--no-adopt`, `--relay`/`--lan`, `--durable`, `--foundation guarded|strict`). The manual equivalents of each step:
 
 > **About `--project`:** it's just a **free-form display name** — call it anything you like (e.g. `--project "My Fancy App"`). It defaults to the folder name, and only shows up as a label in `yay status` and the map header. It does **not** affect behaviour and it is **not** a path (avoid slashes, or `yay` will think you meant a directory).
 
