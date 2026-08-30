@@ -311,7 +311,9 @@ Every color in YayLayer ultimately rests on one thing: a **human signature** ove
 
 So *"can someone with a private key fake-sign?"* — only the holder of **your phone plus your face** can, which is the whole point: a green gate provably means **you** stood behind it.
 
-**If you lose the phone.** Your key backs up as a **24-word mnemonic + passphrase**, and you can enroll a **second key** — so a lost phone restores the *same* identity with nothing to re-sign. Re-issuing a fresh trust root is a rare, deliberate one-signature fallback.
+**If you lose the phone.** Your key backs up as a **24-word mnemonic + passphrase** — so a lost phone **restores the *same* key** with nothing to re-sign. Pick the right path by *why* you lost access: **have your 24 words** → restore (no discontinuity); **lost the words, solo** → `yay reroot` (new trust root); **lost the words / compromised, on a team** → another owner **revokes** the old key and **enrolls** a new one (root untouched). For a *compromised* key, restore is useless — the attacker has the same key — so you **retire** it (reroot) or **revoke** it, not restore. `yay reroot` is the deliberate last resort.
+
+**Is `yay reroot` a backdoor?** No — it only *proposes* a new root; the **CI root-pin blesses it**. A reroot changes the root fingerprint, so `yay verify` reports **TRUST-ROOT MISMATCH** and the **gate blocks** — a loud alarm, not a silent takeover. Making a new root real means a human repoints the pin via `yay gate` in GitHub's **branch-protected settings** (outside the repo and the AI's reach). So repo-write alone can *trip the alarm* but can't take over without also compromising your GitHub settings, and reroot can't rewrite past signatures. The one caveat: with no CI gate/pin (local-only) a reroot has no backstop — but then nothing is truly enforced anyway.
 
 ## Who runs `yay sign`: the AI asks, you approve
 

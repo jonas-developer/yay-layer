@@ -515,7 +515,7 @@ yay requests done &lt;id&gt;      <span class="cm"># clear one once it is signed
         <dt><code>yay ratify [--sign]</code></dt><dd>List / human-sign delegated Cells — shows grant scope + boundary report, TOCTOU-safe. <code>--reject --reason</code> records a signed rejection.</dd>
         <dt><code>yay dashboard</code> · <code>yay map</code> · <code>yay gate</code> · <code>yay constitution</code> · <code>yay status</code></dt><dd>Live panel + relay · static map · CI gate · write the Constitution · summary.</dd>
         <dt><code>yay tags</code> · <code>yay policy</code> · <code>yay batch</code> · <code>yay adopt</code></dt><dd>Tag pool · signing policy (<code>--set</code> owner-signs; <code>inert</code>/<code>coverage</code>/<code>delegable</code> rules) · batch barrier · adopt existing code.</dd>
-        <dt><code>yay keygen</code> · <code>yay pair</code> · <code>yay enroll</code> · <code>yay invite</code></dt><dd>Create key · pair phone · enroll a signer · mint a join link.</dd>
+        <dt><code>yay keygen</code> · <code>yay pair</code> · <code>yay enroll</code> · <code>yay invite</code> · <code>yay revoke</code> · <code>yay reroot</code></dt><dd>Create key · pair phone · enroll a signer · mint a join link · revoke a key (owner-signed; refuses to leave zero owners) · retire the trust root and establish a new one (last-resort recovery — see <a href="#teams">Recovery</a>).</dd>
         <dt><code>yay protect</code> <em>(upcoming)</em></dt><dd>Create / re-seal the owner-signed <a href="#security">foundation seal</a> over the fixed core files. <code>--mode guarded|strict</code>, <code>--add</code>/<code>--remove &lt;glob&gt;</code>, <code>--ignore &lt;glob&gt;</code> (signed churn exclusion), <code>--off</code>. A broken seal warns in <code>yay verify</code>, the map, and the dashboard.</dd>
         <dt><code>yay reverify</code> · <code>yay witness</code> · <code>yay metrics</code> · <code>yay capability</code> · <code>yay archive</code></dt><dd>Append a re-verification (never rewrite) · integrity witness · earned-autonomy metrics · derived capability + drift check · Durable encrypted archive (<code>install</code> hook, <code>--restore</code>, <code>--forget</code>, <code>--verify</code>).</dd>
       </dl>
@@ -601,12 +601,21 @@ yay requests done &lt;id&gt;      <span class="cm"># clear one once it is signed
         <li><strong>Signer routing:</strong> <code>yay sign --name "&lt;teammate&gt;"</code> routes the request to their inbox over the relay; <code>yay sign --check [id]</code> collects the returned signature — so "Lisa must sign the security Cells" works even when Lisa is elsewhere.</li>
         <li><strong>Signing methods</strong> (per project, at <code>yay init</code>): <strong>Local</strong> (encrypted keystore on this machine), <strong>Mobile · LAN</strong> (phone over Wi-Fi), <strong>Mobile · Relay</strong> (phone via end-to-end-encrypted <code>relay.yaylayer.com</code>, off-LAN). The AI's machine only ever holds <em>public</em> keys.</li>
       </ul>
-      <h3>Recovery</h3>
-      <ul>
-        <li><strong>Lost phone, have your 24 words</strong> — restore the key onto a new phone from the mnemonic; nothing on the laptop changes.</li>
-        <li><strong>Lost phone <em>and</em> words</strong> — an owner enrols a fresh key for you; past approvals stay attributed.</li>
-        <li><strong>Lost/compromised root</strong> — <code>yay reroot</code> retires the trust root and establishes a new one (a deliberate trust discontinuity: re-sign specs and repoint the CI pin after).</li>
-      </ul>
+      <h3>Recovery — restore vs revoke vs reroot</h3>
+      <p>Which path you take depends on <em>why</em> you lost access and whether you're solo or on a team. <code>yay reroot</code> is the last resort — a deliberate <strong>trust discontinuity</strong>, not the everyday answer.</p>
+      <div class="tw"><table>
+        <thead><tr><th>Situation</th><th>What you do</th><th>Reroot?</th></tr></thead>
+        <tbody>
+          <tr><td>Lost phone, <strong>still have 24 words</strong></td><td><strong>Restore</strong> — the mnemonic re-derives the <em>same</em> key. No discontinuity, nothing to re-sign.</td><td>No</td></tr>
+          <tr><td>Lost phone, <strong>no words</strong>, <strong>solo</strong></td><td><code>yay reroot</code> — establish a brand-new trust root.</td><td><strong>Yes</strong></td></tr>
+          <tr><td>Lost phone, <strong>no words</strong>, <strong>team</strong></td><td>Another owner <strong>revokes</strong> the old key + <strong>enrols</strong> a new one (root untouched).</td><td>No</td></tr>
+          <tr><td>Key <strong>compromised</strong>, <strong>solo</strong></td><td><code>yay reroot</code> — restore is useless here (see note).</td><td><strong>Yes</strong></td></tr>
+          <tr><td>Key <strong>compromised</strong>, <strong>team</strong></td><td>Another owner <strong>revokes</strong> the leaked key + enrols a fresh one.</td><td>No</td></tr>
+        </tbody>
+      </table></div>
+      <div class="note"><span class="k">Why restore fails for a compromised key</span><p>Restoring from your 24 words re-installs the <em>same</em> key — which the attacker also holds. For compromise the goal is to make the leaked key <strong>worthless</strong>, so you must <em>retire</em> it (reroot) or <em>revoke</em> it (team), not restore it. Restore is only for a <em>lost</em> key you alone can bring back.</p></div>
+      <p>So the rule: <strong><code>yay reroot</code> = "I need a brand-new trust root because the current one is unrecoverable or compromised, and there's no other owner to revoke it for me."</strong> On a team, revoke/enrol almost always replaces it; solo, reroot is the fallback.</p>
+      <div class="note"><span class="k">Reroot's security model — not a backdoor</span><p>By design reroot <em>cannot</em> require the old key (the whole point is that it's gone). But that does <strong>not</strong> make it a takeover path, because a reroot only <em>proposes</em> a new root — the <strong>CI root-pin blesses it</strong>. An unauthorized reroot changes the root fingerprint, so <code>yay verify</code> reports <em>"TRUST-ROOT MISMATCH"</em> and the <strong>gate blocks</strong> — a loud alarm and hard stop, not a silent swap. To make a new root real, a human must repoint the pin via <code>yay gate</code> in GitHub's <strong>branch-protected settings</strong>, which live outside the repo and the AI's reach. So an attacker with repo-write can trip the alarm but can't take over without <em>also</em> compromising your GitHub settings — two separate trust domains — and reroot can't forge or rewrite <em>past</em> signatures (old approvals stay attributed to the archived root). The trust ultimately rests on the CI pin only <strong>you</strong> control; reroot is subordinate to it. The one real gap: with <strong>no CI gate/pin</strong> (solo, local-only), a reroot has no backstop — but then nothing is truly enforced anyway. After a legitimate reroot: re-sign specs, repoint the CI pin, re-enrol the team, and re-establish the <a href="#security">foundation seal</a> under the new root.</p></div>
     </section>
 
     <section id="limits">
