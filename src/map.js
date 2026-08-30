@@ -413,6 +413,18 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);l
 .skeykind{font-size:.58rem;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);border:1px solid var(--rule);border-radius:5px;padding:1px 6px}
 .swarn{color:var(--amber);font-family:var(--sans);font-size:.82rem;margin:0 0 12px}
 .snote{color:var(--mut);font-family:var(--sans);font-size:.82rem}
+.ask-ans{font-family:var(--sans);font-size:.84rem;line-height:1.62;color:var(--ink);max-width:760px}
+.ask-ans p{margin:.5em 0}
+.ask-ans .ask-h2{font-weight:700;font-size:.98rem;color:var(--accent);margin:1em 0 .3em}
+.ask-ans .ask-h3{font-weight:700;font-size:.9rem;color:var(--ink);margin:.85em 0 .25em}
+.ask-ans ul,.ask-ans ol{margin:.4em 0 .5em 1.15em;padding:0}
+.ask-ans li{margin:.22em 0}
+.ask-ans code{font-family:var(--mono);font-size:.82em;background:var(--card2);border:1px solid var(--rule);border-radius:5px;padding:.05em .35em}
+.ask-ref{font-family:var(--mono);font-size:.82em;color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);border-radius:5px;padding:.03em .32em;cursor:pointer;white-space:nowrap;text-decoration:none}
+.ask-ref:hover{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.ask-ex-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px}
+.ask-ex-grid .ask-ex{width:100%;text-align:left;font-weight:500}
+@media(max-width:760px){.ask-ex-grid{grid-template-columns:1fr}}
 .signers h1{margin:0 0 16px}
 .files{margin-top:4px;max-width:900px}
 .files h1{margin:0 0 6px}
@@ -823,30 +835,55 @@ ${statblocks}
 
   // ── Capabilities tab — what THIS verifier can detect & prove, its version + fingerprint ──
   // ── Ask tab — repo + manual assistant (live: real LLM; demo/static: showcase note) ──
+  // Format an LLM answer (markdown-ish) into readable, YayLayer-styled HTML: escape first (safe),
+  // then headings/lists/bold/code, clickable Cell + Brief refs, and coloured verifier states.
+  function askStateColor(s){ return ({GREEN:'#1f9d57',YELLOW:'#c9860f',RED:'#cf4436',UNSIGNED:'#7f8796',PINK:'#d6519a'})[s]; }
+  function askInline(s){
+    s=s.replace(/\\x60([^\\x60]+)\\x60/g,'<code>$1</code>');
+    s=s.replace(/\\*\\*([^*]+)\\*\\*/g,'<b>$1</b>');
+    s=s.replace(/\\bC-[A-Za-z0-9._]+/g,function(id){ return (DATA.nodes&&DATA.nodes['u:'+id]) ? '<a class="ask-ref" data-open="u:'+id+'">'+id+'</a>' : id; });
+    s=s.replace(/\\bA-[0-9]{3,}\\b/g,function(id){ return '<a class="ask-ref" data-brief="1">'+id+'</a>'; });
+    s=s.replace(/\\b(GREEN|YELLOW|RED|UNSIGNED|PINK)\\b/g,function(w){ return '<span style="color:'+askStateColor(w)+';font-weight:600">'+w+'</span>'; });
+    return s;
+  }
+  function fmtAsk(md){
+    var lines=esc2(String(md||'')).split(/\\r?\\n/), out=[], inUl=false, inOl=false;
+    function close(){ if(inUl){out.push('</ul>');inUl=false;} if(inOl){out.push('</ol>');inOl=false;} }
+    for(var i=0;i<lines.length;i++){ var ln=lines[i];
+      var h=ln.match(/^(#{1,4})\\s+(.*)$/); if(h){ close(); out.push('<div class="ask-h'+(h[1].length<=2?'2':'3')+'">'+askInline(h[2])+'</div>'); continue; }
+      var ul=ln.match(/^\\s*[-*]\\s+(.*)$/); if(ul){ if(!inUl){close();out.push('<ul>');inUl=true;} out.push('<li>'+askInline(ul[1])+'</li>'); continue; }
+      var ol=ln.match(/^\\s*\\d+[.)]\\s+(.*)$/); if(ol){ if(!inOl){close();out.push('<ol>');inOl=true;} out.push('<li>'+askInline(ol[1])+'</li>'); continue; }
+      if(!ln.trim()){ close(); continue; }
+      close(); out.push('<p>'+askInline(ln)+'</p>');
+    }
+    close(); return out.join('');
+  }
   function renderAsk(){
     var el=document.getElementById('ask'); if(!el) return;
     var live=isLive(); var demo=!!(DATA.meta&&DATA.meta.demo);
-    var fld='width:100%;box-sizing:border-box;margin-top:8px;padding:11px 13px;border-radius:10px;border:1px solid var(--rule);background:var(--card2);color:var(--ink);font-family:var(--sans);font-size:.92rem;resize:vertical;min-height:72px';
-    var examples=['Which cells need approval right now?','List every cell the verifier marked Red, and why.','What is awaiting ratification, and under which grant?','Explain exactly how grants work and what I can do with them.','How does the foundation seal protect my project?'];
-    var chips=examples.map(function(q){ return '<button class="viewbtn ask-ex" data-q="'+esc2(q)+'" style="font-weight:500;margin:0 6px 6px 0">'+esc2(q)+'</button>'; }).join('');
+    var fld='width:100%;box-sizing:border-box;margin-top:8px;padding:11px 13px;border-radius:10px;border:1px solid var(--rule);background:var(--card2);color:var(--ink);font-family:var(--sans);font-size:.9rem;resize:vertical;min-height:72px';
+    var examples=['Which cells need approval right now?','List every cell the verifier marked Red, and why.','What is awaiting ratification, and under which grant?','Explain exactly how grants work and what I can do with them.','How does the foundation seal protect my project?','What did the last few Briefs change?'];
+    var chips=examples.map(function(q){ return '<button class="viewbtn ask-ex" data-q="'+esc2(q)+'">'+esc2(q)+'</button>'; }).join('');
     var note=live?'':('<div class="snote" style="font-family:var(--sans);margin:0 0 12px;color:#c9860f">This is a static '+(demo?'demo':'map')+' — answers need the live dashboard. Run <code>yay dashboard</code> (with an LLM key in <code>.env</code>) and open Ask to query your own repo.</div>');
-    el.innerHTML='<h1>Ask</h1><div class="snote" style="font-family:var(--sans);margin:0 0 14px">Ask about <b>this project</b> or <b>how YayLayer works</b> — answered by the AI you configured for the System Plan, primed with your live project state <i>and</i> the manual.</div>'+note
+    el.innerHTML='<h1>Ask</h1><div class="snote" style="font-family:var(--sans);margin:0 0 14px">Ask about <b>this project</b> or <b>how YayLayer works</b> — answered by the AI you configured for the System Plan, primed with your live project state <i>and</i> the manual. Cell and Brief references in the answer are clickable.</div>'+note
       +'<div style="max-width:760px"><textarea id="ask-q" placeholder="e.g. Which cells need approval?  ·  Explain how grants work" style="'+fld+'"></textarea>'
       +'<div style="margin-top:10px;display:flex;gap:10px;align-items:center"><button id="ask-go" class="viewbtn">Ask</button><span id="ask-status" class="snote" style="font-family:var(--sans)"></span></div>'
-      +'<div style="margin-top:14px"><div class="snote" style="font-size:.78rem;margin-bottom:6px">Try one:</div>'+chips+'</div>'
-      +'<div id="ask-ans" style="margin-top:18px;white-space:pre-wrap;line-height:1.62"></div></div>';
+      +'<div style="margin-top:14px"><div class="snote" style="font-size:.78rem;margin-bottom:6px">Try one (asks straight away):</div><div class="ask-ex-grid">'+chips+'</div></div>'
+      +'<div id="ask-ans" class="ask-ans" style="margin-top:18px"></div></div>';
     var q=document.getElementById('ask-q'), go=document.getElementById('ask-go'), stt=document.getElementById('ask-status'), ansEl=document.getElementById('ask-ans');
-    Array.prototype.forEach.call(el.querySelectorAll('.ask-ex'),function(b){ b.onclick=function(){ q.value=b.getAttribute('data-q'); q.focus(); }; });
+    // clicking a Cell/Brief ref in an answer jumps straight to it
+    ansEl.addEventListener('click',function(e){ var a=e.target.closest&&e.target.closest('.ask-ref'); if(!a) return; e.preventDefault(); if(a.getAttribute('data-open')) openDetail(a.getAttribute('data-open')); else if(a.getAttribute('data-brief')) setTab('briefs'); });
     function ask(){
       var text=(q.value||'').trim(); if(!text){ q.focus(); return; }
       if(!live){ ansEl.innerHTML='<div class="snote" style="font-family:var(--sans)">Run <code>yay dashboard</code> to get real answers here — a static view cannot call your AI.</div>'; return; }
-      go.disabled=true; go.style.opacity='.6'; stt.style.color='var(--mut)'; stt.textContent='Thinking… (a few seconds)'; ansEl.textContent='';
+      go.disabled=true; go.style.opacity='.6'; stt.style.color='var(--mut)'; stt.textContent='Thinking… (a few seconds)'; ansEl.innerHTML='';
       fetch('/api/ask',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({question:text})}).then(function(r){return r.json();}).then(function(j){
         go.disabled=false; go.style.opacity='1';
-        if(j&&j.ok){ ansEl.textContent=j.answer; stt.style.color='var(--mut)'; stt.textContent='— '+(j.provider||'')+'/'+(j.model||''); }
+        if(j&&j.ok){ ansEl.innerHTML=fmtAsk(j.answer); stt.style.color='var(--mut)'; stt.textContent='— '+(j.provider||'')+'/'+(j.model||''); }
         else { stt.textContent=''; ansEl.innerHTML='<span style="color:var(--red)">✗ '+esc2((j&&j.error)||'failed')+'</span>'; }
       }).catch(function(e){ go.disabled=false; go.style.opacity='1'; stt.textContent=''; ansEl.innerHTML='<span style="color:var(--red)">✗ '+esc2(String(e))+'</span>'; });
     }
+    Array.prototype.forEach.call(el.querySelectorAll('.ask-ex'),function(b){ b.onclick=function(){ q.value=b.getAttribute('data-q'); ask(); }; });
     go.onclick=ask; q.addEventListener('keydown',function(e){ if((e.metaKey||e.ctrlKey)&&e.key==='Enter') ask(); });
   }
 

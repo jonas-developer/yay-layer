@@ -255,6 +255,18 @@ yay verify --strict
 
 Anything Red or Unsigned fails the check, so it can't be merged. The real enforcement lives here, in infrastructure the AI doesn't control — not in a local hook.
 
+**Any git host — not just GitHub.** `yay gate --for <platform>` writes the right pipeline and prints that host's branch-protection steps:
+
+| `yay gate --for …` | writes | protect main via |
+|---|---|---|
+| `github` *(default)* | `.github/workflows/yaylayer.yml` | Rulesets → require the `gate` check + PR |
+| `azure` | `azure-pipelines.yml` | Branch policies → **Build Validation** |
+| `gitlab` | `.gitlab-ci.yml` | Protected branch + **"Pipelines must succeed"** |
+| `bitbucket` | `bitbucket-pipelines.yml` | Branch restrictions → require a passing build |
+| `gitea` | `.gitea/workflows/yaylayer.yml` | Branch protection → require the `gate` check |
+
+The contract is identical everywhere — run `yay verify --strict` on a protected branch, root pinned; only the syntax differs. The core is pure git, so it works on any host or none.
+
 ## Briefs & Git — two ledgers that move together
 
 A **git commit** snapshots *code*; a **Brief** is the human-signed record of *intent* (you sign the **spec + Brief, never the code**). They live in different places a single commit unites: the **spec Cells live inline in your source** (so they commit with the code), while the **Brief and its seal live in `.yaylayer/`** (also git-tracked). `yay verify` never trusts a stored verdict — it **re-derives** each Cell from the tree, and the CI gate runs that on the **pushed commit**. So the seal and the code it authorizes must ride the **same commit**: commit code without its seal → that commit is **Unsigned** (blocked); edit a signed Cell's spec afterwards → its `specHash` changes and the seal no longer matches (back to needs-signing).
