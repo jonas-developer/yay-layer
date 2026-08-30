@@ -656,6 +656,7 @@ ${statblocks}
 <script>
 (function(){
   var DATA=JSON.parse(document.getElementById('yl-data').textContent);
+  var pendingBrief=null; // a Brief id to open in the modal once the Briefs tab renders (set by an Ask ref click)
   var NODES=DATA.nodes, DETAILS=DATA.details, EDGES=DATA.edges||{};
   var svg=document.getElementById('graph'), crumbEl=document.getElementById('crumb');
   var NS='http://www.w3.org/2000/svg';
@@ -896,7 +897,7 @@ ${statblocks}
     s=s.replace(/\\*\\*([^*]+)\\*\\*/g,'<b>$1</b>');
     // Real Cell ids — now include the hyphen so SHARDED ids (C-3f2a-7) match fully, not just C-3f2a.
     s=s.replace(/\\bC-[A-Za-z0-9._-]+/g,function(id){ return (DATA.nodes&&DATA.nodes['u:'+id]) ? '<a class="ask-ref" data-open="u:'+id+'">'+id+'</a>' : id; });
-    s=s.replace(/\\bA-[0-9]{3,}\\b/g,function(id){ return '<a class="ask-ref" data-brief="1">'+id+'</a>'; });
+    s=s.replace(/\\bA-[0-9]{3,}\\b/g,function(id){ return '<a class="ask-ref" data-brief="'+id+'">'+id+'</a>'; });
     s=s.replace(/\\b(GREEN|YELLOW|RED|UNSIGNED|PINK)\\b/g,function(w){ return '<span style="color:'+askStateColor(w)+';font-weight:600">'+w+'</span>'; });
     return s;
   }
@@ -926,7 +927,7 @@ ${statblocks}
       +'<div id="ask-ans" class="ask-ans" style="margin-top:18px"></div></div>';
     var q=document.getElementById('ask-q'), go=document.getElementById('ask-go'), stt=document.getElementById('ask-status'), ansEl=document.getElementById('ask-ans');
     // clicking a Cell/Brief ref in an answer jumps straight to it
-    ansEl.addEventListener('click',function(e){ var a=e.target.closest&&e.target.closest('.ask-ref'); if(!a) return; e.preventDefault(); if(a.getAttribute('data-open')) openDetail(a.getAttribute('data-open')); else if(a.getAttribute('data-brief')) setTab('briefs'); });
+    ansEl.addEventListener('click',function(e){ var a=e.target.closest&&e.target.closest('.ask-ref'); if(!a) return; e.preventDefault(); if(a.getAttribute('data-open')) openDetail(a.getAttribute('data-open')); else if(a.getAttribute('data-brief')){ pendingBrief=a.getAttribute('data-brief'); setTab('briefs'); } });
     function ask(){
       var text=(q.value||'').trim(); if(!text){ q.focus(); return; }
       if(!live){ ansEl.innerHTML='<div class="snote" style="font-family:var(--sans)">Run <code>yay dashboard</code> to get real answers here — a static view cannot call your AI.</div>'; return; }
@@ -1368,6 +1369,15 @@ ${statblocks}
       } else { list.forEach(function(b){ html+=briefCard(b); }); }
     }
     el.innerHTML=html;
+    // An Ask answer linked a specific Brief (A-…): open it in the shared modal now that briefCard is in scope.
+    if(pendingBrief){
+      var _pb=pendingBrief; pendingBrief=null;
+      var _b=((DATA.meta&&DATA.meta.briefs)||[]).filter(function(x){ return String(x.id)===String(_pb); })[0];
+      if(_b){ var _mo=document.getElementById('modal'); if(_mo){ _mo.querySelector('.modal-body').innerHTML=briefCard(_b); _mo.classList.add('open'); document.body.style.overflow='hidden';
+        Array.prototype.forEach.call(_mo.querySelectorAll('.mcell.known'),function(ch){ ch.addEventListener('click',function(){ var br=ch.getAttribute('data-brief'); if(br) openCellHistory(ch.getAttribute('data-uid'),br); else openDetail(ch.getAttribute('data-uid')); }); });
+        Array.prototype.forEach.call(_mo.querySelectorAll('.btag'),function(ch){ ch.addEventListener('click',function(){ briefChartTag=ch.getAttribute('data-tag'); var cl=_mo.querySelector('.modal-close'); if(cl) cl.click(); renderBriefs(); }); });
+      } }
+    }
     Array.prototype.forEach.call(el.querySelectorAll('.ratrow.known'),function(rr){ rr.addEventListener('click',function(){ openDetail(rr.getAttribute('data-uid')); }); });
     Array.prototype.forEach.call(el.querySelectorAll('.bf-view'),function(bt){ bt.onclick=function(){ briefView=bt.getAttribute('data-v'); renderBriefs(); }; });
     Array.prototype.forEach.call(el.querySelectorAll('.bf-metric'),function(bt){ bt.onclick=function(){ briefChartMetric=bt.getAttribute('data-m'); renderBriefs(); }; });
