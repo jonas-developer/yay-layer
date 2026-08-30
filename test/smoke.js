@@ -1656,5 +1656,39 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     ok(/C-<shard>-<n>/.test(cmd) && /yay id/.test(cmd), 'constitution: embeds the sharded-id directive');
   }
 
+  // ── Undeclared-input predicate provenance (3rd prong of the pincer) ──
+  {
+    const fs2 = require('fs'), os2 = require('os'), path2 = require('path');
+    const POL = require('../src/policy');
+    const pdir = fs2.mkdtempSync(path2.join(os2.tmpdir(), 'yay-pred-'));
+    const write = (inLine) => fs2.writeFileSync(path2.join(pdir, 'pick.js'),
+      '//∷YAY⟨C-900⟩\n// unit: pick\n// intent: return the given value\n// ' + inLine + '\n// out: number\n// pure: yes\n// ensures: out === a\n//∷YAY-END⟨C-900⟩\n' +
+      'function pick(a, mode){ if (mode === "hi") return a; return a; }\n');
+    const sign900 = (m) => { const ap = { id: 'A-0001', project: 'p', prev: 'genesis', nonce: 'n', at: 't', signer: 'tester', items: { 'C-900': m.cells['C-900'].specHash } }; ap.signature = C.sign(canonical(ap), privDer); return ap; };
+
+    // in: lists only `a`, but the branch keys off `mode` → undeclared-input predicate
+    write('in: a: number');
+    let pm = buildManifest(pdir);
+    let vv = verifyManifest(pm, { approvals: [sign900(pm)] }, { signers: { tester: pubB64 } }, { mutate: false });
+    ok(vv.results['C-900'].state === 'YELLOW', 'predicate: a branch on an undeclared param caps an otherwise-green Cell at Yellow');
+    ok(vv.results['C-900'].predicate && vv.results['C-900'].predicate.findings.some((f) => f.name === 'mode'), 'predicate: the finding names the undeclared input (mode)');
+    ok(vv.results['C-900'].notes.some((nt) => /undeclared-input predicate/.test(nt.text)), 'predicate: emits the undeclared-input note');
+    ok(vv.passed, 'predicate: Yellow is advisory — it does not block the gate');
+
+    // owner-signed policy escalates it to gate-blocking
+    vv = verifyManifest(pm, { approvals: [sign900(pm)] }, { signers: { tester: pubB64 } }, { mutate: false, policy: { rules: [{ match: { path: 'pick.js' }, predicate: 'declared' }] } });
+    ok(vv.results['C-900'].state === 'RED' && !vv.passed, 'predicate: policy predicate:declared escalates it to a gate-blocking RED');
+
+    // declaring the input in in: clears it (back to GREEN)
+    write('in: a: number, mode: string');
+    pm = buildManifest(pdir);
+    vv = verifyManifest(pm, { approvals: [sign900(pm)] }, { signers: { tester: pubB64 } }, { mutate: false });
+    ok(vv.results['C-900'].state === 'GREEN' && !vv.results['C-900'].predicate, 'predicate: declaring the input in in: clears the finding (back to GREEN)');
+
+    ok(POL.predicateRequired({ rules: [{ match: { tag: 'sensitive' }, predicate: 'declared' }] }, { file: 'x', spec: { tag: 'sensitive' } }) === true
+      && POL.predicateRequired({ rules: [] }, { file: 'x', spec: {} }) === false, 'policy: predicateRequired matches only with an owner-signed rule');
+    fs2.rmSync(pdir, { recursive: true, force: true });
+  }
+
   console.log(`\nAll ${n} checks passed.`);
 })().catch((e) => { console.error('smoke failed:', e); process.exit(1); });

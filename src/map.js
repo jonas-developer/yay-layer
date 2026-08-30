@@ -173,11 +173,15 @@ function detailInner(cell, res, t) {
   const covBadge = (res.coverage && res.coverage.total && res.coverage.missed && res.coverage.missed.length)
     ? `<span class="mpill" style="color:var(--amber);margin-left:6px" title="Proven, but only ${res.coverage.exercised} of ${res.coverage.total} branches were exercised by spec-derived inputs — unexercised branches (where a dormant branch hides) at ${esc(res.coverage.missed.slice(0, 4).map((m) => 'line ' + m.line).join(', '))}.">◧ ${res.coverage.exercised}/${res.coverage.total} branches</span>`
     : '';
+  // Undeclared-input predicate provenance: a branch keys off an input the spec's in: never declares.
+  const predBadge = (res.predicate && res.predicate.findings && res.predicate.findings.length)
+    ? `<span class="mpill" style="color:var(--amber);margin-left:6px" title="A branch keys off ${esc((res.predicate.undeclared || []).join(', '))}, which this Cell's in: never declares — an undeclared control input (a hidden mode/flag hides here). Declare it in in: (or a throws:/ensures case), or prune the branch.">◈ undeclared input</span>`
+    : '';
   // Autopilot: mark Cells approved by a delegation grant (not a human) — awaiting ratification.
   const autoBadge = (res.trust && res.trust.auto)
     ? `<span class="mpill" style="color:var(--amber);margin-left:6px" title="Delegated under grant ${esc(res.trust.grant || '')} (Autopilot) — awaiting ratification, NOT human-reviewed. Run \`yay ratify\` to sign it for real.">⚡ Delegated</span>`
     : '';
-  return `<div class="mhead"><span class="mid">${esc(cell.id)}</span><span class="mname">${esc(cell.unitName || cell.spec.unit || cell.id)}</span><span class="mpill" style="color:${col}">${label}</span>${provBadge}${covBadge}${autoBadge}</div>
+  return `<div class="mhead"><span class="mid">${esc(cell.id)}</span><span class="mname">${esc(cell.unitName || cell.spec.unit || cell.id)}</span><span class="mpill" style="color:${col}">${label}</span>${provBadge}${covBadge}${predBadge}${autoBadge}</div>
     <div class="dmeta">${meta.map((m) => `<span>${m}</span>`).join('')}</div>
     <div class="dh">Sealed spec</div><pre class="code">${colorizeSpec(cell.specBlock)}</pre>
     ${diffSection}

@@ -12,7 +12,7 @@
 const { canonical, pubKeysOf, isJsLang, normLangName } = require('./util');
 const { verify: sigVerify } = require('./crypto');
 const { proveManifest } = require('./prove');
-const { requiredSigners, inertLevel, ignoreAllowed, coverageRequired } = require('./policy');
+const { requiredSigners, inertLevel, ignoreAllowed, coverageRequired, predicateRequired } = require('./policy');
 const { deriveRoster } = require('./roster');
 const G = require('./grants');
 const F = require('./foundation');
@@ -445,6 +445,30 @@ function verifyManifest(manifest, lock, config, opts) {
     if (missed.length) {
       r.state = worst(r.state, 'RED');
       r.notes.push({ level: 'red', text: `policy: coverage full — ${missed.length} branch(es) never exercised by spec-derived inputs (${missed.slice(0, 3).map((m) => 'line ' + m.line).join(', ')}${missed.length > 3 ? '…' : ''}); this scope requires every branch exercised. Exercise them (strengthen the ensures/inputs), spec them, or prune them.` });
+    }
+  }
+
+  // ── Undeclared-input predicate provenance (built-in; the 3rd prong of the pincer) ──
+  // A branch that keys off a parameter the Cell's `in:` never declares — inertness (branch does
+  // nothing), coverage (was it exercised?), and literal-seeding (magic constant) all miss this shape.
+  // Default Yellow (advisory, non-blocking, like inertness); owner-signed policy (`predicate: declared`)
+  // escalates it to gate-blocking for sensitive scopes. The fix is to DECLARE the input in `in:` (or a
+  // `throws:`/`ensures` case) — the spec-strengthening loop — after which nothing flags; or prune the branch.
+  for (const id of Object.keys(proofs)) {
+    const pr = proofs[id];
+    const r = results[id];
+    if (!r || !pr || !pr.predicate || !pr.predicate.findings || !pr.predicate.findings.length) continue;
+    const f = pr.predicate.findings;
+    const ex = f[0];
+    const names = Array.from(new Set(f.map((x) => x.name)));
+    const msg = `undeclared-input predicate — ${f.length} branch(es) key off ${names.map((n) => '\`' + n + '\`').join(', ')}, which this Cell's \`in:\` never declares (e.g. line ${ex.line}: \`${ex.snippet}\`). This branch's behaviour depends on an input the spec never signed. Declare it in \`in:\` (or add a \`throws:\`/\`ensures\` case), or prune the branch.`;
+    r.predicate = { findings: f, undeclared: pr.predicate.undeclared };
+    if (predicateRequired(policy, manifest.cells[id])) {
+      r.state = worst(r.state, 'RED');
+      r.notes.push({ level: 'red', text: msg + ' (policy: predicate → declared — gate-blocked until every branch predicate traces to the spec)' });
+    } else {
+      r.state = worst(r.state, 'YELLOW');
+      r.notes.push({ level: 'yellow', text: msg });
     }
   }
 

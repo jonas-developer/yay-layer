@@ -20,6 +20,7 @@ const cp = require('child_process');
 const { mutants, deletions, harvestLiterals } = require('./mutate');
 const { makeRecorder } = require('./record');
 const { instrument: instrumentBranches } = require('./coverage');
+const { analyzePredicates } = require('./predicate');
 const { isJsLang, looseTopLevelNonJs, normLangName } = require('./util');
 
 function stripTS(code) {
@@ -847,14 +848,23 @@ function proveManifest(manifest, opts) {
             // the pass). Runs even without mutate — it's a security check, not a grade.
             const seeded = runSeeded(it.adapter, base.ctx, it.cell, fn);
             if (seeded) res = seeded;
-            else if (mutate) {
-              res.mutation = runMutation(it.adapter, source, it.cell, { jsx: wantsJSX, file });
-              res.inertness = runInertness(it.adapter, source, it.cell, { jsx: wantsJSX, file });
-              // Branch-exercise honesty (pure-call/JS): does the green cover every branch, or only some?
-              if (it.adapter.name === 'pure-call') {
-                const params = it.adapter.inputs(it.cell);
-                const tuples = cartesian(params.map((p) => valuesFor(p.type)), 40);
-                res.coverage = runCoverageForCell(it.cell, source, tuples.length ? tuples : [[]], { jsx: wantsJSX, file });
+            else {
+              // Undeclared-input predicate provenance — static, cheap, and a security/honesty check,
+              // so it runs regardless of `mutate` (like the seeded trigger hunt). JS/TS units only.
+              try {
+                const declared = parseIn(it.cell.spec).map((p) => p.name);
+                const pred = analyzePredicates(source, it.cell, declared, { jsx: wantsJSX, file });
+                if (pred) res.predicate = pred;
+              } catch (_) { /* under-flag: never fail a proof over the static pass */ }
+              if (mutate) {
+                res.mutation = runMutation(it.adapter, source, it.cell, { jsx: wantsJSX, file });
+                res.inertness = runInertness(it.adapter, source, it.cell, { jsx: wantsJSX, file });
+                // Branch-exercise honesty (pure-call/JS): does the green cover every branch, or only some?
+                if (it.adapter.name === 'pure-call') {
+                  const params = it.adapter.inputs(it.cell);
+                  const tuples = cartesian(params.map((p) => valuesFor(p.type)), 40);
+                  res.coverage = runCoverageForCell(it.cell, source, tuples.length ? tuples : [[]], { jsx: wantsJSX, file });
+                }
               }
             }
           }
