@@ -524,6 +524,16 @@ yay requests done &lt;id&gt;      <span class="cm"># clear one once it is signed
     <section id="security">
       <p class="eyebrow">09 — Security model</p>
       <h2>How trust is protected</h2>
+      <div class="note warn"><span class="k">Read this — you are only protected if you set it up</span><p>YayLayer's guarantees are real, but they are <strong>conditional</strong>. Without the setup below, YayLayer is <strong>advisory, not enforcing</strong> — it will help you work spec-first and show you colours, but it will not actually <em>stop</em> unsigned, mismatched, or tampered code (or a rogue reroot). Don't assume you're protected until all of these hold:</p>
+        <ol>
+          <li><strong>The CI gate on a protected branch.</strong> <code>yay gate</code> <em>and</em> GitHub branch protection: require the <code>gate</code> check, block force-pushes, and keep the trust root pinned. The local hook is only fast feedback — <strong>the CI gate is the real enforcement point.</strong> Without it, nothing truly stops bad code reaching <code>main</code>.</li>
+          <li><strong>Sign on your phone, not on disk.</strong> Phone signing keeps the key off the AI's machine, so a compromised machine or rogue agent <em>cannot sign as you</em>. The Local keystore is convenient but the key lives on disk — treat it accordingly.</li>
+          <li><strong>Git + a trusted, protected remote.</strong> The guarantees, the provenance, and recovery all assume git with a protected <code>main</code> on a host you control. Local-only means no enforcement and no clean copy to fall back to.</li>
+          <li><strong>Protect your GitHub account (2FA).</strong> Branch protection and the pin live in your GitHub settings — a <em>separate trust domain</em>. If your account is compromised, so is the enforcement.</li>
+          <li><strong>Keep your 24 words offline.</strong> They are lossless recovery; without them, recovery means a disruptive <a href="#teams">reroot</a>.</li>
+        </ol>
+        <p>Miss these and YayLayer is still useful — but it's <strong>guidance, not a guarantee.</strong></p>
+      </div>
       <h3>Separation of duties</h3>
       <p>No actor grades its own work. The agent proposes, the verifier measures, the human authorizes. The agent is the <strong>untrusted producer</strong> — it may state what it made, never that it's correct or approved.</p>
       <h3>How deep verification goes</h3>
@@ -576,6 +586,14 @@ yay requests done &lt;id&gt;      <span class="cm"># clear one once it is signed
       <p>When drift is revealed, you investigate with the diff the seal shows, then — if the change was legitimate (you edited the rules; you fixed a disk fault) — you <strong>re-seal</strong>: <code>yay protect</code> re-signs the current state on your phone. Only a human with the Owner key can clear the alarm; the AI can't (no key). Each seal is an append-only signed event, so you also get an audit trail of the foundation itself (<em>"re-sealed after disk-corruption fix"</em>). It's ratification, applied to the crown-jewel files.</p>
       <h4>Commands</h4>
       <p><code>yay protect</code> (create / re-seal), <code>--mode guarded|strict</code>, <code>--add</code> / <code>--remove &lt;glob&gt;</code> (tune the sealed set), <code>--ignore &lt;glob&gt;</code> (a signed churn exclusion), <code>--off</code> (owner-signed disable). Re-seal from the dashboard with the <strong>Re-seal foundation</strong> button. A broken seal shows a warning in <code>yay verify</code>, the map, and the dashboard.</p>
+
+      <h3>Incident recovery — a compromised machine <em>or</em> remote</h3>
+      <p>Because YayLayer is built on git, every trusted clone is a <strong>full, signed copy</strong> — so no single location is a single point of failure for the <em>content</em>. Tampering with either side is <strong>detectable</strong> and <strong>recoverable from the other</strong>.</p>
+      <ul>
+        <li><strong>Compromised local machine → restore from GitHub.</strong> A rogue reroot or edit is only local until pushed; on push the CI gate blocks it (unsigned / mismatch / <em>TRUST-ROOT MISMATCH</em>), so it never reaches a protected <code>main</code>. Recover by discarding the local changes or re-cloning onto a <strong>trusted</strong> machine. The blast radius of a compromised machine is only the <em>unmerged</em> local state you throw away. (In phone-signing mode the key was never on the machine, so it can't sign at all; in local-keystore mode, also rotate the key.)</li>
+        <li><strong>Compromised remote → restore GitHub from a trusted local.</strong> A poisoned remote isn't silent: your local clone <em>diverges on <code>git fetch</code></em> (rewritten history = different SHAs), and <code>yay verify</code> / <code>yay witness</code> + the signatures flag any content that no longer matches the signed ledger. Force-push the true history from a clean clone (or recreate the repo and push). The restored copy is <strong>self-verifying</strong> — the roster, signatures, and pinned root all travel inside the repo, so you don't have to <em>trust</em> the copy, you <em>verify</em> it against the trust-root fingerprint you hold <strong>out-of-band</strong> (your records / your eyes — the bedrock anchor).</li>
+      </ul>
+      <div class="note warn"><span class="k">What git can't restore</span><p>The CI pin, branch protection, and collaborator list live in <strong>GitHub account/org settings, not in the repo</strong>. Restoring content fixes the code and roster; if your <em>account</em> was compromised you must regain it separately — 2FA recovery, revoke the attacker's access, reset branch protection. YayLayer's cryptography secures the content; it cannot secure your GitHub login. So: content is mutually recoverable (local ↔ remote); the <em>account</em> is a security domain you protect on your own.</p></div>
     </section>
 
     <section id="teams">

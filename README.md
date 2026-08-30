@@ -33,6 +33,18 @@ You describe what you want; the AI writes a tiny, human-readable **spec** above 
 
 ---
 
+> ### ⚠️ You're only protected if you set it up
+>
+> YayLayer's guarantees are real but **conditional**. Without the setup below it's **advisory, not enforcing** — it helps you work spec-first and shows you colours, but it won't actually *stop* unsigned, mismatched, or tampered code from reaching `main`. **Guidance, not a guarantee, until:**
+>
+> 1. **CI gate on a protected branch** — `yay gate` **and** GitHub branch protection (require the `gate` check, block force-pushes, pin the trust root). The local hook is only fast feedback; **the CI gate is the real enforcement point.**
+> 2. **Sign on your phone, not on disk** — phone signing keeps the key off the AI's machine, so a rogue agent can't sign as you.
+> 3. **Git + a trusted, protected remote** — the guarantees, provenance, and recovery all assume it. Local-only = no enforcement, no clean fallback.
+> 4. **Protect your GitHub account (2FA)** — branch protection and the pin live there, a separate trust domain.
+> 5. **Keep your 24 words offline** — lossless recovery; without them, recovery means a disruptive `yay reroot`.
+
+---
+
 ## The core idea: teach your AI to build spec-first
 
 YayLayer only works if the AI you build with follows the ritual — **write the spec, get it signed, then write code to match.** You teach it that *once* by handing it the **Constitution**, a short rule-prompt in **[`CONSTITUTION.md`](CONSTITUTION.md)**.
