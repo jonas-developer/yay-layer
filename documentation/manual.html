@@ -526,6 +526,13 @@ yay policy --set     <span class="cm"># owner-sign the current rules into effect
 { "match": { "tag":  "sensitive" },  "predicate": "declared" }    <span class="cm">// every branch predicate must trace to in:</span>
 { "match": { "path": "vendor/**" },  "ignore": "source" }        <span class="cm">// keep vendored code out of the gate</span></code></pre>
 
+      <h3>Foundation seal (protect your fixed core)</h3>
+      <p>The <a href="#security">foundation seal</a> is an owner-signed baseline of the FIXED core (Constitution, CI workflow, <code>.gitignore</code>/<code>.yaylayerignore</code>, protocol files); any later change to it is revealed at <code>yay verify</code>. Offered at <code>yay init</code>/<code>adopt</code>; <strong>re-run <code>yay protect</code> to re-seal after a change you made on purpose</strong> (the dashboard's <strong>🛡 Re-seal foundation</strong> button is the same, phone-signed). Ordinary code is never touched.</p>
+      <pre><code>yay protect                    <span class="cm"># create / re-seal (posture defaults to guarded)</span>
+yay protect --mode strict      <span class="cm"># drift BLOCKS the gate (vs guarded = warn)</span>
+yay protect --ignore "docs/**" <span class="cm"># exclude an expected-churn path (the exclusion is itself signed)</span>
+yay protect --add &lt;glob&gt;        <span class="cm"># watch another path · --remove to stop · --off to disable</span></code></pre>
+
       <h3>Request a change (from the dashboard) — and what a REQ is</h3>
       <p>The dashboard's <strong>➕ Request a change</strong> button queues a plain-language request in <code>.yaylayer/requests.json</code> (local-only, git-ignored), numbered <code>REQ-001</code>, <code>REQ-002</code>, … Your AI drains the inbox with <code>yay requests</code> and turns each into a polished Brief + Cells to sign — you never write the Brief yourself. It's an asynchronous handoff: nothing is pushed to your phone until the AI has drafted something signable.</p>
       <pre><code>yay requests               <span class="cm"># the AI's inbox of queued requests</span>
