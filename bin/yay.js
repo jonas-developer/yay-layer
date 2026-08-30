@@ -1263,6 +1263,9 @@ async function cmdGrant(flags, positional) {
   }
   if (flags.deps && flags.deps !== true) envelope.deps = String(flags.deps);
   if (flags.deploy && flags.deploy !== true) envelope.deployment = String(flags.deploy);
+  if (list(flags['allow-tag']).length) envelope.allowTags = list(flags['allow-tag']);
+  if (list(flags['deny-tag']).length) envelope.denyTags = list(flags['deny-tag']);
+  if (flags['no-guard'] || flags.unguard) envelope.guard = false; // lift the default auth/payments/secrets/deploy/CI guard
   if (flags['child-grants']) envelope.childGrants = { allowed: true, maxDepth: (flags['max-depth'] && flags['max-depth'] !== true) ? parseInt(flags['max-depth'], 10) : 1 };
   const gk = C.generateKeypair();
   const glog = loadGrants(p) || { project: config.project, events: [] };
@@ -1274,10 +1277,14 @@ async function cmdGrant(flags, positional) {
   if (envelope.cells) parts.push(`${envelope.cells.length} named Cell(s)`);
   if (envelope.allow) parts.push('allow ' + envelope.allow.join(', '));
   if (envelope.deny) parts.push('deny ' + envelope.deny.join(', '));
+  if (envelope.allowTags) parts.push('allow-tags ' + envelope.allowTags.join(', '));
+  if (envelope.denyTags) parts.push('deny-tags ' + envelope.denyTags.join(', '));
   if (envelope.maxRisk) parts.push('max-risk ' + envelope.maxRisk);
+  const guardOn = envelope.guard !== false;
   const scopeStr = parts.length ? parts.join(' · ') : 'all non-sensitive Cells';
   const rows = [
     { k: 'scope', v: scopeStr }, { k: 'expires', v: expiresAt.slice(0, 16).replace('T', ' ') }, { k: 'max', v: `${count} delegated approvals` },
+    { k: 'security guard', v: guardOn ? 'ON — auth/payments/secrets/deploy/CI need a real signature' : '⚠ OFF — the AI may auto-approve auth/payments/secrets/deploy/CI' },
   ];
   if (envelope.childGrants) rows.push({ k: 'child grants', v: `allowed (max depth ${envelope.childGrants.maxDepth})` });
   if (envelope.deps || envelope.deployment) rows.push({ k: 'recorded (not yet enforced)', v: [envelope.deps && ('deps: ' + envelope.deps), envelope.deployment && ('deploy: ' + envelope.deployment)].filter(Boolean).join(' · ') });
@@ -1288,6 +1295,8 @@ async function cmdGrant(flags, positional) {
   fs.mkdirSync(p.keys, { recursive: true });
   U.writeJSON(grantKeyPath(p, id), { pub: gk.pubB64, priv: Buffer.from(gk.privDer).toString('base64') });
   console.log('\n' + U.c.green(`✓ Autopilot ON — grant ${id}`) + U.c.dim(` (${scopeStr}; until ${expiresAt.slice(0, 16).replace('T', ' ')} or ${count} approvals).`));
+  if (guardOn) console.log('  ' + U.c.dim('🔒 security guard ON — auth/payments/secrets/deploy/CI still need a real signature (lift with ') + U.c.bold('--no-guard') + U.c.dim(').'));
+  else console.log('  ' + U.c.yellow('⚠ security guard OFF') + U.c.dim(' — this grant may auto-approve auth/payments/secrets/deploy/CI code. Re-issue without --no-guard to restore it.'));
   console.log('  ' + U.c.dim('the AI now approves in-scope change-sets under the grant (delegated) with no phone contact. Commit ') + U.c.bold('.yaylayer/grants.json') + U.c.dim(' (key stays in gitignored keys/).'));
   console.log('  ' + U.c.dim('ratify later with ') + U.c.bold('yay ratify') + U.c.dim(' · stop with ') + U.c.bold('yay grant revoke') + U.c.dim(' · check with ') + U.c.bold('yay grant list') + U.c.dim('.'));
 }
@@ -2819,10 +2828,11 @@ const HELP = `yay — a protocol for provable, signed AI code
   yay reroot [--phone]        retire the current trust root and establish a new one (key lost/compromised)
   yay grant [--for 2h] [--count 20]  Autopilot: owner-signed capability ENVELOPE → the AI approves in-scope
                              (delegated), non-sensitive Cells unattended (no phone) until it expires.
-                             envelope: --cell IDs · --allow "src/ui/**" · --deny "src/auth/**" · --max-risk low|medium|high
+                             envelope: --cell IDs · --allow/--deny "glob" · --allow-tag/--deny-tag TAG · --max-risk low|medium|high
                              --child-grants [--max-depth N] (permit attenuating sub-grants) · --deps/--deploy (recorded)
-                             yay grant list · yay grant revoke [id] (stop it) · sensitive / code-pinned / policy
-                             non-delegable ({ "delegable": false } in an owner-signed policy) always need a real sign
+                             SECURITY GUARD is ON by default — auth/payments/secrets/deploy/CI need a real signature;
+                             lift with --no-guard. yay grant list · yay grant revoke [id] (stop it) · sensitive /
+                             code-pinned / policy non-delegable ({ "delegable": false }) always need a real sign
   yay ratify [--sign]        list delegated Cells awaiting ratification; --sign signs them for real (human)
                              --reject --reason "<why>" [--category …] [--cell IDs] records a signed, append-only
                              REJECTION (kept as provenance; the code stays unsigned until fixed)

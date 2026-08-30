@@ -26,7 +26,7 @@
 // append-only in .yaylayer/grants.json.
 const C = require('./crypto');
 const roster = require('./roster');
-const { nonDelegable, globToRe } = require('./policy');
+const { nonDelegable, globToRe, cellTags } = require('./policy');
 
 function safeVerify(msg, sig, pub) { try { return !!(sig && pub && C.verify(msg, sig, pub)); } catch (_) { return false; } }
 
@@ -42,6 +42,9 @@ function envelopeOf(grant) {
   return {
     allow: Array.isArray(env.allow) ? env.allow : [],
     deny: Array.isArray(env.deny) ? env.deny : [],
+    allowTags: Array.isArray(env.allowTags) ? env.allowTags.map((t) => String(t).toLowerCase()) : [],
+    denyTags: Array.isArray(env.denyTags) ? env.denyTags.map((t) => String(t).toLowerCase()) : [],
+    guard: env.guard !== false, // default security guard ON unless explicitly lifted
     cells: Array.isArray(env.cells) ? env.cells : (legacyCells || []),
     maxRisk: env.maxRisk || null,
     deps: env.deps || null,             // detector-gated (recorded)
@@ -67,6 +70,24 @@ function isSensitive(cell) {
   return s === true || s === 'yes' || s === 'true';
 }
 
+// ── Default security guard ────────────────────────────────────────────────────
+// A grant refuses to auto-approve high-stakes areas — auth, payments, secrets, deploy,
+// CI/infra — UNLESS the human explicitly lifts the guard when issuing the grant
+// (`--no-guard` → envelope.guard === false). Matched on the Cell's file path OR its tags,
+// so it catches the usual layouts without any per-project setup. It's a DEFAULT DENY layered
+// on top of the human's own allow/deny/tag scope: freedom by default, but never over the
+// dangerous surface unless the human says so. Patterns live in the (trusted) verifier so the
+// guard improves for existing grants; the signed envelope records only the on/off intent.
+// "auth" alone is deliberately excluded so it doesn't snag "author"; the stems below do.
+const GUARD_PATH = /(authentic|authoriz|oauth|login|signin|\bsession|password|passwd|credential|permission|rbac|secret|apikey|api[-_]?key|\btoken|\.env|keystore|private[-_]?key|payment|billing|checkout|invoice|stripe|paypal|subscription|\bcharge|deploy|release|migrat|terraform|\.tf(\b|$)|dockerfile|docker-compose|kubernet|\bk8s\b|helm|[\\/]infra|\.github[\\/]|\.gitlab|workflow|pipeline|jenkins|circleci|[\\/]ci[\\/])/i;
+const GUARD_TAGS = new Set(['auth', 'authentication', 'authorization', 'security', 'payment', 'payments', 'billing', 'secret', 'secrets', 'deploy', 'deployment', 'release', 'ci', 'cd', 'infra', 'infrastructure']);
+// Does a Cell fall under the default security guard (auth/payments/secrets/deploy/CI)?
+function matchesGuard(cell) {
+  if (!cell) return false;
+  if (GUARD_PATH.test(String(cell.file || ''))) return true;
+  try { return cellTags(cell).some((t) => GUARD_TAGS.has(t)); } catch (_) { return false; }
+}
+
 // The risk level a Cell declares (`risk: low|medium|high`), defaulting to medium when unstated.
 function cellRisk(cell) { return String(((cell && cell.spec) || {}).risk || 'medium').toLowerCase(); }
 
@@ -78,11 +99,17 @@ function grantCoversCellR(grant, cellId, cell, opts) {
   if (nonDelegable(policy, cell || { file: '', spec: {} })) return { ok: false, reason: 'owner-signed policy marks this area non-delegable — needs a real human signature' };
   if (isSensitive(cell)) return { ok: false, reason: 'Cell is sensitive/code-pinned — needs a real human signature' };
   const env = envelopeOf(grant);
+  if (env.guard && matchesGuard(cell)) return { ok: false, reason: `matches the grant's default security guard (auth/payments/secrets/deploy/CI) — needs a real human signature (issue the grant with --no-guard to lift)` };
   if (env.cells.length && !env.cells.includes(cellId)) return { ok: false, reason: 'Cell is not in the grant cell allow-list' };
   const file = (cell && cell.file) || '';
   if (env.deny.length && pathMatchesAny(env.deny, file)) return { ok: false, reason: `path is in the grant's deny list` };
   const allowM = pathMatchesAny(env.allow, file);
   if (allowM === false) return { ok: false, reason: `path is outside the grant's allowed paths` };
+  if (env.denyTags.length || env.allowTags.length) {
+    let tags = []; try { tags = cellTags(cell); } catch (_) { tags = []; }
+    if (env.denyTags.length && tags.some((t) => env.denyTags.includes(t))) return { ok: false, reason: `Cell tag is in the grant's deny-tags` };
+    if (env.allowTags.length && !tags.some((t) => env.allowTags.includes(t))) return { ok: false, reason: `Cell tag is outside the grant's allow-tags` };
+  }
   if (env.maxRisk && riskRank(cellRisk(cell)) > riskRank(env.maxRisk)) return { ok: false, reason: `Cell risk (${cellRisk(cell)}) exceeds the grant's max risk (${env.maxRisk})` };
   return { ok: true };
 }
@@ -100,6 +127,12 @@ function attenuates(child, parent) {
   }
   // deny: child must inherit (⊇) every parent deny.
   for (const d of p.deny) { if (!c.deny.includes(d)) return { ok: false, reason: `child must keep parent deny "${d}"` }; }
+  // security guard: a child may never LIFT a guard the parent kept on.
+  if (p.guard && !c.guard) return { ok: false, reason: 'child cannot lift the parent grant\'s security guard' };
+  // deny-tags: child must inherit (⊇) every parent deny-tag.
+  for (const t of p.denyTags) { if (!c.denyTags.includes(t)) return { ok: false, reason: `child must keep parent deny-tag "${t}"` }; }
+  // allow-tags: if the parent scoped to tags, the child's allow-tags must be a subset.
+  if (p.allowTags.length) { for (const t of c.allowTags) if (!p.allowTags.includes(t)) return { ok: false, reason: `child allow-tag "${t}" is outside parent allow-tags` }; }
   // cells: if parent restricts to a cell list, child's must be a subset.
   if (p.cells.length) { for (const id of c.cells) if (!p.cells.includes(id)) return { ok: false, reason: `child cell "${id}" is outside parent cells` }; }
   // maxCount: child ≤ parent remaining.
@@ -211,6 +244,6 @@ function autoApprovalOk(grant, approval, cellId, cell, opts) {
 }
 
 module.exports = {
-  isSensitive, cellRisk, riskRank, envelopeOf, grantCoversCell, grantCoversCellR,
+  isSensitive, matchesGuard, cellRisk, riskRank, envelopeOf, grantCoversCell, grantCoversCellR,
   attenuates, deriveGrants, activeGrantFor, autoApprovalOk,
 };

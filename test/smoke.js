@@ -981,7 +981,17 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
       // owner-signed non-delegable policy is the AUTHORITATIVE backstop (spec markers are cooperative)
       const ndPolicy = { rules: [{ match: { path: '**/auth/**' }, delegable: false }] };
       ok(pol.nonDelegable(ndPolicy, cellAuth) === true, 'p3-nondelegable: owner-signed policy marks matching paths non-delegable');
-      ok(G.grantCoversCell({ envelope: { allow: ['src/**'] } }, 'C', cellAuth, { policy: ndPolicy }) === false, 'p3-nondelegable: policy overrides an otherwise-in-scope grant');
+      ok(G.grantCoversCell({ envelope: { allow: ['src/**'], guard: false } }, 'C', cellAuth, { policy: ndPolicy }) === false, 'p3-nondelegable: policy overrides an otherwise-in-scope grant');
+
+      // ── default security guard: auth/payments/secrets/deploy/CI blocked unless lifted ──
+      ok(G.matchesGuard(cellAuth) === true && G.matchesGuard({ file: 'src/payments/charge.js', spec: {} }) === true && G.matchesGuard({ file: '.github/workflows/ci.yml', spec: {} }) === true, 'guard: auth / payments / CI paths are guarded');
+      ok(G.matchesGuard({ file: 'src/blog/author.js', spec: {} }) === false, 'guard: "author" is not mistaken for auth');
+      ok(G.matchesGuard({ file: 'src/ui/x.js', spec: { tags: 'payments' } }) === true && G.matchesGuard(cellUI) === false, 'guard: a payments TAG is guarded; an ordinary UI Cell is not');
+      ok(G.grantCoversCell({ envelope: { allow: ['src/**'] } }, 'C', cellAuth) === false, 'guard: ON by default, a guarded Cell inside the allowed paths is still refused');
+      ok(G.grantCoversCell({ envelope: { allow: ['src/**'], guard: false } }, 'C', cellAuth) === true, 'guard: --no-guard (guard:false) lifts the default guard');
+      // ── custom per-grant tag allow/deny ──
+      ok(G.grantCoversCell({ envelope: { denyTags: ['experimental'] } }, 'C', { file: 'x.js', spec: { tags: 'experimental' } }) === false, 'tags: a deny-tag refuses a matching Cell');
+      ok(G.grantCoversCell({ envelope: { allowTags: ['ui'] } }, 'C', { file: 'x.js', spec: { tags: 'ui' } }) === true && G.grantCoversCell({ envelope: { allowTags: ['ui'] } }, 'C', { file: 'x.js', spec: { tags: 'db' } }) === false, 'tags: allow-tags scopes to Cells carrying a listed tag');
 
       // end-to-end grant VIOLATION backstop: a real grant-key signature over an out-of-envelope Cell
       // → gate-blocking RED, not a silent drop. (Agent cannot widen its own grant.)
@@ -1004,6 +1014,7 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
       ok(G.attenuates({ envelope: { allow: ['src/ui/**'] }, maxCount: 4, expiresAt: '2098-01-01T00:00:00Z' }, parentG).ok === true, 'p3-child: a strictly-narrower child attenuates its parent');
       ok(G.attenuates({ envelope: { allow: ['other/**'] }, maxCount: 4 }, parentG).ok === false, 'p3-child: a child allowing paths outside the parent is refused');
       ok(G.attenuates({ envelope: { allow: ['src/ui/**'] }, maxCount: 99 }, parentG).ok === false, 'p3-child: a child with a larger count is refused');
+      ok(G.attenuates({ envelope: { allow: ['src/ui/**'], guard: false }, maxCount: 4 }, parentG).ok === false, 'p3-child: a child cannot lift the parent grant\'s security guard');
       const noKids = { id: 'G-1', type: 'grant', grantPub: 'PPUB', envelope: { allow: ['src/**'] }, maxCount: 8 };
       ok(G.attenuates({ envelope: { allow: ['src/ui/**'] }, maxCount: 4 }, noKids).ok === false, 'p3-child: a parent that does not permit child grants refuses all children');
 
