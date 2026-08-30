@@ -181,6 +181,33 @@ function wysiwygCheck(sess){
     if(sha256hex(c.block)!==items[id]){perCell[id]={ok:false};bad.push(id);}else perCell[id]={ok:true};}
   return {ok:(ids.length>0&&bad.length===0),bad:bad,perCell:perCell,count:ids.length};
 }
+// Governance events (grant / foundation seal / enroll / revoke / reroot / policy) are signed DIRECTLY
+// (canonical(event)), so WYSIWYS = render the screen FROM the event the key signs, never from a separate
+// server summary. A trustworthy heading from the event type, a readable field projection, and the exact
+// signed bytes — so a compromised laptop can't show a benign action while binding a different one.
+function eventLabel(ev){
+  var t=(ev&&ev.type)||'';
+  var map={grant:'Grant Autopilot (delegated execution)',foundation:'Seal the project foundation',enroll:'Enroll a signer',add:'Enroll a signer',revoke:'Revoke a key / signer',genesis:'Establish / rotate the trust root',reroot:'Re-root the trust root',policy:'Set the signing policy'};
+  return map[t]||('Authorize: '+(t||'change'));
+}
+function eventDisplay(ev){
+  if(!ev||typeof ev!=='object') return {rows:'',raw:'',ok:false};
+  var skip={signature:1,nonce:1,prev:1};
+  var order=['type','name','role','pub','mode','reason','rerootReason','supersedes','envelope','seal','policy','expiresAt','maxCount','by','at','id'];
+  var rows=[],seen={};
+  function push(k,v){ rows.push('<div class="cell"><div><div class="cid">'+esc(k)+'</div><div class="cin" style="word-break:break-word;white-space:pre-wrap">'+esc(v)+'</div></div></div>'); }
+  function val(k){
+    var v=ev[k];
+    if(k==='envelope'&&v&&typeof v==='object'){ var e=v,p=[],ff=['cell','allow','deny','allowTags','denyTags','maxRisk','guard','childGrants','maxDepth','deps','deploy']; for(var i=0;i<ff.length;i++){ if(e[ff[i]]!=null) p.push(ff[i]+': '+(typeof e[ff[i]]==='object'?JSON.stringify(e[ff[i]]):e[ff[i]])); } return p.join('\\n')||JSON.stringify(e); }
+    if(k==='seal'&&v&&typeof v==='object'){ var nf=v.files?Object.keys(v.files).length:0,z=v.zones?Object.keys(v.zones).join(', '):''; return nf+' core file(s) sealed'+(z?(' · zones: '+z):'')+(v.ignore&&v.ignore.length?(' · ignore: '+v.ignore.join(', ')):''); }
+    if(k==='policy'&&v&&typeof v==='object'){ return (v.rules?v.rules.length:0)+' rule(s): '+JSON.stringify(v.rules||[]); }
+    if(v!=null&&typeof v==='object') return JSON.stringify(v);
+    return v==null?'':String(v);
+  }
+  function add(k){ if(skip[k]||seen[k]||ev[k]==null||ev[k]==='') return; seen[k]=1; var sv=val(k); if(sv!=='') push(k,sv); }
+  order.forEach(add); Object.keys(ev).forEach(add);
+  return {rows:rows.join(''),raw:canonical(ev),ok:true};
+}
 function loadKey(){try{return JSON.parse(localStorage.getItem('yay.key')||'null');}catch(e){return null;}}
 function saveKey(o){localStorage.setItem('yay.key',JSON.stringify(o));}
 // New identity from a fresh 24-word recovery phrase (the phrase is shown once,
@@ -465,10 +492,16 @@ function authorizeFlow(sess){
   if(!key){ h('<div class="msg">This phone has no key on this page yet — restore it from your recovery phrase (an existing owner’s phrase is required to authorize).</div><button id="rst" class="btn">Restore from recovery phrase</button>'); document.getElementById('rst').onclick=function(){restoreFlow(sess);}; return; }
   var s=sess.summary||{};
   var gate=signerGate(sess);
-  var rows=(s.rows||[]).map(function(r){return '<div class="cell"><div><div class="cid">'+esc(r.k||'')+'</div><div class="cin">'+esc(r.v||'')+'</div></div></div>';}).join('');
+  // WYSIWYS for governance: render FROM the exact event the key signs (heading, fields, raw bytes) —
+  // never trust a separately-sent summary. No event → nothing to verify → refuse to sign.
+  var view=eventDisplay(sess.event), noEv=!view.ok;
+  var heading=eventLabel(sess.event)||(s.title||'Authorize this change');
   var warn=s.warn?'<div class="warn">'+esc(s.warn)+'</div>':'';
-  h(gate.banner+'<div class="msg">'+esc(s.title||'Authorize this change')+'</div>'+rows+warn+(gate.ok?'<button id="go" class="btn" style="margin-top:16px">Authorize &amp; sign</button>':''));
-  if(!gate.ok) return; // this phone isn't an owner key
+  var rawBlock=view.raw?'<div class="difflbl">exact signed event (this is what your key signs)</div><pre class="codeblk">'+esc(view.raw)+'</pre>':'';
+  var okNote=(!noEv&&gate.ok)?'<div class="help" style="color:#1f9d57;margin:2px 0 0">✓ What you see is what you sign — read from the exact event your key signs on this phone.</div>':'';
+  var cannot=noEv?'<div class="mcard" style="border-left-color:var(--red)"><div class="mtag" style="color:var(--red)">Do not authorize — nothing to verify</div><div class="mtxt" style="margin-top:6px">No event was sent to this phone, so it cannot confirm what would be signed.</div></div>':'';
+  h(gate.banner+'<div class="msg">'+esc(heading)+'</div>'+view.rows+rawBlock+warn+okNote+cannot+((gate.ok&&!noEv)?'<button id="go" class="btn" style="margin-top:16px">Authorize &amp; sign</button>':''));
+  if(!gate.ok||noEv) return; // not an owner key, or no event to verify — never sign the unverifiable
   document.getElementById('go').onclick=async function(){
     try{
       var sec=await getSecret(key);
