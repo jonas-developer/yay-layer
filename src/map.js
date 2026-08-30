@@ -814,7 +814,7 @@ ${statblocks}
     var sec=function(h,body,note){ return '<div style="border:1px solid var(--rule);border-radius:14px;background:var(--card);box-shadow:var(--shadow);padding:16px 18px;margin:0 0 14px"><div class="dh" style="margin:0 0 9px">'+h+'</div>'+body+(note?('<div class="snote" style="margin-top:9px;font-family:var(--sans)">'+note+'</div>'):'')+'</div>'; }
     var pinned=cap.pinned;
     var html='<h1>Verifier capabilities</h1>'
-      +'<div class="snote" style="font-family:var(--sans);margin:0 0 16px">What this machine verifier can currently detect and prove. The version is <b>derived</b> from exactly the set below — a fingerprint over it — so it can never claim more than it does.</div>'
+      +'<div class="snote" style="font-family:var(--sans);margin:0 0 16px">What this machine verifier can currently detect and prove. The version is <b>derived</b> from exactly the set below — a fingerprint over it — so it can never claim more than it does. The verifier improves over versions (each is a capability bump); <b>bring-your-own adapters</b> — custom languages and checks — are on the roadmap.</div>'
       +'<div class="rootcard"><div><div class="rootlbl">Capability version</div><div class="rootfp">'+esc2(cap.version||'?')+'</div></div>'
         +'<div style="text-align:right"><div class="rootlbl">Fingerprint</div><div class="smeta" style="font-family:var(--mono)">'+esc2(String(cap.fingerprint||'').slice(0,24))+'…</div></div></div>'
       +sec('Behaviorally proven → machine Green', '<div class="pmetrics">'+provers+'</div>', 'Pure functions with an <span class="inline">ensures</span> run and are checked against it. (Ruby/PHP: top-level/module functions today.)')
