@@ -1436,6 +1436,29 @@ async function cmdGrant(flags, positional) {
   console.log('  ' + U.c.dim('the AI now approves in-scope change-sets under the grant (delegated) with no phone contact. Commit ') + U.c.bold('.yaylayer/grants.json') + U.c.dim(' (key stays in gitignored keys/).'));
   console.log('  ' + U.c.dim('ratify later with ') + U.c.bold('yay ratify') + U.c.dim(' · stop with ') + U.c.bold('yay grant revoke') + U.c.dim(' · check with ') + U.c.bold('yay grant list') + U.c.dim('.'));
 }
+// The human's decision surface for delegated work: the already-computed signals for a Cell, shown at
+// ratify so a reviewer sees complexity + smells at a glance before signing. Pure surfacing — no new
+// check, no stored state. Extensible: add a chip here (risk, blast radius, …) as more signals matter.
+function ratifyStateChip(state) {
+  const f = state === 'GREEN' ? U.c.green : state === 'RED' ? U.c.red : state === 'YELLOW' ? U.c.yellow : U.c.gray;
+  return f('● ' + state);
+}
+function ratifyCellFlags(r) {
+  const chips = [];
+  if (r.predicate && (r.predicate.undeclared || []).length) chips.push('◈ undeclared input (' + r.predicate.undeclared.join(', ') + ')');
+  if (r.coverage && r.coverage.total && (r.coverage.missed || []).length) chips.push(r.coverage.exercised + '/' + r.coverage.total + ' branches');
+  let inert = false, weak = false, red = null;
+  for (const nt of (r.notes || [])) {
+    if (/^inert code/.test(nt.text)) inert = true;
+    else if (/weak ensures/.test(nt.text)) weak = true;
+    else if (nt.level === 'red' && !red) red = nt.text.split(/[—;(]/)[0].trim().slice(0, 60);
+  }
+  if (inert) chips.push('inert');
+  if (weak) chips.push('weak ensures');
+  if (red) chips.push('RED: ' + red);
+  return chips;
+}
+
 async function cmdRatify(flags) {
   const { p, config, lock } = loadState();
   if (!config) return fail('run `yay init` first');
@@ -1446,8 +1469,24 @@ async function cmdRatify(flags) {
   if (!auto.length) { console.log(U.c.green('✓ nothing to ratify') + U.c.dim(' — no delegated Cells awaiting your signature.')); return; }
   const bundle = R.ratifyBundle(manifest, verified, auto);
   const reviewPath = path.join(path.dirname(p.lock), '.ratify-review.json');
-  console.log(U.c.bold(`${auto.length} delegated Cell(s) awaiting ratification:`));
-  for (const id of auto) { const r = verified.results[id]; const c = manifest.cells[id]; console.log('  ' + U.c.yellow('⚡ ') + id + U.c.dim(` · ${(c && c.unitName) || ''} · grant ${r.trust.grant}`)); }
+  const prevReview = U.readJSON(reviewPath, null);
+  const detail = !!(flags.d || flags.details);
+  console.log(U.c.bold(`${auto.length} delegated Cell(s) awaiting ratification:`) + U.c.dim(detail ? '' : '  (add -d to expand spec + code)'));
+  for (const id of auto) {
+    const r = verified.results[id]; const c = manifest.cells[id] || {};
+    console.log('  ' + U.c.yellow('⚡ ') + U.c.bold(id) + U.c.dim(` · ${c.unitName || ''} · grant ${r.trust.grant}`) + '  ' + ratifyStateChip(r.state));
+    const chips = ratifyCellFlags(r);
+    if (chips.length) console.log('       ' + U.c.dim('flags: ') + chips.map((x) => U.c.yellow(x)).join(U.c.dim(' · ')));
+    if (prevReview && prevReview.per && prevReview.per[id] && bundle.per[id] && (prevReview.per[id].spec !== bundle.per[id].spec || prevReview.per[id].code !== bundle.per[id].code)) {
+      console.log('       ' + U.c.yellow('↻ changed since your last review'));
+    }
+    if (detail) {
+      const specTxt = (c.specBlock || '').trim(); const codeTxt = (c.unitBody || '').trim();
+      if (specTxt) console.log(specTxt.split('\n').map((l) => '       ' + U.c.dim(l)).join('\n'));
+      if (codeTxt) console.log(codeTxt.split('\n').slice(0, 40).map((l) => '       ' + l).join('\n'));
+      console.log('');
+    }
+  }
   if (!flags.sign && !flags.yes) {
     U.writeJSON(reviewPath, { hash: bundle.hash, ids: bundle.ids, per: bundle.per, at: new Date().toISOString() });
     console.log('\n' + U.c.dim('reviewed snapshot ') + U.c.bold(bundle.hash.slice(0, 12) + '…') + U.c.dim(' — review these, then ratify with ') + U.c.bold('yay ratify --sign') + U.c.dim(' (it signs exactly this snapshot).'));

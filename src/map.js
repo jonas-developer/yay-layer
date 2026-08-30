@@ -1,5 +1,5 @@
 'use strict';
-const { ratifyBundle } = require('./ratify'); // render-time bundle hash for TOCTOU-safe ratify
+const { ratifyBundle, autoCellIds } = require('./ratify'); // render-time bundle hash for TOCTOU-safe ratify + the delegated set
 // Generate the flowchart — a self-contained, theme-aware, ZOOMABLE mind-map.
 //
 // It's a drill-down hierarchy explorer: the mind-map shows one level at a time —
@@ -321,7 +321,20 @@ function renderMap(manifest, verified, project, changes, times, planDoc, gov, br
   // of signed Specs + Briefs over time (a Brief's weight = its own chars + its Cells' specs).
   const specChars = {};
   for (const id of Object.keys(manifest.cells)) { const c = manifest.cells[id]; if (c) specChars[id] = (c.specBlock || '').length; }
-  const meta = { project: project || 'project', counts: verified.counts, passed: verified.passed, totalUnits, plan: planDoc || null, gov: gov || null, files: FILES, briefs: briefs || [], specChars, tags: (tagCfg && tagCfg.tags) || [], tagSet: (tagCfg && tagCfg.set) || null, tagDescriptions: (tagCfg && tagCfg.descriptions) || {}, tagSets: tagSets || [], batch: batchCfg || { enabled: true, barrier: 5 }, policy: policyInfo || { enforced: [], draft: [], violations: [], signers: [] }, signMethod: (policyInfo && policyInfo.signMethod) || 'phone', ratify: (function(){ try { var b = ratifyBundle(manifest, verified); return { hash: b.hash, count: b.ids.length }; } catch (_) { return { hash: null, count: 0 }; } })(), grants: extra.grants || [], rejections: extra.rejections || [], attest: extra.attest || null, timelines: extra.timelines || {}, capability: extra.capability || null, foundation: verified.foundation || null, demo: !!extra.demo };
+  // Per-Cell ratify decision signals: the already-computed flags for each delegated Cell, so the human
+  // ratifying sees complexity + smells at a glance (surfacing only — no new check). Extensible: add a chip.
+  const ratFlags = (r) => {
+    const chips = [];
+    if (r.predicate && (r.predicate.undeclared || []).length) chips.push('◈ undeclared input');
+    if (r.coverage && r.coverage.total && (r.coverage.missed || []).length) chips.push(r.coverage.exercised + '/' + r.coverage.total + ' branches');
+    let inert = false, weak = false;
+    for (const nt of (r.notes || [])) { if (/^inert code/.test(nt.text)) inert = true; else if (/weak ensures/.test(nt.text)) weak = true; }
+    if (inert) chips.push('inert');
+    if (weak) chips.push('weak ensures');
+    return chips;
+  };
+  const ratifyCells = (function () { try { return autoCellIds(verified).map((id) => { const r = verified.results[id], c = manifest.cells[id] || {}; return { id, uid: 'u:' + id, unit: (c.unitName || (c.spec && c.spec.unit) || id), state: r.state, grant: (r.trust && r.trust.grant) || '', flags: ratFlags(r) }; }); } catch (_) { return []; } })();
+  const meta = { project: project || 'project', counts: verified.counts, passed: verified.passed, totalUnits, plan: planDoc || null, gov: gov || null, files: FILES, briefs: briefs || [], specChars, tags: (tagCfg && tagCfg.tags) || [], tagSet: (tagCfg && tagCfg.set) || null, tagDescriptions: (tagCfg && tagCfg.descriptions) || {}, tagSets: tagSets || [], batch: batchCfg || { enabled: true, barrier: 5 }, policy: policyInfo || { enforced: [], draft: [], violations: [], signers: [] }, signMethod: (policyInfo && policyInfo.signMethod) || 'phone', ratify: (function(){ try { var b = ratifyBundle(manifest, verified); return { hash: b.hash, count: b.ids.length }; } catch (_) { return { hash: null, count: 0 }; } })(), ratifyCells, grants: extra.grants || [], rejections: extra.rejections || [], attest: extra.attest || null, timelines: extra.timelines || {}, capability: extra.capability || null, foundation: verified.foundation || null, demo: !!extra.demo };
   const payload = JSON.stringify({ root: 'system', nodes: YLnodes, edges: { system: modEdges }, details, changes: changes || [], needs, meta })
     .replace(/</g, '\\u003c');
 
@@ -1258,6 +1271,18 @@ ${statblocks}
     // Meaningful ratify screen (P3): the GRANT SCOPE + a BOUNDARY / DEVIATION report + the verifier
     // attestation, so ratification is real review — humans review exceptions far better than they
     // re-read everything. Only the grants that actually authorized the pending delegations are shown.
+    // Per-Cell review surface: each delegated Cell with its state + already-computed flags, clickable
+    // through to the full detail — so you triage which delegated Cell needs a close look before signing.
+    function ratifyCellList(){
+      var rc=(DATA.meta&&DATA.meta.ratifyCells)||[]; if(!rc.length) return '';
+      var rows=rc.map(function(c){
+        var col=({GREEN:'#1f9d57',YELLOW:'#c9860f',RED:'#cf4436',UNSIGNED:'#7f8796',PINK:'#d6519a'})[c.state]||'var(--mut)';
+        var chips=(c.flags||[]).map(function(f){ return '<span style="font-size:.7rem;color:#c9860f;border:1px solid color-mix(in srgb,#c9860f 42%,transparent);border-radius:5px;padding:.03em .34em;margin-left:5px;white-space:nowrap">'+esc2(f)+'</span>'; }).join('');
+        var known=!!(DATA.nodes&&DATA.nodes[c.uid]);
+        return '<div class="ratrow'+(known?' known':'')+'"'+(known?(' data-uid="'+esc2(c.uid)+'"'):'')+' style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:6px 0;border-top:1px solid var(--rule)'+(known?';cursor:pointer':'')+'"><span style="color:'+col+';font-weight:700;font-size:.8rem" title="'+esc2(c.state)+'">●</span><b style="font-size:.82rem">'+esc2(c.id)+'</b><span style="font-size:.78rem;color:var(--mut)">'+esc2(c.unit)+'</span>'+chips+(known?'<span style="font-size:.72rem;color:var(--accent);margin-left:auto">review →</span>':'')+'</div>';
+      }).join('');
+      return '<div style="margin-top:8px">'+rows+'</div>';
+    }
     function ratifyDetail(){
       var g=(DATA.meta&&DATA.meta.grants)||[]; if(!g.length) return '';
       // which grants are referenced by the delegated Cells still awaiting ratification?
@@ -1283,7 +1308,7 @@ ${statblocks}
       if(!rows&&!at) return '';
       return '<details style="margin-top:9px"><summary style="cursor:pointer;font-weight:700;font-size:.82rem;color:var(--ink-2)">What was delegated — grant scope, boundary & verification</summary><div style="margin-top:4px">'+rows+atLine+'</div></details>';
     }
-    var ratNote=ratCells?('<div style="border:1px solid #c9860f;border-left:3px solid #c9860f;border-radius:12px;padding:11px 14px;margin:0 0 16px;background:var(--card2)"><div style="font-weight:800;color:#c9860f;font-size:.9rem">⚡ '+ratCells+' Cell'+(ratCells===1?'':'s')+' across '+ratBriefs+' Brief'+(ratBriefs===1?'':'s')+' await ratification</div><div style="font-size:.82rem;color:var(--mut);margin-top:4px">Delegated under a grant (<b>Autopilot</b>) — <b>awaiting ratification</b>, not human-reviewed. Look back, then sign them for real'+(isLive()?' with the button below':' with <code>yay ratify --sign</code> (list them with <code>yay ratify</code>)')+'. Filter the Chart to just these with the <b>⚡ Awaiting ratification</b> toggle.</div>'+ratifyDetail()+ratBtn+'</div>'):'';
+    var ratNote=ratCells?('<div style="border:1px solid #c9860f;border-left:3px solid #c9860f;border-radius:12px;padding:11px 14px;margin:0 0 16px;background:var(--card2)"><div style="font-weight:800;color:#c9860f;font-size:.9rem">⚡ '+ratCells+' Cell'+(ratCells===1?'':'s')+' across '+ratBriefs+' Brief'+(ratBriefs===1?'':'s')+' await ratification</div><div style="font-size:.82rem;color:var(--mut);margin-top:4px">Delegated under a grant (<b>Autopilot</b>) — <b>awaiting ratification</b>, not human-reviewed. Look back, then sign them for real'+(isLive()?' with the button below':' with <code>yay ratify --sign</code> (list them with <code>yay ratify</code>)')+'. Filter the Chart to just these with the <b>⚡ Awaiting ratification</b> toggle.</div>'+ratifyCellList()+ratifyDetail()+ratBtn+'</div>'):'';
     // Rejections (P3): first-class provenance — where agent autonomy failed human judgment. Kept, never erased.
     var rj=(DATA.meta&&DATA.meta.rejections)||[];
     var rejNote=rj.length?('<div style="border:1px solid var(--rule);border-left:3px solid #cf4436;border-radius:12px;padding:11px 14px;margin:0 0 16px;background:var(--card2)"><div style="font-weight:800;color:#cf4436;font-size:.9rem">✗ '+rj.length+' rejected delegation'+(rj.length===1?'':'s')+' on record</div><div style="font-size:.8rem;color:var(--mut);margin-top:3px">A human reviewed delegated work and did not accept it. Kept as provenance (feeds earned-autonomy).</div>'+rj.slice().reverse().map(function(x){ return '<div style="margin-top:6px;font-size:.8rem;color:var(--ink-2)"><b>'+esc2(x.id)+'</b> · '+esc2((x.category||'other'))+' · '+esc2((x.cells||[]).join(', '))+' — “'+esc2(x.reason||'')+'”'+(x.signer?(' <span style="color:var(--mut)">by '+esc2(x.signer)+'</span>'):'')+'</div>'; }).join('')+'</div>'):'';
@@ -1333,6 +1358,7 @@ ${statblocks}
       } else { list.forEach(function(b){ html+=briefCard(b); }); }
     }
     el.innerHTML=html;
+    Array.prototype.forEach.call(el.querySelectorAll('.ratrow.known'),function(rr){ rr.addEventListener('click',function(){ openDetail(rr.getAttribute('data-uid')); }); });
     Array.prototype.forEach.call(el.querySelectorAll('.bf-view'),function(bt){ bt.onclick=function(){ briefView=bt.getAttribute('data-v'); renderBriefs(); }; });
     Array.prototype.forEach.call(el.querySelectorAll('.bf-metric'),function(bt){ bt.onclick=function(){ briefChartMetric=bt.getAttribute('data-m'); renderBriefs(); }; });
     var cct=document.getElementById('bf-ct'); if(cct) cct.onchange=function(){ briefChartTag=cct.value||null; renderBriefs(); };

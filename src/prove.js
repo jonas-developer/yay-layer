@@ -848,26 +848,23 @@ function proveManifest(manifest, opts) {
             // the pass). Runs even without mutate — it's a security check, not a grade.
             const seeded = runSeeded(it.adapter, base.ctx, it.cell, fn);
             if (seeded) res = seeded;
-            else {
-              // Undeclared-input predicate provenance — static, cheap, and a security/honesty check,
-              // so it runs regardless of `mutate` (like the seeded trigger hunt). JS/TS units only.
-              try {
-                const declared = parseIn(it.cell.spec).map((p) => p.name);
-                const pred = analyzePredicates(source, it.cell, declared, { jsx: wantsJSX, file });
-                if (pred) res.predicate = pred;
-              } catch (_) { /* under-flag: never fail a proof over the static pass */ }
-              if (mutate) {
-                res.mutation = runMutation(it.adapter, source, it.cell, { jsx: wantsJSX, file });
-                res.inertness = runInertness(it.adapter, source, it.cell, { jsx: wantsJSX, file });
-                // Branch-exercise honesty (pure-call/JS): does the green cover every branch, or only some?
-                if (it.adapter.name === 'pure-call') {
-                  const params = it.adapter.inputs(it.cell);
-                  const tuples = cartesian(params.map((p) => valuesFor(p.type)), 40);
-                  res.coverage = runCoverageForCell(it.cell, source, tuples.length ? tuples : [[]], { jsx: wantsJSX, file });
-                }
+            else if (mutate) {
+              res.mutation = runMutation(it.adapter, source, it.cell, { jsx: wantsJSX, file });
+              res.inertness = runInertness(it.adapter, source, it.cell, { jsx: wantsJSX, file });
+              // Branch-exercise honesty (pure-call/JS): does the green cover every branch, or only some?
+              if (it.adapter.name === 'pure-call') {
+                const params = it.adapter.inputs(it.cell);
+                const tuples = cartesian(params.map((p) => valuesFor(p.type)), 40);
+                res.coverage = runCoverageForCell(it.cell, source, tuples.length ? tuples : [[]], { jsx: wantsJSX, file });
               }
             }
           }
+        }
+        // Undeclared-input predicate provenance — a STATIC AST check, so it runs on ANY JS unit
+        // regardless of proof status (a prose-`ensures` Cell that only reaches Yellow is exactly where a
+        // hidden control input can hide). Cheap, and never fails the proof (under-flag on any error).
+        if (res && !res.predicate && it.adapter && it.adapter.inVM && (!it.cell.lang || isJsLang(it.cell.lang))) {
+          try { const declared = parseIn(it.cell.spec).map((p) => p.name); const pred = analyzePredicates(source, it.cell, declared, { jsx: wantsJSX, file }); if (pred) res.predicate = pred; } catch (_) {}
         }
         out[it.cell.id] = res;
       } catch (e) { out[it.cell.id] = { status: 'skip', level: 'info', reason: 'prover error: ' + (e && e.message) }; }
