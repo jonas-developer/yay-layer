@@ -843,14 +843,17 @@ ${statblocks}
       if(e.cells&&e.cells.length) scope.push(e.cells.length+' named Cell(s)');
       if(e.allow&&e.allow.length) scope.push('allow '+e.allow.join(', '));
       if(e.deny&&e.deny.length) scope.push('deny '+e.deny.join(', '));
+      if(e.allowTags&&e.allowTags.length) scope.push('allow-tags '+e.allowTags.join(', '));
+      if(e.denyTags&&e.denyTags.length) scope.push('deny-tags '+e.denyTags.join(', '));
       if(e.maxRisk) scope.push('≤ '+e.maxRisk+' risk');
       if(!scope.length) scope.push('all non-sensitive Cells');
       var used=g.spent||0, max=g.maxCount||0, pct=max?Math.round(used/max*100):0;
       var childBit=(e.childGrants&&e.childGrants.allowed)?'<span class="srole signer">child grants ✓ d'+e.childGrants.maxDepth+'</span>':'';
+      var guardBit=(e.guard===false)?'<span class="srole" style="background:color-mix(in srgb,var(--red) 15%,transparent);color:var(--red)">⚠ guard off</span>':'<span class="srole signer">🔒 guard on</span>';
       var parentBit=g.parent?'<span class="srole signer">child of '+esc2(g.parent)+'</span>':'';
       var bad=(g.parent&&g.chain&&!g.chain.attenuates)?'<div class="swarn">⚠ '+esc2(g.chain.reason||'invalid chain')+'</div>':'';
       html+='<div class="srow" style="border-left:3px solid '+st[1]+'"><div style="flex:1;min-width:0">'
-        +'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="sname" style="font-family:var(--mono)">'+esc2(g.id)+'</span><span class="srole '+(g.active?'owner':'signer')+'" style="text-transform:uppercase">'+st[0]+'</span>'+parentBit+childBit+'</div>'
+        +'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="sname" style="font-family:var(--mono)">'+esc2(g.id)+'</span><span class="srole '+(g.active?'owner':'signer')+'" style="text-transform:uppercase">'+st[0]+'</span>'+guardBit+parentBit+childBit+'</div>'
         +'<div class="smeta" style="font-family:var(--sans);color:var(--ink2)">'+esc2(scope.join(' · '))+'</div>'
         +'<div class="smeta">'+used+' / '+(max||'∞')+' delegations used'+(max?(' · '+pct+'%'):'')+' · expires '+esc2(String(g.expiresAt||'').slice(0,16).replace('T',' '))+'</div>'
         +bad+'</div></div>';
@@ -1145,13 +1148,16 @@ ${statblocks}
         if(e.cells&&e.cells.length) sc.push(e.cells.length+' named Cell(s)');
         if(e.allow&&e.allow.length) sc.push('allow '+e.allow.join(', '));
         if(e.deny&&e.deny.length) sc.push('deny '+e.deny.join(', '));
+        if(e.allowTags&&e.allowTags.length) sc.push('allow-tags '+e.allowTags.join(', '));
+        if(e.denyTags&&e.denyTags.length) sc.push('deny-tags '+e.denyTags.join(', '));
         if(e.maxRisk) sc.push('≤'+e.maxRisk+' risk');
         if(!sc.length) sc.push('all non-sensitive Cells');
         var used=x.spent||0, max=x.maxCount||0; var pct=max?Math.round(used/max*100):0;
         var dev=max?(used+' of '+max+' delegations consumed ('+pct+'%)'):(used+' delegations');
+        var guardBit=(e.guard===false)?' · <b style="color:#cf4436">⚠ security guard off</b>':' · 🔒 security guard on';
         var childBit=(e.childGrants&&e.childGrants.allowed)?(' · child grants allowed (depth '+e.childGrants.maxDepth+')'):'';
         var parentBit=x.parent?(' · child of '+esc2(x.parent)):'';
-        return '<div style="margin-top:7px;padding-top:7px;border-top:1px solid var(--rule)"><b>Grant '+esc2(x.id)+'</b>'+parentBit+childBit+'<div style="font-size:.8rem;color:var(--ink-2);margin-top:2px"><b>scope:</b> '+esc2(sc.join(' · '))+'</div><div style="font-size:.8rem;color:var(--mut);margin-top:2px"><b>boundary:</b> '+esc2(dev)+' · expires '+esc2(String(x.expiresAt||'').replace('T',' ').slice(0,16))+(x.revoked?' · <b style="color:#cf4436">revoked</b>':'')+'</div></div>';
+        return '<div style="margin-top:7px;padding-top:7px;border-top:1px solid var(--rule)"><b>Grant '+esc2(x.id)+'</b>'+guardBit+parentBit+childBit+'<div style="font-size:.8rem;color:var(--ink-2);margin-top:2px"><b>scope:</b> '+esc2(sc.join(' · '))+'</div><div style="font-size:.8rem;color:var(--mut);margin-top:2px"><b>boundary:</b> '+esc2(dev)+' · expires '+esc2(String(x.expiresAt||'').replace('T',' ').slice(0,16))+(x.revoked?' · <b style="color:#cf4436">revoked</b>':'')+'</div></div>';
       }).join('');
       var at=DATA.meta&&DATA.meta.attest;
       var atLine=at?('<div style="font-size:.8rem;margin-top:7px;padding-top:7px;border-top:1px solid var(--rule)"><b>verifier attestation:</b> '+(at.covered?('<span style="color:#1f9d57">✓ '+esc2(at.hash.slice(0,12))+'</span> covers the current code — '+(at.passed?'PASS':'BLOCKED')+' · capability '+esc2(at.capability)):'<span style="color:#c9860f">⚠ stale</span> — code changed since the last attestation ('+esc2(at.hash.slice(0,12))+'); re-mint with <code>yay attest</code>')+'</div>'):('<div style="font-size:.8rem;color:var(--mut);margin-top:7px;padding-top:7px;border-top:1px solid var(--rule)">No verifier attestation yet — mint one with <code>yay attest</code> so ratification references a signed machine verdict.</div>');
