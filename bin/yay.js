@@ -377,9 +377,9 @@ async function cmdInit(flags, positional) {
   if (!keyChoice) {
     if (tty && !Object.keys(config.signers).length) {
       console.log('\n' + U.c.bold('Signing key') + ' — you need one to approve (sign) specs.');
-      console.log('  ' + U.c.bold('1') + ') Local  ' + U.c.dim('— key stored on this machine, passphrase-encrypted (less safe)'));
-      console.log('  ' + U.c.bold('2') + ') Mobile, LAN ' + U.c.dim('— key lives only on your phone; phone ⇄ laptop directly over your Wi-Fi (private, no server)'));
-      console.log('  ' + U.c.bold('3') + ') Mobile, relay ' + U.c.dim('— same, but via relay.yaylayer.com for when off your LAN (end-to-end encrypted; the relay never sees your code)'));
+      console.log('  ' + U.c.bold('1') + ') Local ' + U.c.yellow('(least secure)') + U.c.dim(' — key stored on this machine, passphrase-encrypted; signs on the same box as the AI'));
+      console.log('  ' + U.c.bold('2') + ') Mobile, LAN ' + U.c.dim('— key lives only on your phone; phone ⇄ laptop directly over your Wi-Fi (private, no server); what you see is what you sign'));
+      console.log('  ' + U.c.bold('3') + ') Mobile, relay ' + U.c.green('(recommended)') + U.c.dim(' — same as LAN but via relay.yaylayer.com so it works off your LAN (end-to-end encrypted; the relay never sees your code); what you see is what you sign'));
       const ans = await ask('  Choose 1, 2 or 3 (Enter to skip): ');
       keyChoice = ans === '1' ? 'local' : (ans === '2' || ans === '3') ? 'mobile' : 'none';
       if (ans === '3') config.transport = 'relay';
