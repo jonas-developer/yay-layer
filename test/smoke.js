@@ -1600,5 +1600,24 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     fs.rmSync(fdir, { recursive: true, force: true });
   }
 
+  // ── Multi-platform CI gate generation ──
+  {
+    const gate = require('../src/gate');
+    const chk = (plat, relIncludes, contentRe) => {
+      const gdir = fs.mkdtempSync(require('path').join(os.tmpdir(), 'yay-gate-'));
+      const r = gate.writeWorkflow(gdir, { platform: plat, root: 'AAAA-BBBB' });
+      const content = fs.readFileSync(require('path').join(gdir, r.path), 'utf8');
+      ok(r.path.indexOf(relIncludes) >= 0 && /yay verify --strict/.test(content) && /--root AAAA-BBBB/.test(content) && contentRe.test(content), 'gate: --for ' + plat + ' → ' + r.path);
+      fs.rmSync(gdir, { recursive: true, force: true });
+    };
+    chk('github', '.github/workflows/yaylayer.yml', /runs-on: ubuntu-latest/);
+    chk('azure', 'azure-pipelines.yml', /vmImage: ubuntu-latest/);
+    chk('gitlab', '.gitlab-ci.yml', /image: node/);
+    chk('bitbucket', 'bitbucket-pipelines.yml', /pull-requests/);
+    chk('gitea', '.gitea/workflows/yaylayer.yml', /runs-on: ubuntu-latest/);
+    ok(/Build Validation/i.test(gate.branchProtectionSteps('azure')) && /Protected branch/i.test(gate.branchProtectionSteps('gitlab')) && /Rulesets/i.test(gate.branchProtectionSteps('github')), 'gate: per-platform branch-protection steps differ correctly');
+    ok(gate.normPlatform('ado') === 'azure' && gate.normPlatform('AZURE') === 'azure' && gate.normPlatform('bogus') === 'github', 'gate: platform aliases resolve (ado→azure, unknown→github)');
+  }
+
   console.log(`\nAll ${n} checks passed.`);
 })().catch((e) => { console.error('smoke failed:', e); process.exit(1); });

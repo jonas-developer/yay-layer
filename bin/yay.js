@@ -558,7 +558,9 @@ function cmdGate(flags, positional) {
   // current project's root fingerprint if we can read it.
   let root = (flags.root && flags.root !== true) ? flags.root : '';
   if (!root) { try { const d = rosterMod.deriveRoster(U.readJSON(path.join(target, '.yaylayer', 'roster.json'), null) || {}); if (d.rootFp) root = d.rootFp; } catch (_) {} }
-  const opts = { force: !!flags.force, scope, pkg, root };
+  const platform = gate.normPlatform((flags.for && flags.for !== true) ? flags.for : (flags.platform && flags.platform !== true ? flags.platform : 'github'));
+  const opts = { force: !!flags.force, scope, pkg, root, platform };
+  console.log('  ' + U.c.dim('platform: ') + U.c.bold(platform) + U.c.dim(` (change with --for github|azure|gitlab|bitbucket|gitea)`));
 
   const w = gate.writeWorkflow(target, opts);
   const wmark = w.action === 'skipped' ? U.c.dim('• skipped (exists — use --force) ') : U.c.green('✓ ' + w.action + ' ');
@@ -572,7 +574,7 @@ function cmdGate(flags, positional) {
   }
 
   if (pkg === 'yay-layer') console.log('\n' + U.c.dim('note: yay-layer isn\'t on npm yet — until it is, use ') + U.c.bold('yay gate --pkg github:jonas-developer/yay-layer') + U.c.dim(' or edit the install line.'));
-  console.log('\n' + gate.branchProtectionSteps());
+  console.log('\n' + gate.branchProtectionSteps(platform));
   if (!flags.hook) console.log('\n' + U.c.dim('Tip: `yay gate --hook` also installs a local pre-push gate for solo/offline work.'));
 }
 
@@ -3114,8 +3116,9 @@ const HELP = `yay — a protocol for provable, signed AI code
   yay dashboard [--port N]    live control panel: map + auto-refresh + Run-tests & Regenerate-plan buttons (leave running; --open, SSL on by default: --no-https)
   yay test [--test "cmd"]     run the project's own test suite (package.json "test" / config.test); non-zero exit on failure
   yay adversary [--cell IDs]  spec-only adversary: an LLM sees ONLY the specs and writes probes to break the code (needs an LLM key)
-  yay gate [dir]              write the CI gate workflow (+ --hook local pre-push) & print the
-                             branch-protection steps · flags: --scope <dir> --pkg <spec> --hook --force
+  yay gate [dir]              write the CI gate pipeline (+ --hook local pre-push) & print the
+                             branch-protection steps for your host. --for github|azure|gitlab|bitbucket|gitea
+                             (default github) · flags: --scope <dir> --pkg <spec> --hook --force
   yay status                  one-line summary
 
   docs: standard/STANDARD.md · CONSTITUTION.md · README.md`;

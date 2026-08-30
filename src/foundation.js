@@ -56,7 +56,9 @@ const RULE_FILES = [
 // add `payload.js` to it to make the file untracked → invisible to the zone watch), so any
 // change to what's hidden is itself revealed and needs a re-seal.
 const CORE_FILES = [
-  '.github/workflows/yaylayer.yml', '.yaylayerignore', '.gitignore', 'CONSTITUTION.md', 'standard/STANDARD.md',
+  // CI gate config across the common hosts (only the ones that exist are sealed).
+  '.github/workflows/yaylayer.yml', '.gitea/workflows/yaylayer.yml', 'azure-pipelines.yml', '.gitlab-ci.yml', 'bitbucket-pipelines.yml',
+  '.yaylayerignore', '.gitignore', 'CONSTITUTION.md', 'standard/STANDARD.md',
 ];
 // Zones whose TRACKED file-set should stay stable — a new/removed file here is revealed.
 // Root is watched at TOP LEVEL only (depth 0); the others recurse.
