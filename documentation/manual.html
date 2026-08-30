@@ -281,6 +281,7 @@ function memoKey(...parts){ return parts.join('|'); }</code></pre>
           <tr><td><code>perf</code></td><td>A performance/optimisation rationale. Signed exemption for perf-motivated branches under the inertness check.</td><td>Describes</td></tr>
           <tr><td><code>tag</code> / <code>tags</code></td><td>Classification words (comma/space separated). Drive Brief tagging and <a href="#howto">policy</a> matching.</td><td>Governs</td></tr>
           <tr><td><code>sensitive</code></td><td><code>yes</code> adds a synthetic <code>sensitive</code> tag — a cooperative hint policy rules can match (the authoritative control is owner-signed policy, not this field).</td><td>Governs</td></tr>
+          <tr><td><code>risk</code></td><td><code>low</code>/<code>medium</code>/<code>high</code> (default <code>medium</code>). A declared governance hint for Autopilot's <code>--max-risk</code> ceiling — <strong>high</strong> for money/auth/secrets/deploy/CI/irreversible, <strong>low</strong> for cosmetic or pure helpers. Cooperative (AI-writable); it never overrides the security guard or owner-signed policy.</td><td>Governs</td></tr>
         </tbody>
       </table></div>
       <div class="note"><span class="k">The rule of Green</span><p>Vague prose never earns Green. Green requires a machine-checkable claim — an <code>ensures</code> the prover can execute (in a proven-tier language) or, at minimum, effect/purity claims the static net can check. See <a href="#languages">Languages</a> for which tier each language reaches.</p></div>

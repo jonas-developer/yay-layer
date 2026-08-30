@@ -25,10 +25,11 @@ You describe what you want; the AI writes a tiny, human-readable **spec** above 
 - **Kills AI bloat** — code that does *more* than its spec turns Red, forcing the AI to simplify.
 - **Attributable authorship** — every approval is cryptographically signed by a *named* human.
 - **CI-enforced** — unsigned or mismatched code can't reach `main`.
+- **Provenance you can hand off** — the machine verifier signs its *own* verdict (`yay attest`) onto a tamper-evident chain, and optional **Durable mode** keeps an encrypted, hash-anchored archive of the signed source. Audit-grade, and checkable by anyone at [yaylayer.com/verify](https://yaylayer.com/verify).
 
 > **In one line:** a **human authorization protocol for agents**. As AI produces changes faster than anyone can review them, YayLayer moves the review point *one level up* — you attest to the **intended behaviour**, not the implementation, and a machine continuously verifies the code against that intent. The agent can propose and implement anything; only a human can grant authority, and that authority is **machine-verifiable**. Every approval leaves a cryptographically attributable record — *"Anna approved this exact behavioural requirement as part of Brief X"* — so six months later "why did the AI change this?" has an answer.
 
-Read the spec in [`standard/STANDARD.md`](standard/STANDARD.md) · the AI rules in [`CONSTITUTION.md`](CONSTITUTION.md).
+**Learn more:** [yaylayer.com](https://yaylayer.com) · [Manual](https://yaylayer.com/docs/manual.html) · [Live demo dashboard](https://yaylayer.com/demo/dashboard.html) · [Verify an attestation](https://yaylayer.com/verify) · the spec in [`standard/STANDARD.md`](standard/STANDARD.md) · the AI rules in [`CONSTITUTION.md`](CONSTITUTION.md).
 
 ---
 
@@ -63,7 +64,7 @@ The Constitution's rules, in one breath: *spec before code; use the marker gramm
 
 ## Try it in under a minute
 
-You need **Node ≥ 18**, and you'll want **git installed first** — YayLayer works without it, but git is where the proof lives: the CI gate reads committed state, and the dashboard's history features (spec diffs on the phone, and the Briefs tab's *"as this Brief signed it"* view) reconstruct past versions straight from your git history. **Install git, then yay-layer.** Clone, install its one dependency ([`@babel/parser`](https://babeljs.io/docs/babel-parser), which handles JS, TypeScript, JSX & TSX), and run:
+You need **Node ≥ 18**, and you'll want **git installed first** — YayLayer works without it, but git is where the proof lives: the CI gate reads committed state, and the dashboard's history features (spec diffs on the phone, and the Briefs tab's *"as this Brief signed it"* view) reconstruct past versions straight from your git history. **Install git, then yay-layer.** Clone, install its two small dependencies ([`@babel/parser`](https://babeljs.io/docs/babel-parser) for JS/TS/JSX/TSX parsing, and `qrcode-terminal` for phone pairing), and run:
 
 ```bash
 git clone https://github.com/jonas-developer/yay-layer.git
@@ -108,11 +109,12 @@ Everything below uses `yay`; if you skipped `npm link`, just prefix commands wit
 Run these **from inside your project** (`cd` there first) — `init` sets up whatever folder you're in. Or point it at a path from anywhere: `yay init path/to/project`.
 
 **`yay init` is a guided setup.** After creating the files it walks you through, step by step:
-1. **Signing key** — choose **Local** (encrypted key on this machine) or **Mobile** (key stays on your phone — *under development*, so it's noted and skipped for now).
-2. If Local, it asks for your **name** and a **passphrase**, and creates the key.
+1. **Signing mode** — **Local** (encrypted key on this machine), **Mobile · LAN** (key stays on your phone, phone ↔ laptop over your Wi-Fi), or **Mobile · relay** (phone via the end-to-end-encrypted `relay.yaylayer.com`, works from any network). All three are built.
+2. If Local, it asks for your **name** and a **passphrase**, and creates the key; Mobile modes print a QR to pair your phone once (key created there, 24-word backup, PIN).
 3. **Adopt** — asks whether the project already has code; if yes, it runs `adopt` to scaffold draft specs over it.
+4. **Brief tags**, the **Constitution** (written into your AI harness), and **Standard vs Durable** provenance (`--durable` to archive signed source encrypted).
 
-Prefer to script it (or skip the prompts)? Pass flags: `yay init --key local --name you --adopt` (or `--no-adopt`, `--key mobile`). The manual equivalents of each step:
+Prefer to script it (or skip the prompts)? Pass flags: `yay init --key local --name you --adopt` (or `--no-adopt`, `--relay`/`--lan`, `--durable`). The manual equivalents of each step:
 
 > **About `--project`:** it's just a **free-form display name** — call it anything you like (e.g. `--project "My Fancy App"`). It defaults to the folder name, and only shows up as a label in `yay status` and the map header. It does **not** affect behaviour and it is **not** a path (avoid slashes, or `yay` will think you meant a directory).
 
@@ -168,7 +170,7 @@ function calcPortfolioValue(holdings) {
 }
 ```
 
-**Machine fields** (fill precisely, plus one plain `intent:` sentence): `unit · lang · in · out · pure · ensures · throws · effects · feeds`. A few unlock deeper checking: **`ensures`** (a boolean expression → machine-**proven** Green + mutation grading + inertness), **`renders: yes`** (a React/JSX component → proven against its rendered tree with `text/find/attr/hasClass`), **`records: <param>`** (an effectful unit → asserted against a recorded call/set trace), and two *declarations* that keep a Cell honest under the inertness check — **`throws: <condition>`** (a declared guard) and **`perf: <reason>`** (intentional semantically-invisible code like a cache).
+**Machine fields** (fill precisely, plus one plain `intent:` sentence): `unit · lang · in · out · pure · ensures · throws · effects · feeds`. A few unlock deeper checking: **`ensures`** (a boolean expression → machine-**proven** Green + mutation grading + inertness), **`renders: yes`** (a React/JSX component → proven against its rendered tree with `text/find/attr/hasClass`), **`records: <param>`** (an effectful unit → asserted against a recorded call/set trace), and two *declarations* that keep a Cell honest under the inertness check — **`throws: <condition>`** (a declared guard) and **`perf: <reason>`** (intentional semantically-invisible code like a cache). A governance hint, **`risk: low|medium|high`** (default `medium`), feeds Autopilot's `--max-risk` ceiling — high for money/auth/secrets/deploy/CI/irreversible, low for cosmetic or pure helpers. It's declared, not proven, and never overrides the security guard or owner-signed policy.
 
 ## What a signature attests to
 
@@ -212,7 +214,9 @@ Tune it with **`yay batch <n>`** (raise/lower the barrier), `yay batch off` (a B
 | `yay tags [--set id\|add\|remove\|rename\|sets]` | the project's Brief-tag vocabulary (six sets or custom) |
 | `yay inbox` / `yay requests` | your on-duty relay link · plain requests queued from the dashboard |
 | `yay invite "Name"` · `yay enroll` · `yay revoke` · `yay reroot` | team roster — one-tap join, enroll/revoke a key, re-root trust |
-| `yay policy [--init\|--set]` · `yay grant` · `yay ratify` | signing policy (who must sign) · Autopilot grants · ratify delegated approvals |
+| `yay policy [--init\|--set]` · `yay grant [--allow\|--deny\|--max-risk\|--child-grants]` · `yay ratify [--sign\|--reject]` | signing policy (who must sign) · Autopilot capability-envelope grants (+ child grants for helper-agent swarms) · ratify or reject delegated approvals |
+| `yay attest [list\|verify]` · `yay reverify` · `yay witness` · `yay metrics` · `yay capability` | the machine verifier signs its own verdict (chained, capability-versioned) · re-verify history without rewriting it · integrity witness · earned-autonomy metrics · the verifier's derived capability + drift check |
+| `yay archive [install\|--restore\|--verify\|--forget]` | Durable mode — encrypted, sha256-anchored archive of signed source (secret scan + signed tombstones) |
 | `yay test` · `yay adversary` · `yay plan` | run the project's own test suite · spec-only adversarial probing (LLM sees only the spec) · AI-synthesized System Plan |
 | `yay map [-o file.html]` · `yay gate` · `yay constitution --for <keys>` · `yay status` | write the HTML map · write the CI gate · write the Constitution into your AI harness · one-line summary |
 
@@ -279,6 +283,8 @@ A **working reference implementation** of the protocol — honest about scope.
 **Built-in security features:** the **inertness check** — flags code removable with every spec-derived test still passing (dead weight, ahead-of-spec scaffolding, or a **dormant payload** riding under a signature); Yellow by default, escalate to gate-blocking per path/tag with an **owner-signed** policy rule (`inert: block`), or relax to a note (`inert: note`) · **tamper-evident `.yaylayerignore`** — hiding *source* from the gate is Pink-blocking unless whitelisted by an owner-signed `ignore: source` policy rule (so the AI can't hide code by ignoring it).
 
 **Phone signing is built** (not a stand-in): pair your phone over the **LAN** or via the end-to-end-encrypted **`relay.yaylayer.com`** — the key is generated on the phone and never touches the AI's machine · **24-word mnemonic** recovery · a live **dashboard** (`yay dashboard` — run tests, run `package.json` scripts, request changes, sign) · **teams** — a signed, hash-chained roster with owner/signer roles and `yay invite` / `enroll` / `revoke` / `reroot` · **signer routing** (`yay sign --name` → a teammate's inbox; fire-and-return) · **Autopilot** grants + ratification (`yay grant` / `yay ratify`) · a **signing policy** (who-must-sign, owner-signed into the roster) · **Briefs** with a short title + the prose, browsable as a list or a **Cloud view** (a card per tag) and in the terminal (`yay briefs`) · **Brief tags** (six starter sets or custom; the signer can correct the AI's tags on the phone at signing).
+
+**Provenance & assurance is built** — the third cryptographic identity and the long-lived audit layer: **verifier attestation** (`yay attest` — the machine verifier signs its *own* verdict with a project/CI-scoped key that never ships in the package; append-only, chained, **capability-versioned**, and the version is **derived + self-asserting** so an attestation can never over-claim — `yay capability`) · **`yay reverify`** appends a fresh assessment when the verifier improves, never rewriting old Green · **`yay witness`** cross-checks the attestation chain, spec archive, and git-vs-ledger coverage · **`yay metrics`** turns your rejection history into earned-autonomy signals · **Autopilot** grants are signed **capability envelopes** (allow/deny paths, cells, `--max-risk`, and opt-in **child grants** for helper-agent swarms that can only attenuate) with **non-delegable** owner-signed backstops and first-class **rejections** · **Durable mode** (`yay archive`) — an encrypted (AES-256-GCM), sha256-anchored archive of the signed source with a pre-archive **secret scan** and honest signed **tombstones** · and a **keyless verifier + capability registry** so anyone can confirm an attestation in-browser at [yaylayer.com/verify](https://yaylayer.com/verify).
 
 **Roadmap:** more prover **adapters** so the remaining signed-only languages (C#, Rust, Go, Solidity, …) also earn machine-**proven** Green — the interface is built (React and Python are the first two adapters); mutation grading + inertness for the out-of-VM (Python) adapter · **M-of-N multi-sig** · richer **Policy** flavors (mandate / prohibit / grant as checkable "for all matched Cells" rules) · scope-aware flow-contract checking · automated merge re-proving · LLM-driven `adopt` intent derivation.
 
