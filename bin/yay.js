@@ -296,7 +296,7 @@ function addSignerKey(config, name, pub, kind) {
   return has ? 'exists' : 'added';
 }
 
-function createKey(p, config, name, pass) {
+function createKey(p, config, name, pass, genesisMeta) {
   const { pubB64, privDer } = C.generateKeypair();
   const ks = C.encryptKeystore(privDer, pass);
   fs.mkdirSync(p.keys, { recursive: true });
@@ -304,10 +304,12 @@ function createKey(p, config, name, pass) {
   fs.writeFileSync(ksPath, JSON.stringify(ks, null, 2) + '\n', { mode: 0o600 });
   addSignerKey(config, name, pubB64, 'local');
   U.writeJSON(p.config, config);
-  // Establish the signed trust root on the very first key (genesis, self-signed).
+  // Establish the signed trust root on the very first key (genesis, self-signed). When this
+  // genesis is the result of a reroot, genesisMeta stamps the rotation INTO the signed event
+  // (supersedes/rerootedAt/rerootReason) so the audit shows a reroot happened, and why.
   const rp = rosterPath(p);
   if (!fs.existsSync(rp)) {
-    const ev = { id: 'R-0001', type: 'genesis', name, pub: pubB64, role: 'owner', by: name, prev: 'genesis', nonce: C.randomNonce(), at: new Date().toISOString() };
+    const ev = { id: 'R-0001', type: 'genesis', name, pub: pubB64, role: 'owner', by: name, prev: 'genesis', nonce: C.randomNonce(), at: new Date().toISOString(), ...(genesisMeta || {}) };
     ev.signature = C.sign(rosterMod.eventBytes(ev), privDer);
     U.writeJSON(rp, { project: config.project, events: [ev] });
     console.log('  ' + U.c.dim('trust root established → ' + rosterMod.fingerprint(pubB64)) + U.c.dim(' (pin this in CI)'));
@@ -490,8 +492,45 @@ async function cmdInit(flags, positional) {
     }
   }
 
+  // 6 ── Foundation seal posture: reveal tampering/corruption of the fixed core (secure by default).
+  await foundationPosturePrompt(p, config, flags, tty);
+
   const cd = rel === '.' ? '' : `cd ${rel} && `;
   console.log('\n' + U.c.bold('Done.') + ' Next: write/prune specs → ' + U.c.bold(`${cd}yay verify`) + ' → ' + U.c.bold('yay sign') + '.');
+}
+
+// Ask (or take from flags) the foundation-seal posture at init/adopt, and seal now when there's
+// already committed content to vouch for. Default GUARDED (reveal-not-block). Never fatal.
+async function foundationPosturePrompt(p, config, flags, tty) {
+  try {
+    if (config && config.foundation) return; // already chosen (re-init)
+    let mode = (flags['foundation'] && flags['foundation'] !== true) ? String(flags['foundation']).toLowerCase()
+      : (flags['no-foundation'] ? 'off' : null);
+    if (!mode && tty) {
+      console.log('\n' + U.c.bold('Foundation seal') + U.c.dim(' — reveal any change to your project\'s FIXED core (Constitution, CI workflow, .gitignore, protocol files) so tampering or corruption never goes unnoticed. Ordinary code is unaffected.'));
+      console.log('  ' + U.c.dim('[1] Guarded (recommended) — drift warns   [2] Strict — drift blocks the gate   [3] Off'));
+      const a = (await ask('  Choose 1, 2 or 3 (Enter = Guarded): ')).trim();
+      mode = a === '3' ? 'off' : a === '2' ? 'strict' : 'guarded';
+    }
+    if (!mode) mode = 'guarded';
+    if (mode === 'off') { console.log('  ' + U.c.dim('• foundation seal off — enable later with `yay protect`.')); return; }
+    const tracked = trackedFiles(p.root);
+    if (!tracked || !tracked.length) {
+      console.log('  ' + U.c.yellow(`• foundation posture: ${mode}`) + U.c.dim(' — commit your core files, then run `yay protect` to create the seal.'));
+      return;
+    }
+    // There is committed content to vouch for — seal it now (owner-signed).
+    const rlog = loadRoster(p);
+    if (!rlog || !rlog.events || !rlog.events.length) { console.log('  ' + U.c.dim('• run `yay protect` to seal once a trust root exists.')); return; }
+    const seal = F.buildSeal(p.root, tracked, {});
+    const ev = { id: rosterMod.nextEventId(rlog), type: 'foundation', mode, seal, prev: rlog.events[rlog.events.length - 1].id, nonce: C.randomNonce(), at: new Date().toISOString() };
+    const summary = { title: 'Seal the project foundation', rows: [{ k: 'mode', v: mode }, { k: 'files', v: Object.keys(seal.files).length + ' core file(s)' }], warn: 'You are vouching the current fixed-core files are correct; later changes are revealed at verify.' };
+    const signed = await authorizeRosterEvent(p, config, rlog, ev, flags, summary);
+    if (!signed) { console.log('  ' + U.c.yellow(`• foundation posture: ${mode}`) + U.c.dim(' — not signed now; run `yay protect` to seal.')); return; }
+    rlog.events.push(signed); U.writeJSON(rosterPath(p), rlog);
+    config.foundation = mode; U.writeJSON(p.config, config);
+    console.log('  ' + U.c.green(`✓ foundation sealed (${mode})`) + U.c.dim(` — ${Object.keys(seal.files).length} core file(s) watched.`));
+  } catch (e) { console.log('  ' + U.c.dim('• foundation seal skipped: ' + (e && e.message || e) + ' — run `yay protect` later.')); }
 }
 
 // Append or update KEY=value in <dir>/.env without disturbing other lines.
@@ -1043,16 +1082,17 @@ async function cmdSign(flags, positional) {
 }
 
 // Shared pairing flow (used by `yay pair` and by `yay init` when Mobile is chosen).
-async function runPairing(p, config, flags) {
+async function runPairing(p, config, flags, genesisMeta) {
   flags = flags || {};
   const nameFlag = (flags.name && flags.name !== true) ? flags.name : null;
   const tls = tlsCert(p, flags);
   // No signed trust root yet? Run PHONE-AS-GENESIS: the phone self-signs the
   // genesis event and becomes the owner/root — no local key is ever created.
+  // genesisMeta (set on a reroot) stamps the rotation into the signed genesis.
   const rlogPre = loadRoster(p);
   const isGenesis = !(rlogPre && rlogPre.events && rlogPre.events.length);
   const genesis = isGenesis
-    ? { id: 'R-0001', type: 'genesis', role: 'owner', prev: 'genesis', nonce: C.randomNonce(), at: new Date().toISOString() }
+    ? { id: 'R-0001', type: 'genesis', role: 'owner', prev: 'genesis', nonce: C.randomNonce(), at: new Date().toISOString(), ...(genesisMeta || {}) }
     : null;
   const challenge = C.randomNonce() + C.randomNonce();
   let r, finishPhone, closeServer = () => {};
@@ -1605,27 +1645,62 @@ async function cmdReroot(flags) {
   console.log(U.c.yellow('⚠ Re-root') + ' establishes a BRAND-NEW trust root and retires the current one.');
   console.log(U.c.dim('  This is a trust DISCONTINUITY: signers under the old root are dropped, the CI'));
   console.log(U.c.dim('  --root pin must be repointed, and existing specs must be re-signed under the new'));
-  console.log(U.c.dim('  key. Use it only when the old root key is lost or compromised.'));
+  console.log(U.c.dim('  key. Provenance is preserved — the old roster is ARCHIVED and past signatures stay'));
+  console.log(U.c.dim('  valid against it; this is a labeled seam, not a wipe. Use only when the root key is lost/compromised.'));
   if (oldFp) console.log(U.c.dim('  current root → ') + U.c.bold(oldFp));
-  if (!flags.force) {
-    const ans = await ask('  Type "reroot" to confirm: ');
-    if ((ans || '').trim() !== 'reroot') return console.log('  aborted — nothing changed.');
+  // Team guard: if OTHER owners exist, the clean path is revoke+enroll (keeps the root). Don't refuse
+  // (all owners may be lost/compromised) — but escalate the confirmation to a deliberate token.
+  const drv0 = (log && log.events && log.events.length) ? rosterMod.deriveRoster(log) : { roles: {} };
+  const owners = Object.keys(drv0.roles || {}).filter((n) => drv0.roles[n] === 'owner');
+  const teamGuard = owners.length > 1;
+  if (teamGuard) {
+    console.log('\n  ' + U.c.yellow(`⚠ This project has ${owners.length} owners: `) + U.c.bold(owners.join(', ')));
+    console.log(U.c.dim('  Normally another owner should recover you instead — it keeps the root, no re-signing:'));
+    console.log('     ' + U.c.bold(`yay revoke --name "<you>"`) + U.c.dim('  then  ') + U.c.bold('yay enroll --name "<you>" --pubkey <new>'));
+    console.log(U.c.dim('  Only reroot if EVERY owner key is lost or compromised and no one can revoke.'));
   }
+  // No CI pin → this reroot (and any) has no backstop. Warn loudly.
+  if (!fs.existsSync(path.join(p.root, '.github', 'workflows', 'yaylayer.yml'))) {
+    console.log('\n  ' + U.c.yellow('⚠ No CI gate found') + U.c.dim(' — without a pinned trust root in CI, a reroot has no backstop and is not detectable by others. Set up `yay gate` for real protection.'));
+  }
+  if (!flags.force) {
+    const token = teamGuard ? String(config.project || 'reroot') : 'reroot';
+    const prompt = teamGuard
+      ? `  Type the project name "${token}" to confirm all owners are unavailable and proceed: `
+      : '  Type "reroot" to confirm: ';
+    const ans = await ask(prompt);
+    if ((ans || '').trim() !== token) return console.log('  aborted — nothing changed.');
+  }
+  // A stated reason, recorded in the audit (e.g. "Compromised keys during cyberattack 2027-06-24"
+  // or "Keys lost"). Every event is ISO-timestamped, so the rotation is dated + attributed.
+  let reason = (flags.reason && flags.reason !== true) ? String(flags.reason).trim() : '';
+  if (!reason && process.stdin.isTTY) reason = (await ask('  Reason for rerooting (recorded in the audit, e.g. "keys lost" / "compromised in breach"): ')).trim();
+  const rerootedAt = new Date().toISOString();
+  const genesisMeta = { supersedes: oldFp || null, rerootedAt, rerootReason: reason || '(unstated)' };
   // Archive the old roster + reset the config mirror; the new genesis re-populates it.
   if (log) { U.writeJSON(rosterPath(p).replace(/\.json$/, `.${oldFp || 'old'}.json`), log); fs.unlinkSync(rosterPath(p)); }
-  config.signers = {}; config.owners = []; U.writeJSON(p.config, config);
+  config.signers = {}; config.owners = [];
+  config.lastReroot = { from: oldFp || null, reason: reason || '(unstated)', at: rerootedAt }; // committed audit note (both paths)
+  U.writeJSON(p.config, config);
   console.log('\n' + U.c.bold('Establish the new trust root:'));
   if (flags.phone || flags.key === 'mobile') {
-    await runPairing(p, config, flags); // no roster now → phone-as-genesis
+    await runPairing(p, config, flags, genesisMeta); // no roster now → phone-as-genesis (stamped)
   } else {
     const name = (flags.name && flags.name !== true) ? flags.name : (process.stdin.isTTY ? await ask('  New owner name: ') : 'you');
     const pass = await getPassphrase(flags, `Set a passphrase for the new owner key "${name}"`);
     if (!pass || pass.length < 6) return fail('passphrase must be at least 6 characters — no new root created (old one archived).');
-    createKey(p, config, name, pass);
+    createKey(p, config, name, pass, genesisMeta);
     console.log(U.c.green(`✓ new local owner key for "${name}"`));
   }
+  console.log('  ' + U.c.dim('rotation recorded: from ') + U.c.bold(oldFp || '(none)') + U.c.dim(' · ') + U.c.bold(rerootedAt.slice(0, 16).replace('T', ' ')) + U.c.dim(' · reason: ') + U.c.bold(reason || '(unstated)'));
   console.log('\n' + U.c.bold('Next:') + U.c.dim(' re-sign specs under the new root ') + U.c.bold('yay sign --all') + U.c.dim(', then repoint CI ') + U.c.bold('yay gate') + U.c.dim(' (new fingerprint above).'));
-  if (oldFp) console.log(U.c.dim('  old roster archived → .yaylayer/roster.' + oldFp + '.json'));
+  if (oldFp) console.log(U.c.dim('  old roster archived → .yaylayer/roster.' + oldFp + '.json') + U.c.dim(' (past signatures stay valid against it — provenance preserved).'));
+  // The foundation seal was signed under the OLD root; it's now orphaned. config.foundation
+  // survived (posture persists), so verify will flag "expected but missing" until you re-seal.
+  if (config.foundation && config.foundation !== 'off') {
+    console.log('  ' + U.c.yellow('⚠ re-seal the foundation') + U.c.dim(' under the new root: ') + U.c.bold('yay protect') + U.c.dim(` (posture ${config.foundation} — the old seal no longer applies).`));
+  }
+  if (teamGuard) console.log('  ' + U.c.yellow('⚠ tell your team the trust root rotated') + U.c.dim(' — everyone re-clones/re-pairs against the new root ') + U.c.bold(rosterMod.deriveRoster(loadRoster(p)).rootFp || '') + U.c.dim('. Anyone still on the old root will see TRUST-ROOT MISMATCH.'));
 }
 
 function printReport(manifest, verified, details, problemsOnly) {
@@ -1694,12 +1769,13 @@ function cmdVerify(flags) {
   }
   const verified = verifyManifest(manifest, lock, config, { mutate: !flags['no-mutate'], roster: loadRoster(p), grants: loadGrants(p), rejections: loadRejections(p), tracked: trackedFiles(p.root),root: trustRootPin(flags) });
   printReport(manifest, verified, !!(flags.details || flags.d), !!(flags.problems || flags.issues || flags.p));
-  if (verified.signedRoster) console.log('  ' + U.c.dim('trust root ' + verified.rootFp));
+  if (verified.signedRoster) console.log('  ' + U.c.dim('trust root ' + verified.rootFp) + (verified.rootMeta ? U.c.dim(' · rerooted' + (verified.rootMeta.supersedes ? ' from ' + verified.rootMeta.supersedes : '') + (verified.rootMeta.rerootedAt ? ' on ' + String(verified.rootMeta.rerootedAt).slice(0, 10) : '') + ' — ' + (verified.rootMeta.rerootReason || '(unstated)')) : ''));
   else console.log('  ' + U.c.yellow('⚠ roster is unsigned') + U.c.dim(' — no signed trust root; run `yay init`/`yay keygen` to establish one.'));
   for (const pb of verified.rosterProblems || []) console.log('  ' + U.c.red('✗ roster: ') + pb);
   reportFoundation(verified);
   // Verifier attestation status (P2): is the current tree covered by a signed attestation?
   reportAttestStatus(p, config, manifest, verified);
+  reportProtection(p, config, verified);
   const blocked = !verified.passed || manifest.problems.length;
   console.log('\n  ' + (blocked ? U.c.red('GATE: BLOCKED') + U.c.dim(' (red, unsigned, or unspecified/pink code cannot reach main)')
     : U.c.green('GATE: PASS')));
@@ -1726,6 +1802,24 @@ function reportFoundation(verified) {
   if (fnd.removedFiles.length) bits.push(fnd.removedFiles.length + ' removed (' + fnd.removedFiles.join(', ') + ')');
   console.log('  ' + U.c.red('⚠ FOUNDATION CHANGED') + U.c.dim(' — ' + bits.join(' · ')));
   console.log('    ' + U.c.dim('a sealed core file (or watched zone) changed since it was sealed. If this was you, re-seal: ') + U.c.bold('yay protect') + U.c.dim('. If not, investigate — this reveals tampering or corruption.' + (fnd.mode === 'strict' ? ' (strict → gate BLOCKED until re-sealed)' : ' (guarded → warning only)')));
+}
+
+// Protection posture — an honest "are you actually protected?" readout so advisory-only can't be
+// mistaken for enforcing. Guarantees need the CI gate on a protected branch + a signed root.
+function reportProtection(p, config, verified) {
+  const hasWorkflow = fs.existsSync(path.join(p.root, '.github', 'workflows', 'yaylayer.yml'));
+  let pinned = false;
+  try { if (hasWorkflow) pinned = /--root|trust[-\s]?root|ROOT/i.test(fs.readFileSync(path.join(p.root, '.github', 'workflows', 'yaylayer.yml'), 'utf8')); } catch (_) {}
+  const phone = signMethodOf(config) === 'phone';
+  const fnd = (config && config.foundation) || 'off';
+  const enforcing = hasWorkflow && verified.signedRoster;
+  const mk = (b) => (b ? U.c.green('✓') : U.c.red('✗'));
+  console.log('\n  ' + (enforcing ? U.c.green('Protection: ENFORCING') : U.c.yellow('⚠ Protection: ADVISORY ONLY'))
+    + U.c.dim(enforcing ? ' — confirm branch protection requires the "gate" check' : ' — local checks only; nothing enforces main until you set up the CI gate'));
+  console.log('    ' + mk(hasWorkflow) + U.c.dim(' CI gate (yay gate)  ') + mk(verified.signedRoster) + U.c.dim(' signed trust root  ')
+    + (hasWorkflow ? (mk(pinned) + U.c.dim(' root pinned  ')) : '')
+    + mk(phone) + U.c.dim(phone ? ' phone signing  ' : ' phone signing (local keystore — key on disk)  ')
+    + (fnd !== 'off' ? U.c.green('✓') : U.c.dim('○')) + U.c.dim(' foundation seal: ' + fnd));
 }
 
 function reportAttestStatus(p, config, manifest, verified) {
@@ -2574,6 +2668,16 @@ async function cmdDashboard(flags) {
       }),
       // Issue an Autopilot grant (owner-signed) from the dashboard — spawns `yay grant … --phone`,
       // routing the owner approval to the phone (same pattern as enroll). Only a human can issue it.
+      protect: () => new Promise((resolve) => {
+        const child = require('child_process').spawn(process.execPath, [process.argv[1], 'protect', '--phone'], { cwd: p.root });
+        let out = '';
+        child.stdout.on('data', (d) => { out += d; });
+        child.stderr.on('data', (d) => { out += d; });
+        child.on('error', (e) => resolve({ ok: false, error: String((e && e.message) || e) }));
+        child.on('exit', (code) => resolve(code === 0
+          ? { ok: true, output: out.replace(/\x1b\[[0-9;]*m/g, '').trim() }
+          : { ok: false, error: (out.replace(/\x1b\[[0-9;]*m/g, '').trim() || ('protect exited ' + code)) }));
+      }),
       grant: (o) => new Promise((resolve) => {
         o = o || {};
         const args = ['grant', '--for', String(o.dur || '2h'), '--count', String(parseInt(o.count, 10) || 20), '--phone'];
@@ -2646,13 +2750,14 @@ async function cmdMap(flags) {
   console.log(U.c.green('✓ map written → ') + out + U.c.dim(`  (${count} items)`));
 }
 
-function cmdAdopt(flags, positional) {
+async function cmdAdopt(flags, positional) {
   const target = positional[0] || '.';
   const res = adopt(target, { dry: !!flags.dry });
   if (!res.total) { console.log(U.c.dim('nothing to adopt — no un-tagged top-level functions found.')); return; }
   console.log((res.dry ? U.c.yellow('(dry run) ') : U.c.green('✓ ')) + `${res.total} draft Cell(s) across ${res.report.length} file(s):`);
   for (const r of res.report) console.log('  ' + U.c.dim(r.file) + '  +' + r.added);
   console.log('\n  Next: prune each DERIVED spec, then ' + U.c.bold('yay sign') + '.');
+  if (!flags.dry) { try { const { p, config } = loadState(); if (config) await foundationPosturePrompt(p, config, flags, process.stdin.isTTY); } catch (_) {} }
 }
 
 // Batch settings live in config.json (committed, shared). Default: on, barrier 5.
@@ -2899,6 +3004,9 @@ const HELP = `yay — a protocol for provable, signed AI code
                              authorize with a local owner key, or --phone to approve on an owner's phone
   yay revoke --name X [--pubkey <b64>]  revoke one key (or the whole identity) via an owner-signed event (--phone)
   yay reroot [--phone]        retire the current trust root and establish a new one (key lost/compromised)
+  yay protect [--mode guarded|strict|--off]  FOUNDATION SEAL: owner-sign a baseline of the fixed core files
+                             (Constitution, CI workflow, .gitignore, protocol) so any change is REVEALED at
+                             verify. --add/--remove/--ignore <glob> tune it. Guarded warns; strict blocks.
   yay grant [--for 2h] [--count 20]  Autopilot: owner-signed capability ENVELOPE → the AI approves in-scope
                              (delegated), non-sensitive Cells unattended (no phone) until it expires.
                              envelope: --cell IDs · --allow/--deny "glob" · --allow-tag/--deny-tag TAG · --max-risk low|medium|high

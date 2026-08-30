@@ -258,12 +258,12 @@ function verifyManifest(manifest, lock, config, opts) {
   let roster, rosterProblems = [], rootFp = null, rosterOk = true, signedRoster = false;
   let ownerPubs = [];
   let rosterPolicy = { rules: [] }; // the ENFORCED policy comes from the owner-signed roster (tamper-evident)
-  let foundationSeal = null, foundationMode = 'off';
+  let foundationSeal = null, foundationMode = 'off', rootMeta = null;
   if (opts.roster && opts.roster.events) {
     const d = deriveRoster(opts.roster, { root: opts.root });
     roster = d.roster; rosterProblems = d.problems; rootFp = d.rootFp; rosterOk = d.ok; signedRoster = true;
     rosterPolicy = d.policy || { rules: [] };
-    foundationSeal = d.foundation || null; foundationMode = d.foundationMode || 'off';
+    foundationSeal = d.foundation || null; foundationMode = d.foundationMode || 'off'; rootMeta = d.rootMeta || null;
     ownerPubs = Object.keys(d.roles || {}).filter((n) => d.roles[n] === 'owner').reduce((a, n) => a.concat(roster[n] || []), []);
   } else {
     roster = (config && config.signers) || {};
@@ -528,7 +528,7 @@ function verifyManifest(manifest, lock, config, opts) {
   const passed = counts.RED === 0 && counts.UNSIGNED === 0 && counts.PINK === 0 && rosterOk && !foundationBlocks;
   // `policy` is the EFFECTIVE ruleset the verdicts were produced under — exposed so an attestation
   // (P2) can hash exactly what the verifier used (rulesetHash), not re-guess it.
-  return { results, counts, passed, grants, rosterProblems, rootFp, rosterOk, signedRoster, policy, foundation };
+  return { results, counts, passed, grants, rosterProblems, rootFp, rosterOk, signedRoster, policy, foundation, rootMeta };
 }
 
 module.exports = { verifyManifest, worst, effectNetDescriptor };

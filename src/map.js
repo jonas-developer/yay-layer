@@ -276,6 +276,25 @@ function renderMap(manifest, verified, project, changes, times, planDoc, gov, br
     const sub = (k === 'GREEN' && (c.GREEN || 0) > 0) ? `${c.proven || 0} proven · ${c.unproven || 0} unproven` : m.sub;
     return `<div class="statcard" style="background:${m.grad}"><div class="sc-top"><span class="sc-label">${m.label}</span><span class="sc-glyph">${m.glyph}</span></div><div class="sc-num">${c[k] || 0}</div><div class="sc-sub">${sub}</div></div>`;
   }).join('') + '</div>';
+  // Foundation-seal banner (reveal): a broken/expected-missing seal shows loudly on the map.
+  const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  let foundationBanner = '';
+  const fnd = verified.foundation;
+  if (fnd && (fnd.expectedButMissing || !fnd.clean)) {
+    const strict = fnd.mode === 'strict';
+    let msg;
+    if (fnd.expectedButMissing) {
+      msg = 'Foundation protection is expected but no valid seal exists under the current trust root. Run <code>yay protect</code> to (re-)seal.';
+    } else {
+      const bits = [];
+      if (fnd.changed && fnd.changed.length) bits.push(fnd.changed.length + ' changed (' + fnd.changed.map(esc).join(', ') + ')');
+      if (fnd.missing && fnd.missing.length) bits.push(fnd.missing.length + ' missing (' + fnd.missing.map(esc).join(', ') + ')');
+      if (fnd.addedFiles && fnd.addedFiles.length) bits.push(fnd.addedFiles.length + ' new file(s) (' + fnd.addedFiles.map(esc).join(', ') + ')');
+      if (fnd.removedFiles && fnd.removedFiles.length) bits.push(fnd.removedFiles.length + ' removed (' + fnd.removedFiles.map(esc).join(', ') + ')');
+      msg = '<b>A sealed core file (or watched zone) changed since it was sealed:</b> ' + bits.join(' · ') + '. If you did this, re-seal (<code>yay protect</code>). If not, investigate — this reveals tampering or corruption.';
+    }
+    foundationBanner = `<div style="border:1px solid var(--red);border-left:4px solid var(--red);border-radius:12px;padding:12px 16px;margin:0 0 18px;background:color-mix(in srgb,var(--red) 8%,var(--card))"><div style="font-weight:800;color:var(--red);font-size:.92rem">⚠ FOUNDATION ${fnd.expectedButMissing ? 'UNSEALED' : 'CHANGED'}${strict ? ' — gate blocked' : ''}</div><div style="font-size:.84rem;color:var(--ink2);margin-top:4px">${msg}</div></div>`;
+  }
   const totalUnits = Object.values(nodes).filter((n) => n.kind === 'unit').length;
   const FILES = [];
   for (const id of Object.keys(verified.results)) {
@@ -288,7 +307,7 @@ function renderMap(manifest, verified, project, changes, times, planDoc, gov, br
   // of signed Specs + Briefs over time (a Brief's weight = its own chars + its Cells' specs).
   const specChars = {};
   for (const id of Object.keys(manifest.cells)) { const c = manifest.cells[id]; if (c) specChars[id] = (c.specBlock || '').length; }
-  const meta = { project: project || 'project', counts: verified.counts, passed: verified.passed, totalUnits, plan: planDoc || null, gov: gov || null, files: FILES, briefs: briefs || [], specChars, tags: (tagCfg && tagCfg.tags) || [], tagSet: (tagCfg && tagCfg.set) || null, tagDescriptions: (tagCfg && tagCfg.descriptions) || {}, tagSets: tagSets || [], batch: batchCfg || { enabled: true, barrier: 5 }, policy: policyInfo || { enforced: [], draft: [], violations: [], signers: [] }, signMethod: (policyInfo && policyInfo.signMethod) || 'phone', ratify: (function(){ try { var b = ratifyBundle(manifest, verified); return { hash: b.hash, count: b.ids.length }; } catch (_) { return { hash: null, count: 0 }; } })(), grants: extra.grants || [], rejections: extra.rejections || [], attest: extra.attest || null, timelines: extra.timelines || {}, capability: extra.capability || null };
+  const meta = { project: project || 'project', counts: verified.counts, passed: verified.passed, totalUnits, plan: planDoc || null, gov: gov || null, files: FILES, briefs: briefs || [], specChars, tags: (tagCfg && tagCfg.tags) || [], tagSet: (tagCfg && tagCfg.set) || null, tagDescriptions: (tagCfg && tagCfg.descriptions) || {}, tagSets: tagSets || [], batch: batchCfg || { enabled: true, barrier: 5 }, policy: policyInfo || { enforced: [], draft: [], violations: [], signers: [] }, signMethod: (policyInfo && policyInfo.signMethod) || 'phone', ratify: (function(){ try { var b = ratifyBundle(manifest, verified); return { hash: b.hash, count: b.ids.length }; } catch (_) { return { hash: null, count: 0 }; } })(), grants: extra.grants || [], rejections: extra.rejections || [], attest: extra.attest || null, timelines: extra.timelines || {}, capability: extra.capability || null, foundation: verified.foundation || null };
   const payload = JSON.stringify({ root: 'system', nodes: YLnodes, edges: { system: modEdges }, details, changes: changes || [], needs, meta })
     .replace(/</g, '\\u003c');
 
@@ -550,6 +569,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
 <header class="topbar"><button id="navburger" class="navburger" aria-label="Menu" aria-expanded="false">☰</button><div class="tb-title">Dashboard</div><div class="tb-right"><span class="gatepill ${verified.passed ? 'ok' : 'bad'}">${verified.passed ? '● Gate PASS' : '● Gate BLOCKED'}</span><button id="themebtn" class="themebtn" aria-label="Toggle theme">Dark</button></div></header>
 <div class="wrap">
 <div class="pagehead"><h1>System map</h1><p class="sub">${totalUnits} units · ${verified.passed ? 'gate PASS' : 'gate BLOCKED'}${verified.counts.GREEN ? ` · ${verified.counts.proven || 0} proven / ${verified.counts.unproven || 0} unproven` : ''}</p></div>
+${foundationBanner}
 ${statblocks}
 <div id="needs" class="needs"></div>
 <p class="hint">A drill-down tree. The box on the <b>left is where you are</b>; its contents branch to the right. Click a <b>container ›</b> to zoom into it, click the left box or <b>↑ Up a level</b> to zoom out, and click a <b>unit</b> to open its spec, code &amp; checks.</p>

@@ -43,6 +43,7 @@ function deriveRoster(log, opts) {
   let policy = { rules: [] }; // signing policy — set by owner-signed `policy` events (latest wins)
   let foundation = null;      // foundation seal payload — set by owner-signed `foundation` events (latest wins)
   let foundationMode = 'off'; // off | guarded | strict
+  let rootMeta = null;        // reroot provenance stamped into genesis (supersedes/rerootedAt/rerootReason)
 
   const ownerKeys = () => {
     const out = [];
@@ -58,6 +59,8 @@ function deriveRoster(log, opts) {
       if (e.type !== 'genesis') { problems.push('first roster event must be genesis'); return; }
       if (!e.name || !e.pub || !e.signature || !C.verify(eventBytes(e), e.signature, e.pub)) { problems.push('genesis signature invalid — trust root not established'); return; }
       addKey(e.name, e.pub); roles[e.name] = 'owner'; rootFp = fingerprint(e.pub);
+      // A reroot stamps the rotation into the (signed) genesis — surfaced for the audit.
+      if (e.supersedes || e.rerootReason || e.rerootedAt) rootMeta = { supersedes: e.supersedes || null, rerootedAt: e.rerootedAt || e.at || null, rerootReason: e.rerootReason || null };
       return;
     }
     if (!rootFp) { problems.push(`event ${e.id || i}: no valid trust root, ignored`); return; }
@@ -102,7 +105,7 @@ function deriveRoster(log, opts) {
   const pinned = opts && opts.root ? String(opts.root).toUpperCase() : null;
   if (pinned && rootFp && pinned !== rootFp) problems.push(`TRUST-ROOT MISMATCH: expected ${pinned}, found ${rootFp} — the roster may have been swapped`);
 
-  return { roster, roles, rootFp, problems, ok: problems.length === 0, policy, foundation, foundationMode };
+  return { roster, roles, rootFp, problems, ok: problems.length === 0, policy, foundation, foundationMode, rootMeta };
 }
 
 // Next event id given a log.

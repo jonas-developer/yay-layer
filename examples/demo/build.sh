@@ -45,6 +45,10 @@ node "$YAY" sign --cell C-6 --title "Sparkline points" --brief "Scale a price se
 node "$YAY" sign --cell C-7 --title "Trend badge"      --brief "Label a percent change up/down/flat." >/dev/null
 node "$YAY" ratify --reject --cell C-7 --reason "Prefer arrows over words; redo with icon set." --category ui >/dev/null
 
+# Foundation seal (owner-signed baseline of the fixed core) — needs tracked files, so commit first.
+( cd "$WORK" && git add -A && git commit -q -m "snapshot" ) 2>/dev/null || true
+node "$YAY" protect --mode guarded >/dev/null 2>&1 || true
+
 node "$YAY" map -o "$OUT" >/dev/null
 echo "✓ demo dashboard → $OUT"
 echo "  copy to yaylayer-site/public/demo/dashboard.html to publish."

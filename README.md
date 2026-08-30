@@ -229,7 +229,7 @@ Tune it with **`yay batch <n>`** (raise/lower the barrier), `yay batch off` (a B
 | `yay policy [--init\|--set]` · `yay grant [--allow\|--deny\|--max-risk\|--child-grants]` · `yay ratify [--sign\|--reject]` | signing policy (who must sign) · Autopilot capability-envelope grants (+ child grants for helper-agent swarms) · ratify or reject delegated approvals |
 | `yay attest [list\|verify]` · `yay reverify` · `yay witness` · `yay metrics` · `yay capability` | the machine verifier signs its own verdict (chained, capability-versioned) · re-verify history without rewriting it · integrity witness · earned-autonomy metrics · the verifier's derived capability + drift check |
 | `yay archive [install\|--restore\|--verify\|--forget]` | Durable mode — encrypted, sha256-anchored archive of signed source (secret scan + signed tombstones) |
-| `yay protect [--mode guarded\|strict] [--add\|--remove\|--ignore] [--off]` _(upcoming)_ | owner-signed **foundation seal** — reveal any change to the fixed core files (rules, CI, gitignore) |
+| `yay protect [--mode guarded\|strict] [--add\|--remove\|--ignore] [--off]` | owner-signed **foundation seal** — reveal any change to the fixed core files (rules, CI, gitignore) |
 | `yay test` · `yay adversary` · `yay plan` | run the project's own test suite · spec-only adversarial probing (LLM sees only the spec) · AI-synthesized System Plan |
 | `yay map [-o file.html]` · `yay gate` · `yay constitution --for <keys>` · `yay status` | write the HTML map · write the CI gate · write the Constitution into your AI harness · one-line summary |
 
@@ -356,7 +356,7 @@ Chrome/Safari read the macOS **system keychain**; **Firefox** keeps its own stor
 
 **Note:** the cert is bound to your machine's **LAN IP** (in the SAN), so it regenerates when that IP changes; the phone key is per-origin, so a new IP just means restoring the key from your 24 words. A future hosted domain with a real CA cert removes this whole dance.
 
-## Foundation seal — tamper & corruption evidence for the core *(upcoming)*
+## Foundation seal — tamper & corruption evidence for the core
 
 Ordinary code changes freely — that's the job, and it's governed by the normal spec→sign→verify gate. But a few files define **how the AI and the rules operate** and should stay fixed in ~99% of cases: the **Constitution** (`CLAUDE.md`/`AGENTS.md`…), the **CI gate workflow**, `.gitignore`/`.yaylayerignore`, the protocol files. The **foundation seal** is an **owner-signed baseline** of that fixed core, so any change to it is **revealed** at `yay verify` — whether from a hijacked AI, disk/bit-rot corruption, a bad merge, or an accident. It's **detection, not prevention**, and **cause-agnostic**: the current bytes simply no longer match what the Owner last vouched for. The baseline is signed by the **Owner's phone key** (never on the AI's machine), so it's math a rogue agent can't forge — you're never left blind to a change in the crown jewels.
 
