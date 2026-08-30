@@ -84,6 +84,22 @@ function exportReport(holdings) {
 module.exports = { exportReport };
 `);
 
+// C-9 · YELLOW (◈ undeclared input) — proven pure, but a branch keys off `mode`, which in: never declares.
+w('src/pricing.js', `${B('C-9')}
+// unit: lineTotal
+// intent: Total a line item as price times quantity.
+// in: price: number, qty: number
+// out: number
+// ensures: out === price * qty
+// pure: yes
+${E('C-9')}
+function lineTotal(price, qty, mode) {
+  if (mode === 'internal') return 0;
+  return price * qty;
+}
+module.exports = { lineTotal };
+`);
+
 // PINK — a real function with no Cell governing it at all.
 w('src/legacy.js', `// TODO: never got specced — the coverage net catches it.
 function roundLots(n) {

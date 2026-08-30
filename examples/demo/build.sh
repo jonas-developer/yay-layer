@@ -26,6 +26,8 @@ node "$YAY" sign --cell C-1 --title "Portfolio math"   --brief "Add coins to a r
 node "$YAY" sign --cell C-2 --title "Money formatting"  --brief "Show amounts as USD price strings." >/dev/null
 node "$YAY" sign --cell C-3 --title "Live price sync"   --brief "Fetch latest prices for a set of symbols." >/dev/null
 node "$YAY" sign --cell C-4 --title "Access control"    --tags security --brief "Gate portfolio viewing by session." >/dev/null
+# C-9 · proven pure, but branches on `mode` (not in in:) → the ◈ undeclared-input predicate badge.
+node "$YAY" sign --cell C-9 --title "Line totals"       --brief "Total a line item as price times quantity." >/dev/null
 
 # A Go Cell (signed-only tier) → a clean Yellow.
 mkdir -p "$WORK/svc"

@@ -589,7 +589,25 @@ yay requests done &lt;id&gt;      <span class="cm"># clear one once it is signed
         <li><strong>Branch-exercise honesty</strong> — counts which branches the spec-derived inputs actually executed and shows the boundary as a badge (<em>"proven — 5/7 branches exercised"</em>); never a downgrade by itself, but policy (<code>coverage: full</code>) can demand 100% for crown-jewel scopes.</li>
         <li><strong>Undeclared-input predicate provenance</strong> — flags a branch that keys off a parameter the Cell's <code>in:</code> never declares (<code>if (mode === 'admin')</code> when <code>in:</code> lists only <code>items</code>). This is the third prong of the pincer — inertness catches a branch that <em>does nothing</em>, literal-seeding catches a <em>magic-constant gate</em>, and this catches a branch that <em>keys off an undeclared input</em> (a hidden mode/flag), which the other two structurally miss. Deterministic, JS/TS-first, <span class="state s-yellow">Yellow</span> by default; the fix is to declare the input in <code>in:</code> (or a <code>throws:</code>/<code>ensures</code> case) — the spec-strengthening loop — and policy (<code>predicate: declared</code>) can make it gate-blocking.</li>
       </ul>
+      <pre><code><span class="cm">// C-071   in: items: {price,qty}[]      ← `mode` is NOT declared</span>
+function invoiceTotal(items, mode) {
+  if (mode === 'internal') return 0;                        <span class="cm">// ◈ Yellow — undeclared-input</span>
+  return items.reduce((t, i) =&gt; t + i.price * i.qty, 0);   <span class="cm">// predicate: branch keys off `mode`</span>
+}
+<span class="cm">// fix: add `mode` to in: (so the human reviews &amp; signs that it steers the code), or prune the branch</span></code></pre>
       <p>The honest boundary: a payload woven into live, exercised, promise-relevant logic is still theoretically constructible; these raise the bar a long way without claiming impossibility, and are strongest on JS/TS/JSX.</p>
+
+      <h3>What the verifier supports today</h3>
+      <p>The capability set is <strong>derived</strong> — a fingerprint is computed over exactly the list below, so an attestation can never claim more than the verifier actually does. See it live in the dashboard's <strong>Capabilities</strong> tab, run <code>yay capability</code>, or read the machine-readable registry at <a href="https://yaylayer.com/capabilities.json">yaylayer.com/capabilities.json</a>. The snapshot below is <strong>capability v1.1.0</strong> (the tab/registry are always the source of truth).</p>
+      <div class="tw"><table>
+        <tbody>
+          <tr><td><strong>Behaviourally proven → machine <span class="state s-green">Green</span></strong></td><td>JS/TS functions · React components (JSX/TSX) · Python · Ruby · PHP — a pure function with a checkable <code>ensures</code> is run against it (Ruby/PHP: top-level/module functions today).</td></tr>
+          <tr><td><strong>First-class effect nets</strong></td><td>JavaScript/TS · Python · Ruby · PHP · Solidity · Rust · C# — a <code>pure: yes</code> Cell that actually does I/O is caught <span class="state s-red">Red</span> in each, in its own idioms.</td></tr>
+          <tr><td><strong>Security &amp; quality checks</strong></td><td><code>ensures-prover</code> · <code>mutation-grading</code> · <code>inertness</code> · <code>literal-seeding</code> · <code>branch-coverage</code> · <code>jsx-render-prover</code> · <code>predicate-provenance</code></td></tr>
+          <tr><td><strong>Policy rule kinds understood</strong></td><td><code>required-signer</code> · <code>non-delegable</code> · <code>inert-level</code> · <code>coverage-full</code> · <code>predicate-declared</code> · <code>ignore-source</code></td></tr>
+        </tbody>
+      </table></div>
+      <p>Anyone can confirm a specific attestation without installing anything at <a href="https://yaylayer.com/verify">yaylayer.com/verify</a> — it checks the content hash, the verifier's signature, and that the declared capability version matches this registry. Adding or removing anything above is a version-forcing change (a MINOR bump for a new check, MAJOR if the meaning of Green changes), so the fingerprint moves and <code>yay attest</code> refuses on drift — the verifier stays honest about its own reach.</p>
       <h3>Three keys, kept separate</h3>
       <p><strong>Human</strong> phone key ("a person decided") · <strong>Verifier</strong> key ("the machine measured") · <strong>Artifact</strong> content hashes ("the exact thing"). A ratification references the verifier attestation hash but is signed by the phone key.</p>
       <div class="note warn"><span class="k">The verifier-key rule</span><p>Never ship the verifier's signing key inside the npm package. A public key lets anyone forge a Green and makes the whole machine-attestation half worthless. The verifier key is project/CI-scoped: machine-held, gitignored, with the public key pinned in config. A signature carries trust only if its key is not universally available.</p></div>
