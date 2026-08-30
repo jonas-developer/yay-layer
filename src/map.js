@@ -340,7 +340,7 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);l
 .sidenav{flex:1;overflow-y:auto;padding:8px 12px 20px}
 .navgroup{font-family:var(--sans);font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:var(--mut);padding:12px 10px 5px;line-height:1.2}
 .navgroup:first-child{padding-top:8px}
-.tab{display:flex;align-items:center;gap:11px;width:100%;text-align:left;font-family:var(--sans);font-size:.88rem;font-weight:500;line-height:1.3;letter-spacing:-.005em;background:none;border:none;color:var(--ink2);border-radius:9px;padding:8px 12px;cursor:pointer;transition:color .15s ease,background .15s ease}
+.tab{display:flex;align-items:center;gap:11px;width:100%;text-align:left;font-family:var(--sans);font-size:.88rem;font-weight:500;line-height:1.15;letter-spacing:-.005em;background:none;border:none;color:var(--ink2);border-radius:9px;padding:8px 12px;cursor:pointer;transition:color .15s ease,background .15s ease}
 .tab .ti{width:18px;height:18px;flex:none;display:inline-flex;align-items:center;justify-content:center;opacity:.75}
 .tab .ti svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .projrow{display:flex;align-items:flex-start;gap:11px;padding:8px 12px;margin:0 2px;border-radius:9px;background:color-mix(in srgb,var(--ink) 4%,transparent);border:1px solid var(--rule)}
