@@ -864,23 +864,29 @@ ${statblocks}
   function openGrantModal(){
     var m=document.getElementById('modal'); if(!m) return; var body=m.querySelector('.modal-body');
     var fld='width:100%;box-sizing:border-box;margin-top:4px;padding:9px 11px;border-radius:9px;border:1px solid var(--rule);background:var(--card2);color:var(--ink);font-family:var(--sans);font-size:.9rem';
+    var hint='font-size:.72rem;color:var(--mut);margin-top:3px;display:block';
     body.innerHTML='<div class="mhead"><span class="mname">New delegation grant</span></div>'
       +'<div class="snote" style="font-family:var(--sans);margin:0 0 14px">Hand the AI a bounded, signed envelope. It approves in-scope changes (delegated) without contacting your phone until this expires or hits the count — everything queues for ratification. You approve <i>this grant</i> on your phone.</div>'
       +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:520px">'
       +'<label style="font-size:.85rem;color:var(--ink2)">Duration<input id="gr-for" value="2h" placeholder="2h, 90m, 1d" style="'+fld+'"></label>'
       +'<label style="font-size:.85rem;color:var(--ink2)">Max approvals<input id="gr-count" type="number" min="1" value="20" style="'+fld+'"></label>'
-      +'<label style="font-size:.85rem;color:var(--ink2);grid-column:1/3">Allow paths <span style="color:var(--mut)">(glob, optional)</span><input id="gr-allow" placeholder="src/ui/**" style="'+fld+'"></label>'
-      +'<label style="font-size:.85rem;color:var(--ink2);grid-column:1/3">Deny paths <span style="color:var(--mut)">(glob, optional)</span><input id="gr-deny" placeholder="src/auth/**" style="'+fld+'"></label>'
+      +'<label style="font-size:.85rem;color:var(--ink2);grid-column:1/3">Allow folders <span style="color:var(--mut)">(glob — limit the AI to these paths)</span><input id="gr-allow" placeholder="src/ui/**, src/lib/**" style="'+fld+'"><span style="'+hint+'">Empty = anywhere (minus the guard &amp; denies below).</span></label>'
+      +'<label style="font-size:.85rem;color:var(--ink2);grid-column:1/3">Block folders <span style="color:var(--mut)">(glob — never auto-approve these)</span><input id="gr-deny" placeholder="src/experimental/**" style="'+fld+'"></label>'
+      +'<label style="font-size:.85rem;color:var(--ink2)">Allow tags <span style="color:var(--mut)">(only these)</span><input id="gr-allowtag" placeholder="ui, docs" style="'+fld+'"></label>'
+      +'<label style="font-size:.85rem;color:var(--ink2)">Block tags <span style="color:var(--mut)">(never these)</span><input id="gr-denytag" placeholder="payments" style="'+fld+'"></label>'
       +'<label style="font-size:.85rem;color:var(--ink2)">Max risk<select id="gr-risk" style="'+fld+'"><option value="">(any)</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select></label>'
       +'<label style="font-size:.85rem;color:var(--ink2);display:flex;align-items:center;gap:8px;align-self:end;padding-bottom:9px"><input id="gr-child" type="checkbox"> allow child grants</label>'
       +'</div>'
+      +'<label id="gr-guardbox" style="display:flex;gap:9px;align-items:flex-start;margin-top:14px;max-width:520px;padding:11px 13px;border:1px solid var(--rule);border-radius:10px;background:var(--card2)"><input id="gr-guard" type="checkbox" checked style="margin-top:3px"><span style="font-size:.85rem;color:var(--ink2)"><b>🔒 Security guard</b> — always require <i>your</i> signature for <b>auth, payments, secrets, deploy &amp; CI</b> (matched by path or tag). <span style="color:var(--mut)">Recommended — leave on. Uncheck only if you truly want the AI to auto-approve those areas.</span></span></label>'
       +'<div style="margin-top:16px;display:flex;gap:10px;align-items:center"><button id="gr-issue" class="viewbtn">Issue grant → approve on phone</button><span id="gr-out" class="snote" style="font-family:var(--sans)"></span></div>';
     m.classList.add('open'); document.body.style.overflow='hidden';
     var out=document.getElementById('gr-out');
+    var guard=document.getElementById('gr-guard'), gbox=document.getElementById('gr-guardbox');
+    guard.onchange=function(){ if(guard.checked){ gbox.style.borderColor='var(--rule)'; gbox.style.background='var(--card2)'; } else { gbox.style.borderColor='#cf4436'; gbox.style.background='color-mix(in srgb,#cf4436 8%,transparent)'; } };
     document.getElementById('gr-issue').onclick=function(){
       var btn=this; btn.disabled=true; btn.style.opacity='.6';
       out.style.color='var(--mut)'; out.textContent='Sent to your phone — approve there…';
-      var payload={ dur:(document.getElementById('gr-for').value||'2h').trim(), count:parseInt(document.getElementById('gr-count').value,10)||20, allow:(document.getElementById('gr-allow').value||'').trim(), deny:(document.getElementById('gr-deny').value||'').trim(), maxRisk:document.getElementById('gr-risk').value, childGrants:document.getElementById('gr-child').checked };
+      var payload={ dur:(document.getElementById('gr-for').value||'2h').trim(), count:parseInt(document.getElementById('gr-count').value,10)||20, allow:(document.getElementById('gr-allow').value||'').trim(), deny:(document.getElementById('gr-deny').value||'').trim(), allowTags:(document.getElementById('gr-allowtag').value||'').trim(), denyTags:(document.getElementById('gr-denytag').value||'').trim(), maxRisk:document.getElementById('gr-risk').value, childGrants:document.getElementById('gr-child').checked, noGuard:!guard.checked };
       fetch('/api/grant/create',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)}).then(function(r){return r.json();}).then(function(j){
         if(j&&j.ok){ out.style.color='#1f9d57'; out.textContent='✓ Grant issued — reloading…'; setTimeout(function(){ location.reload(); },1100); }
         else { out.style.color='#cf4436'; out.textContent='✗ '+((j&&j.error)||'failed'); btn.disabled=false; btn.style.opacity='1'; }

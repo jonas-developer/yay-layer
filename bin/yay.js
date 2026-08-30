@@ -2509,8 +2509,11 @@ async function cmdDashboard(flags) {
         const args = ['grant', '--for', String(o.dur || '2h'), '--count', String(parseInt(o.count, 10) || 20), '--phone'];
         if (o.allow) args.push('--allow', String(o.allow));
         if (o.deny) args.push('--deny', String(o.deny));
+        if (o.allowTags) args.push('--allow-tag', String(o.allowTags));
+        if (o.denyTags) args.push('--deny-tag', String(o.denyTags));
         if (o.maxRisk) args.push('--max-risk', String(o.maxRisk));
         if (o.childGrants) args.push('--child-grants');
+        if (o.noGuard) args.push('--no-guard');
         const child = require('child_process').spawn(process.execPath, [process.argv[1], ...args], { cwd: p.root });
         let out = '';
         child.stdout.on('data', (d) => { out += d; });
