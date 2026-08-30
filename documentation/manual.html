@@ -129,11 +129,7 @@ dl{margin:14px 0} dt{font-weight:600;margin-top:14px} dd{margin:2px 0 0;color:va
       <button class="themebtn" id="themebtn" aria-label="Toggle colour theme">Theme</button>
     </div>
     <p class="thesis">Humans authorize <span class="a">intent</span>. Machines demonstrate <span class="a">conformance</span>. Neither grades itself.</p>
-    <p class="sub">The project manual for a human authorization &amp; cryptographic provenance layer for AI-generated code — the source-of-truth we build the engine against.</p>
-    <div class="legend"><span class="lbl">Status legend</span>
-      <span class="pill shipped">Shipped</span>
-      <span class="pill later">Later</span>
-    </div>
+    <p class="sub">The reference manual for YayLayer — a human authorization and cryptographic provenance layer for AI-generated code. What it is, how it works, and how to implement it in your project.</p>
   </div>
 </header>
 
@@ -144,16 +140,18 @@ dl{margin:14px 0} dt{font-weight:600;margin-top:14px} dd{margin:2px 0 0;color:va
     <ol id="toclist">
       <li><a href="#overview"><span class="n">00</span>Overview</a></li>
       <li><a href="#concepts"><span class="n">01</span>Concepts</a></li>
-      <li><a href="#provenance"><span class="n">02</span>Provenance architecture</a></li>
-      <li><a href="#autopilot"><span class="n">03</span>Autopilot</a></li>
-      <li><a href="#languages"><span class="n">04</span>Languages</a></li>
-      <li><a href="#howto"><span class="n">05</span>How-to</a></li>
-      <li><a href="#cli"><span class="n">06</span>CLI reference</a></li>
-      <li><a href="#security"><span class="n">07</span>Security model</a></li>
-      <li><a href="#teams"><span class="n">08</span>Teams, roles &amp; recovery</a></li>
-      <li><a href="#roadmap"><span class="n">09</span>Roadmap &amp; build plan</a></li>
-      <li><a href="#decisions"><span class="n">10</span>Decision log</a></li>
-      <li><a href="#glossary"><span class="n">11</span>Glossary</a></li>
+      <li><a href="#spec"><span class="n">02</span>Spec reference</a></li>
+      <li><a href="#provenance"><span class="n">03</span>Provenance architecture</a></li>
+      <li><a href="#autopilot"><span class="n">04</span>Autopilot</a></li>
+      <li><a href="#languages"><span class="n">05</span>Languages</a></li>
+      <li><a href="#install"><span class="n">06</span>Install &amp; signing</a></li>
+      <li><a href="#howto"><span class="n">07</span>How-to</a></li>
+      <li><a href="#cli"><span class="n">08</span>CLI reference</a></li>
+      <li><a href="#security"><span class="n">09</span>Security model</a></li>
+      <li><a href="#teams"><span class="n">10</span>Teams, roles &amp; recovery</a></li>
+      <li><a href="#limits"><span class="n">11</span>Limits &amp; non-goals</a></li>
+      <li><a href="#rationale"><span class="n">12</span>Design rationale</a></li>
+      <li><a href="#glossary"><span class="n">13</span>Glossary</a></li>
     </ol>
   </details>
 
@@ -185,7 +183,7 @@ dl{margin:14px 0} dt{font-weight:600;margin-top:14px} dd{margin:2px 0 0;color:va
     <section id="concepts">
       <p class="eyebrow">01 — Concepts</p>
       <h2>The vocabulary</h2>
-      <h3>Cell <span class="pill shipped">Shipped</span></h3>
+      <h3>Cell</h3>
       <p>The atomic unit YayLayer governs: a block of code plus a spec, delimited inline in the source. The spec lives with the code, so they never drift apart in version control.</p>
       <pre><code><span class="yay">//∷YAY⟨C-050⟩</span>
 <span class="cm">// unit: memoKey</span>
@@ -197,7 +195,7 @@ dl{margin:14px 0} dt{font-weight:600;margin-top:14px} dd{margin:2px 0 0;color:va
 function memoKey(){ return Array.prototype.slice.call(arguments).join('|'); }</code></pre>
       <p>Every Cell has a stable <strong>id</strong> and a <strong>specHash</strong> = <code>sha256(normalized spec block)</code> — what the seal signs.</p>
 
-      <h3>Brief <span class="pill shipped">Shipped</span></h3>
+      <h3>Brief</h3>
       <p>The human-readable headline over a change-set: a title + one to three sentences of intent, plus the Cells it covers. Signed <em>with</em> the specs, so it's the attributed record of what was commissioned. A Brief attributes intent — it never earns Green (only Cells do).</p>
 
       <h3>The two chains</h3>
@@ -221,12 +219,12 @@ Brief + exact Cell specs           authorized spec-set + exact code snapshot
       <h3>The three cryptographic identities</h3>
       <p>Not "everything gets signed" — three distinct facts:</p>
       <ol>
-        <li><strong>Artifact hashes</strong> — <em>what exact thing?</em> (specHash, code-tree, evidence). <span class="pill shipped">Shipped</span></li>
-        <li><strong>Verifier attestation</strong> — <em>what did the machine conclude?</em> Signed by the verifier's own key. <span class="pill shipped">Shipped</span></li>
-        <li><strong>Human signature</strong> — <em>what did the human authorize?</em> Signed by the phone key. <span class="pill shipped">Shipped</span></li>
+        <li><strong>Artifact hashes</strong> — <em>what exact thing?</em> (specHash, code-tree, evidence).</li>
+        <li><strong>Verifier attestation</strong> — <em>what did the machine conclude?</em> Signed by the verifier's own key.</li>
+        <li><strong>Human signature</strong> — <em>what did the human authorize?</em> Signed by the phone key.</li>
       </ol>
 
-      <h3>The two axes <span class="pill shipped">Shipped</span></h3>
+      <h3>The two axes</h3>
       <p>Authority and verification are orthogonal — never collapse them into one traffic light:</p>
       <pre><code><span class="cm">AUTHORITY (human)          VERIFICATION (machine)</span>
 Unapproved                 Red
@@ -237,7 +235,7 @@ Ratified                   Green</code></pre>
       <h3>"Green is an event," not a property</h3>
       <p>Code isn't inherently Green — it's Green <em>relative to</em> a spec + verifier + semantics + evidence + time: <code>GREEN(artifact, spec, verifier_semantics)</code>. A better verifier in 2029 doesn't make a 2026 Green fraudulent; it makes the claim more precise and can append a new assessment without rewriting the old.</p>
 
-      <h3>States <span class="pill shipped">Shipped</span></h3>
+      <h3>States</h3>
       <div class="tw"><table>
         <thead><tr><th>State</th><th>Meaning</th></tr></thead>
         <tbody>
@@ -250,8 +248,46 @@ Ratified                   Green</code></pre>
       </table></div>
     </section>
 
+    <section id="spec">
+      <p class="eyebrow">02 — Spec reference</p>
+      <h2>Writing a Cell spec</h2>
+      <p class="lead">A Cell is a spec block in comments, immediately above the unit it governs. This is the exact syntax and the fields the verifier reads.</p>
+
+      <h3>Markers</h3>
+      <p>A spec block is delimited by two markers carrying the same <strong>Cell id</strong>:</p>
+      <pre><code><span class="yay">//∷YAY⟨C-050⟩</span>
+<span class="cm">// unit: memoKey</span>
+<span class="cm">// intent: Build a stable cache key by joining arguments with a separator.</span>
+<span class="cm">// in: parts: Array&lt;string|number&gt;</span>
+<span class="cm">// out: key: string</span>
+<span class="cm">// ensures: joins parts with "|" in order; [] → ""</span>
+<span class="cm">// pure: yes</span>
+<span class="yay">//∷YAY-END⟨C-050⟩</span>
+function memoKey(...parts){ return parts.join('|'); }</code></pre>
+      <p>The markers are <strong>comment-agnostic</strong>: the parser strips any leading comment punctuation (<code>//</code>, <code>#</code>, <code>--</code>, <code>;</code>, <code>%</code>, <code>!</code>, <code>'</code>, <code>(*</code>, <code>&lt;!--</code>, <code>*</code>) and trailing block closers, so the same block works in essentially any language. Inside the block, every line is a <code>key: value</code> pair; a line with no <code>key:</code> continues the previous field. The id is any of <code>[A-Za-z0-9._-]</code>. A begin with no matching end is a reported problem, and its code falls to <span class="state s-pink">Pink</span> — malformed markers fail safe, never silently (see <a href="#security">Security</a>).</p>
+
+      <h3>Fields</h3>
+      <p>Any <code>key: value</code> is preserved, but these are the ones the verifier interprets. <em>Provable</em> marks a field the behavioural prover / effect net acts on; the rest are human-readable and drive Briefs, tags and policy.</p>
+      <div class="tw"><table>
+        <thead><tr><th>Field</th><th>Meaning</th><th>Role</th></tr></thead>
+        <tbody>
+          <tr><td><code>unit</code></td><td>Name of the code unit this Cell governs — must match the declaration below the block. Binds spec ⇔ code.</td><td>Required</td></tr>
+          <tr><td><code>intent</code></td><td>One plain-English sentence: what it is for. Anchors the Brief.</td><td>Required</td></tr>
+          <tr><td><code>in</code> / <code>out</code></td><td>Input parameters / return shape, in prose or type notation.</td><td>Describes</td></tr>
+          <tr><td><code>ensures</code></td><td>A checkable postcondition/property. The behavioural prover <strong>executes</strong> the unit against this with spec-derived inputs — a strong <code>ensures</code> is what earns <span class="state s-green">Green</span>. Prose-only (no <code>ensures</code>) caps at <span class="state s-yellow">Yellow</span>.</td><td><strong>Provable</strong></td></tr>
+          <tr><td><code>pure</code></td><td><code>yes</code>/<code>no</code>. A <code>pure: yes</code> Cell that actually touches network, filesystem or DB goes <span class="state s-red">Red</span> — enforced by the language's effect net.</td><td><strong>Provable</strong></td></tr>
+          <tr><td><code>effects</code></td><td>Declared side effects for a non-pure unit (what it is allowed to touch).</td><td>Describes</td></tr>
+          <tr><td><code>throws</code></td><td>Declared error conditions. Doubles as a signed exemption for guard code the inertness check would otherwise flag.</td><td>Provable</td></tr>
+          <tr><td><code>perf</code></td><td>A performance/optimisation rationale. Signed exemption for perf-motivated branches under the inertness check.</td><td>Describes</td></tr>
+          <tr><td><code>tag</code> / <code>tags</code></td><td>Classification words (comma/space separated). Drive Brief tagging and <a href="#howto">policy</a> matching.</td><td>Governs</td></tr>
+          <tr><td><code>sensitive</code></td><td><code>yes</code> adds a synthetic <code>sensitive</code> tag — a cooperative hint policy rules can match (the authoritative control is owner-signed policy, not this field).</td><td>Governs</td></tr>
+        </tbody>
+      </table></div>
+      <div class="note"><span class="k">The rule of Green</span><p>Vague prose never earns Green. Green requires a machine-checkable claim — an <code>ensures</code> the prover can execute (in a proven-tier language) or, at minimum, effect/purity claims the static net can check. See <a href="#languages">Languages</a> for which tier each language reaches.</p></div>
+    </section>
+
     <section id="provenance">
-      <p class="eyebrow">02 — Provenance architecture</p>
+      <p class="eyebrow">03 — Provenance architecture</p>
       <h2>The durable-audit heart</h2>
       <div class="note"><span class="k">Design principle</span><p>Every statement material to an approval remains reconstructable forever unless an explicit retention policy says otherwise — and nothing is ever silently rewritten.</p></div>
       <p>YayLayer offers this at <strong>two levels</strong> — a per-project choice made at setup (full comparison under <a href="#provenance">Standard vs Durable</a> below). In short: <strong>Standard</strong> <em>(default)</em> archives the specs and attestations and references the <em>code</em> from git; <strong>Durable</strong> <em>also</em> archives the code (encrypted) in the project's own store, so the record survives even if git is lost or rewritten. They differ <strong>only in how code is stored</strong> — so when the text below says "in both Standard and Durable," that's what it means.</p>
@@ -264,27 +300,27 @@ Ratified                   Green</code></pre>
              └─ Verification V22    (verifier 1.8.4, ruleset 3, evidence E72 → GREEN)
                   └─ Human Ratification R12   (references V22's hash)</code></pre>
 
-      <h3>Preserve every historical spec — always <span class="pill shipped">Shipped</span></h3>
+      <h3>Preserve every historical spec — always</h3>
       <p>Specs are tiny and irreplaceable, so <strong>every</strong> signed Cell spec is archived in both Standard and Durable modes, content-addressed by its specHash. This kills the "history comes back blank" problem: the "as signed" spec never depends on git being intact. Integrity is free — the stored body must hash to the signed specHash.</p>
 
-      <h3>Two capture points <span class="pill shipped">Shipped</span></h3>
+      <h3>Two capture points</h3>
       <p>The two chains have two birthdays: <strong>human authorization mints at sign</strong> (code doesn't exist yet); <strong>verifier attestation mints at commit / verify-pass</strong> (code exists then). Ratification is the exception — a human signs after code exists.</p>
 
-      <h3>Verifier attestation <span class="pill shipped">Shipped</span></h3>
+      <h3>Verifier attestation</h3>
       <p><code>yay verify</code> is ephemeral; <code>yay attest</code> makes "Green" a durable, signed fact, recording spec-set / code-tree / ruleset / evidence hashes / result / environment / timestamp — then hashing and <strong>signing it with the verifier's own key</strong> (machine-held, gitignored; the public verifier of record is pinned in <code>config.verifier</code>, and the key is <strong>never shipped in the package</strong>). A hash proves "unchanged"; a signature proves "the trusted verifier produced this," so a malicious agent can't fabricate a Green. The human seal references the attestation hash. Append-only, chained ledger (<code>.yaylayer/attest.json</code>); <code>yay attest verify</code> re-checks every one.</p>
 
-      <h3>Verifier versioning <span class="pill shipped">Shipped</span></h3>
+      <h3>Verifier versioning</h3>
       <p>The verifier is a versioned participant. Releases are classified by capability — <strong>PATCH</strong> (semantics unchanged) · <strong>MINOR</strong> (new reasoning) · <strong>MAJOR</strong> (meaning of Green changed). The version is <strong>derived + self-asserting</strong>: a fingerprint over the live provers/effect-nets/checks is registered per version, so a changed detector that forgot its version bump is caught (<code>yay capability</code>; <code>yay attest</code> refuses on drift) — an attestation can never claim more than the verifier actually does. A stronger verifier can re-verify history and <em>append</em> new assessments (<code>yay reverify</code>): <code>2026 → GREEN under 1.0.0</code> and <code>2029 → YELLOW under 4.2.0</code> both stay true. Never a silent rewrite, never an automatic CI failure — historical status is separate from current policy, and orgs configure grandfathering.</p>
 
-      <h3>Storage — the hybrid model <span class="pill shipped">Shipped</span></h3>
+      <h3>Storage — the hybrid model</h3>
       <p>Invent as little as possible:</p>
       <ul>
         <li><strong>Small YayLayer-native objects</strong> (specs, attestations, evidence, grants/ratifications) → a tiny content-addressed <code>.yaylayer/objects/</code> store (sha256, deduped). The must-never-blank audit core.</li>
-        <li><strong>Bulk source</strong> (Durable mode) → an encrypted, sha256-anchored archive (<code>.yaylayer/archive/</code>, AES-256-GCM). <span class="pill later">Later</span> a git-bundle shared incremental pack is a bulk-transport optimization on top — the guarantees hold today either way.</li>
+        <li><strong>Bulk source</strong> (Durable mode) → an encrypted, sha256-anchored archive (<code>.yaylayer/archive/</code>, AES-256-GCM). A git-bundle shared incremental pack is an optional bulk-transport optimization on top; the guarantees hold either way.</li>
       </ul>
       <p>The invariant that keeps any container honest: <strong>our sha256 over the archived plaintext is the trust anchor</strong> (never git's SHA-1), and dedup is by content hash (never a bundle-per-approval).</p>
 
-      <h3>Standard vs Durable <span class="pill shipped">Shipped</span></h3>
+      <h3>Standard vs Durable</h3>
       <p>A per-project setting chosen at <code>yay init</code> / <code>yay adopt</code>:</p>
       <div class="tw"><table>
         <thead><tr><th></th><th>Standard <em>(default)</em></th><th>Durable</th></tr></thead>
@@ -296,7 +332,7 @@ Ratified                   Green</code></pre>
         </tbody>
       </table></div>
 
-      <h3>Governance — designed in, not bolted on <span class="pill shipped">Shipped</span></h3>
+      <h3>Governance — designed in, not bolted on</h3>
       <p>The real cost of "keep code forever" isn't disk — it's governance. Durable mode ships <em>with</em> it:</p>
       <ul>
         <li><strong>Audit metadata</strong> (hashes, attestations, signatures, tombstones) — kept in the clear and signed, so the chain is auditable <em>without</em> decrypting source.</li>
@@ -310,12 +346,12 @@ Ratified                   Green</code></pre>
   removed:    2026-09-14 · reason: "GDPR erasure request #4471"</code></pre>
       <p>You lose reconstructability of that one object; you keep the chain, the signatures (which cover the hash), and an auditable record that a deletion happened.</p>
 
-      <h3>The integrity witness <span class="pill shipped">Shipped</span></h3>
+      <h3>The integrity witness</h3>
       <p>Because YayLayer independently retains spec/tree hashes, evidence, and signatures, a rewritten git history can be compared against the ledger: <em>"the code git now claims existed here isn't what YayLayer originally verified."</em> At that point YayLayer isn't documenting the workflow — it's an independent integrity witness for it.</p>
     </section>
 
     <section id="autopilot">
-      <p class="eyebrow">03 — Autopilot</p>
+      <p class="eyebrow">04 — Autopilot</p>
       <h2>Delegated execution</h2>
       <p class="lead"><strong>Autopilot</strong> is the friendly name; <strong>Delegated execution</strong> the formal one — bounded, revocable, ratified delegation with the human in control.</p>
       <div class="note"><span class="k">Fundamental distinction</span><p>A grant is authorization to <em>act</em>. It is not approval of the resulting artifact. Reserve "approved" for actual human signatures.</p></div>
@@ -327,10 +363,10 @@ Ratified                   Green</code></pre>
                       ▼
               Awaiting ratification  ── human reviews ──▶  Ratified  (or Rejected)</code></pre>
 
-      <h3>State vocabulary <span class="pill shipped">Shipped</span></h3>
+      <h3>State vocabulary</h3>
       <p>Never "auto-approved." On the authority axis: <strong>Delegated</strong> → <strong>Awaiting ratification</strong> → <strong>Ratified</strong> / <strong>Rejected</strong> / <strong>Superseded</strong>.</p>
 
-      <h3>The grant is a capability envelope <span class="pill shipped">Shipped</span></h3>
+      <h3>The grant is a capability envelope</h3>
       <p>A grant is a signed <em>envelope</em> — not just <code>--for / --count / --cell</code> but allowed/denied paths, max-risk, and whether child grants are permitted:</p>
       <pre><code>Grant G42
   allowed:       src/ui/**, src/utils/**
@@ -339,23 +375,23 @@ Ratified                   Green</code></pre>
   max cells:     8      max risk: medium
   deployment:    prohibited      child grants: prohibited</code></pre>
       <div class="note warn"><span class="k">Enforceability gates the envelope</span><p>A constraint is meaningful only if the verifier can <strong>detect a violation in the output</strong> — enforcement is by detection at verify/ratify time, not by sandboxing the agent. Scope constraints (paths, cells) are enforceable now; content constraints (deps, network, effects) arrive as verifier capability bumps. Never promise a constraint you can't verify — an unenforceable boundary is theater. And the agent must never be able to broaden its own grant: the authorization boundary lives outside the delegated authority.</p></div>
-      <h3>Child grants — bounded sub-agents <span class="pill shipped">Shipped</span></h3>
+      <h3>Child grants — bounded sub-agents</h3>
       <p>The <code>child grants</code> field decides whether the delegated agent may issue a <strong>sub-grant</strong> — a <em>subset</em> of its own envelope handed to a helper sub-agent, with no new human signature. It's the fan-out mechanism: an orchestrator over <code>src/**</code> spawns a refactor-helper scoped to <code>src/ui/**</code>, a test-helper to <code>test/**</code>, etc., all chaining back to the <strong>one</strong> human root grant — and every result still lands in the ratification queue. Off by default (highest-risk lever). Safe only when <strong>strictly attenuating</strong>: a child can only <em>narrow</em> scope/expiry/count/risk, can't re-enable non-delegable categories, is cryptographically chained to the parent (verify validates back to the human root and <strong>refuses</strong> any child that exceeds its parent), and is depth-bounded. So the agent mints the child but can't cheat — the human root stays the sole source of authority; children only divide it thinner.</p>
 
-      <h3>Non-delegable by default <span class="pill shipped">Shipped</span></h3>
+      <h3>Non-delegable by default</h3>
       <p>"Autopilot" ≠ freedom everywhere. High-risk categories (auth, secrets, payments, deploy, CI/security, YayLayer's own trust config, supply-chain) default to <strong>human approval before execution</strong>, not execute-then-ratify. "Won't auto-sign it" ≠ "won't let the agent do it" — the stronger stance has the agent pause and request a forward signature on entering a prohibited area, with the verifier detecting violations as a backstop (the agent is untrusted).</p>
 
-      <h3>Ratification <span class="pill shipped">Shipped</span></h3>
+      <h3>Ratification</h3>
       <p>The human catching up on authorization that never happened forward — a real intent-authorization done retrospectively with the code + evidence present. Because the code already exists, humans tend to rubber-stamp, so <code>yay ratify</code> must be <em>meaningful review</em>: what was authorized (grant scope), what the agent did (Brief, Cells, diff, effects, deps, perms), a boundary/deviation report, verification, then Ratify / Reject / Inspect.</p>
       <p>The ratification object keeps the facts distinct: <em>I approve this intent/spec</em> and <em>this is the implementation snapshot that existed when I decided</em> — not <em>these bytes may never change</em>. A later refactor can stay under the same ratified spec if it re-verifies.</p>
-      <div class="note warn"><span class="k">TOCTOU safety — not-optional for the relaunch</span><p>Ratification's whole purpose is a human vouching for the exact thing they reviewed. So <code>yay ratify --sign</code> must sign the exact reviewed bundle: compute a reviewed-bundle hash over grant + brief + spec-set + code-tree + evidence; at sign, recompute and refuse if anything changed — <em>"implementation changed since review (reviewed T93, current T94) — run yay ratify again."</em> Otherwise a human reviews T93 and unknowingly signs T94, turning ratification into a false record.</p></div>
+      <div class="note warn"><span class="k">TOCTOU safety</span><p>Ratification's whole purpose is a human vouching for the exact thing they reviewed. So <code>yay ratify --sign</code> must sign the exact reviewed bundle: compute a reviewed-bundle hash over grant + brief + spec-set + code-tree + evidence; at sign, recompute and refuse if anything changed — <em>"implementation changed since review (reviewed T93, current T94) — run yay ratify again."</em> Otherwise a human reviews T93 and unknowingly signs T94, turning ratification into a false record.</p></div>
 
-      <h3>Rejected ratifications are valuable history <span class="pill shipped">Shipped</span></h3>
+      <h3>Rejected ratifications are valuable history</h3>
       <p>Don't erase a rejection — it records where agent autonomy failed human judgment. Persisting <code>REJECTED</code> events (with category + reason) is the substrate for <strong>earned autonomy</strong>: over time, "refactors — 97% ratified unchanged; dependency changes — 31% rejected → exclude from grants by default." The agent earns broad delegation where it's reliably ratified and loses it where humans keep rejecting.</p>
     </section>
 
     <section id="languages">
-      <p class="eyebrow">04 — Languages</p>
+      <p class="eyebrow">05 — Languages</p>
       <h2>Three tiers of support</h2>
       <p>Which tier a language reaches is part of the verifier's <strong>capability version</strong> — so a language moving from static to proven is a capability bump that can re-verify history.</p>
       <p>The <strong>Ceiling</strong> column is the <em>best</em> state a well-formed, <em>signed</em> Cell can reach at that tier — not the only state. <span class="state s-pink">Pink</span> (a unit with no Cell) and <span class="state s-red">Red</span> (code that contradicts its spec) are outcomes for <em>problem</em> code and happen at <strong>every</strong> tier — they're failures, not ceilings. The tiers differ only in how high <em>good</em> code climbs: Green (proven) vs Yellow (checked but not executed).</p>
@@ -369,23 +405,52 @@ Ratified                   Green</code></pre>
       </table></div>
       <h3>Support matrix</h3>
       <div class="tw"><table>
-        <thead><tr><th>Language</th><th>1.0 target</th><th>Notes</th></tr></thead>
+        <thead><tr><th>Language</th><th>Support</th><th>Notes</th></tr></thead>
         <tbody>
-          <tr><td>JavaScript / TypeScript (JSX/TSX)</td><td><strong>Proven</strong> <span class="pill shipped">Shipped</span></td><td>AST via Babel; behavioral prover + mutation + inertness; JSX render prover. Node = this.</td></tr>
-          <tr><td>Python</td><td><strong>Proven</strong> <span class="pill shipped">Shipped</span></td><td><code>python3</code> subprocess; pure functions with <code>ensures</code> reach Green.</td></tr>
-          <tr><td>Ruby</td><td><strong>Proven</strong> <span class="pill shipped">Shipped</span></td><td><code>ruby</code> subprocess (Python pattern) + Ruby effect net. Proof covers <strong>top-level/module functions</strong> only; class/instance methods &amp; framework-coupled code (Rails) → Yellow.</td></tr>
-          <tr><td>PHP</td><td><strong>Proven</strong> <span class="pill shipped">Shipped</span></td><td><code>php</code> subprocess (Python pattern) + PHP effect net. Same <strong>top-level-only</strong> proof scope; class/instance methods → Yellow.</td></tr>
-          <tr><td>Solidity</td><td><strong>Static</strong> <span class="pill shipped">Shipped</span></td><td>Effect net now; behavioral proof needs an EVM harness — <span class="pill later">Later</span>.</td></tr>
-          <tr><td>Rust</td><td><strong>Static</strong> <span class="pill shipped">Shipped</span></td><td>Effect net now; proof needs a compile-harness — <span class="pill later">Later</span>.</td></tr>
-          <tr><td>C#</td><td><strong>Static</strong> <span class="pill shipped">Shipped</span></td><td>Effect net now; proof needs a compile-harness — <span class="pill later">Later</span>.</td></tr>
+          <tr><td>JavaScript / TypeScript (JSX/TSX)</td><td><strong>Proven</strong></td><td>AST via Babel; behavioral prover + mutation + inertness; JSX render prover. Node = this.</td></tr>
+          <tr><td>Python</td><td><strong>Proven</strong></td><td><code>python3</code> subprocess; pure functions with <code>ensures</code> reach Green.</td></tr>
+          <tr><td>Ruby</td><td><strong>Proven</strong></td><td><code>ruby</code> subprocess (Python pattern) + Ruby effect net. Proof covers <strong>top-level/module functions</strong> only; class/instance methods &amp; framework-coupled code (Rails) → Yellow.</td></tr>
+          <tr><td>PHP</td><td><strong>Proven</strong></td><td><code>php</code> subprocess (Python pattern) + PHP effect net. Same <strong>top-level-only</strong> proof scope; class/instance methods → Yellow.</td></tr>
+          <tr><td>Solidity</td><td><strong>Static</strong></td><td>Effect net today; behavioural proof needs an EVM harness (not yet available).</td></tr>
+          <tr><td>Rust</td><td><strong>Static</strong></td><td>Effect net today; behavioural proof needs a compile-harness (not yet available).</td></tr>
+          <tr><td>C#</td><td><strong>Static</strong></td><td>Effect net today; behavioural proof needs a compile-harness (not yet available).</td></tr>
         </tbody>
       </table></div>
-      <p><strong>Proving limits (Ruby/PHP) &amp; Rails:</strong> the subprocess provers currently resolve only <strong>top-level / module functions</strong>, so class/instance methods and framework-coupled code (ActiveRecord, <code>params</code>, Rails constants) skip to <strong>Yellow</strong> — honestly. So <strong>Rails can adopt YayLayer now</strong> for governance + the gate + provenance across the app; machine-proof lands on the pure, top-level slice (e.g. <code>lib/</code> helpers), and the effect net still turns a <code>pure: yes</code> method that hits the DB/IO Red anywhere. Class/instance-method proving (→ pure Rails service objects / value objects) is the top post-1.0 language follow-up. <code>.ex/.exs</code> (Elixir) are scanned only.</p>
+      <p><strong>Proving limits (Ruby/PHP) &amp; Rails:</strong> the subprocess provers currently resolve only <strong>top-level / module functions</strong>, so class/instance methods and framework-coupled code (ActiveRecord, <code>params</code>, Rails constants) skip to <strong>Yellow</strong> — honestly. So <strong>Rails can adopt YayLayer now</strong> for governance + the gate + provenance across the app; machine-proof lands on the pure, top-level slice (e.g. <code>lib/</code> helpers), and the effect net still turns a <code>pure: yes</code> method that hits the DB/IO Red anywhere. Class/instance-method proving (→ pure Rails service objects / value objects) is the top language follow-up. <code>.ex/.exs</code> (Elixir) are scanned only.</p>
       <p><strong>Graceful degradation:</strong> behavioral proof detects the toolchain — present → prove; absent → honest Yellow, never an error. <strong>Determinism:</strong> the prover has no RNG (enumerated inputs, fixed mutants, synchronous) — same machine ⇒ identical verdict. The only nondeterminism is wall-clock timeouts + cross-environment drift, so an attestation records the environment and claims "Green under this verifier + environment at this time."</p>
     </section>
 
+    <section id="install">
+      <p class="eyebrow">06 — Install &amp; signing</p>
+      <h2>Getting set up</h2>
+      <p class="lead">Requirements: <strong>Node 18+</strong> and <strong>git</strong>. Install git first — git is where the code proof lives.</p>
+      <pre><code>npm install -g yay-layer
+git init        <span class="cm"># first, so YayLayer's gitignore protects secrets before anything is staged</span>
+yay init        <span class="cm"># guided: signing mode → adopt? → tag set → Constitution → Standard/Durable</span></code></pre>
+
+      <h3>Choosing a signing mode</h3>
+      <p>Decided at <code>yay init</code>. The human's private key lives in one place; the AI's machine only ever holds the <em>public</em> key.</p>
+      <div class="tw"><table>
+        <thead><tr><th>Mode</th><th>Where the key lives</th><th>Network</th><th>Third party</th><th>Best for</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Local</strong></td><td>This machine, passphrase-encrypted</td><td>Offline</td><td>None</td><td>Solo, quick starts, CI</td></tr>
+          <tr><td><strong>Mobile · LAN</strong></td><td>Your phone</td><td>Same Wi-Fi</td><td>None</td><td>Maximum privacy</td></tr>
+          <tr><td><strong>Mobile · Relay</strong></td><td>Your phone</td><td>Anywhere</td><td>Relay (E2E, blind)</td><td>Off-LAN / restrictive Wi-Fi</td></tr>
+        </tbody>
+      </table></div>
+      <p>Mobile modes pair once (scan a QR, create the key, save the 24-word recovery phrase, set a PIN, confirm a 6-digit code); later requests reach the same phone automatically. For LAN, <code>brew install mkcert &amp;&amp; mkcert -install</code> gives a trusted cert so the phone shows no HTTPS warning. Relay travels through end-to-end-encrypted <code>relay.yaylayer.com</code> — it shuttles ciphertext only and can neither read code nor forge a signature.</p>
+
+      <h3>Teaching your AI the rules (the Constitution)</h3>
+      <p><code>yay constitution --for &lt;harness&gt;</code> writes YayLayer's operating rules into your AI's instruction files, so a fresh session is spec-first from the first file. Harnesses: <code>claude</code>, <code>agents</code>, <code>copilot</code>, <code>cursor</code>, <code>windsurf</code>, <code>cline</code>, <code>gemini</code>, <code>generic</code> — combine with commas, or <code>--for all</code>.</p>
+      <pre><code>yay constitution --for claude,cursor    <span class="cm"># CLAUDE.md + .cursorrules</span></code></pre>
+      <p>After that you just talk to your AI: it drafts the spec and Brief, runs <code>yay sign</code> for you to approve on your phone, then builds and verifies.</p>
+
+      <h3>Standard or Durable</h3>
+      <p>Also chosen at <code>yay init</code> (<code>--durable</code>). <strong>Standard</strong> (default) archives specs + attestations and references code from git; <strong>Durable</strong> also archives the code encrypted in the project's own store, so the record survives even if git is lost. See <a href="#provenance">Provenance</a>.</p>
+    </section>
+
     <section id="howto">
-      <p class="eyebrow">05 — How-to</p>
+      <p class="eyebrow">07 — How-to</p>
       <h2>Recipes</h2>
       <p>Install <strong>git first, then yay-layer</strong> — git is where the proof lives.</p>
       <h3>Set up / adopt</h3>
@@ -405,50 +470,88 @@ yay ratify --sign                    <span class="cm"># review the reviewed bund
       <h3>Verify &amp; gate</h3>
       <pre><code>yay verify              yay verify --strict   <span class="cm"># CI: non-zero on Red/Unsigned/Pink</span>
 yay gate                <span class="cm"># write the CI workflow protecting main</span></code></pre>
+      <p><code>yay gate</code> writes <code>.github/workflows/yaylayer.yml</code> (runs <code>yay verify --strict</code> on every PR and pins your trust root) and prints the one-time steps to make GitHub enforce it: push the workflow to <code>main</code> and let it run once; then <strong>Settings → Rules → Rulesets → New branch ruleset</strong>, Enforcement <em>Active</em>, target <code>main</code>, tick <em>Require a pull request</em>, <em>Require status checks → gate</em>, and <em>Block force pushes</em>. Branch protection lives in GitHub settings you control, so a leaked token or compromised dev machine can't switch it off — that's what makes the gate the real enforcement point, not the local hook. <code>yay gate --hook</code> also installs a local pre-push check for solo/offline feedback.</p>
+
+      <h3>Signing policy (required signers, non-delegable, more)</h3>
+      <p>Optional and neutral by default. A policy <em>adds</em> constraints in <code>.yaylayer/policy.json</code>; it is <strong>owner-signed</strong> into the roster, so the AI can't quietly relax it. Rules match a Cell by <code>path</code> (glob), <code>tag</code>, and/or <code>module</code>. See <a href="#security">Security</a> for what each enforces.</p>
+      <pre><code>yay policy --init    <span class="cm"># write a neutral, commented template</span>
+yay policy --set     <span class="cm"># owner-sign the current rules into effect</span></code></pre>
+      <pre><code><span class="cm">// .yaylayer/policy.json — "rules": [ … ]</span>
+{ "match": { "path": "**/auth/**" }, "signer": "Sara Olsen" }   <span class="cm">// require a person</span>
+{ "match": { "tag":  "payments" },   "delegable": false }        <span class="cm">// never auto-approve</span>
+{ "match": { "tag":  "sensitive" },  "inert": "block" }          <span class="cm">// dead code blocks the gate</span>
+{ "match": { "tag":  "sensitive" },  "coverage": "full" }        <span class="cm">// every branch must be exercised</span>
+{ "match": { "path": "vendor/**" },  "ignore": "source" }        <span class="cm">// keep vendored code out of the gate</span></code></pre>
+
+      <h3>Request a change (from the dashboard)</h3>
+      <p>The dashboard's <strong>➕ Request a change</strong> button queues a plain-language request in <code>.yaylayer/requests.json</code> (local-only, git-ignored). Your AI drains the inbox with <code>yay requests</code> and turns each into a polished Brief + Cells to sign — you never write the Brief yourself. It's an asynchronous handoff: nothing is pushed to your phone until the AI has drafted something signable.</p>
+      <pre><code>yay requests               <span class="cm"># the AI's inbox of queued requests</span>
+yay requests done &lt;id&gt;      <span class="cm"># clear one once it is signed / folded in</span></code></pre>
+
+      <h3>Preview (run scripts from the dashboard)</h3>
+      <p>The dashboard's <strong>▷ Preview</strong> lists your <code>package.json</code> scripts and runs any of them (dev server, build, lint) in the background, auto-detects the <code>localhost</code> URL, and shows an Open link + live output with a Stop button. It runs on the computer hosting the dashboard, so open it there.</p>
+
+      <h3>Check an attestation (no install needed)</h3>
+      <p>Anyone can confirm a verifier attestation is genuine at <a href="https://yaylayer.com/verify">yaylayer.com/verify</a> — entirely in the browser, nothing uploaded. Paste the contents of <code>.yaylayer/attestations/&lt;hash&gt;.json</code>; it checks the content hash, the verifier's signature, and that the declared capability matches the canonical registry. See <a href="#security">Security</a>.</p>
+
       <h3>Dashboard</h3>
       <pre><code>yay dashboard --open    <span class="cm"># live map + phone relay; Briefs / Tags / Policy tabs</span></code></pre>
-      <p>The Briefs tab is a history lens — open a Cell <em>through</em> a Brief to see it as that Brief signed it (As signed / Current / What changed).</p>
+      <p>The Briefs tab is a history lens — open a Cell <em>through</em> a Brief to see it as that Brief signed it (As signed / Current / What changed / Timeline). <code>yay map</code> writes the same view as a static, read-only HTML file (no server, no live controls) — handy to commit or share.</p>
     </section>
 
     <section id="cli">
-      <p class="eyebrow">06 — CLI reference</p>
+      <p class="eyebrow">08 — CLI reference</p>
       <h2>Commands</h2>
       <dl>
-        <dt><code>yay init [dir]</code> <span class="pill shipped">Shipped</span></dt><dd>Guided setup. Flags: <code>--key</code>, <code>--relay/--lan</code>, <code>--name</code>, <code>--tags</code>, <code>--adopt</code>, <code>--constitution</code>, <code>--plan</code>, <code>--provider</code>, <code>--durable</code> (Durable mode).</dd>
-        <dt><code>yay sign [--cell IDs]</code> <span class="pill shipped">Shipped</span></dt><dd>Approve the current specs. <code>--brief</code> (required), <code>--title</code>, <code>--tags</code>, <code>--name</code>, <code>--check</code>, <code>--phone/--local</code>, <code>--no-brief</code>. The seal references the verifier attestation when one covers the tree.</dd>
-        <dt><code>yay verify</code> <span class="pill shipped">Shipped</span></dt><dd>Colour every Cell. <code>--strict</code> (CI), <code>--dir</code>. Reports whether a signed attestation still covers the tree.</dd>
-        <dt><code>yay attest [list|verify]</code> <span class="pill shipped">Shipped</span></dt><dd>Mint / list / re-check the signed verifier attestation over the current verdict. Refuses a blocked gate (<code>--force</code>) or a capability drift.</dd>
-        <dt><code>yay grant</code> <span class="pill shipped">Shipped</span></dt><dd>Signed capability envelope: <code>--for</code>, <code>--count</code>, <code>--cell</code>, <code>--allow</code>, <code>--deny</code>, <code>--max-risk</code>, <code>--child-grants</code>, <code>list</code>, <code>revoke [id]</code>.</dd>
-        <dt><code>yay ratify [--sign]</code> <span class="pill shipped">Shipped</span></dt><dd>List / human-sign delegated Cells — shows grant scope + boundary report, TOCTOU-safe. <code>--reject --reason</code> records a signed rejection.</dd>
-        <dt><code>yay dashboard</code> · <code>yay map</code> · <code>yay gate</code> · <code>yay constitution</code> · <code>yay status</code> <span class="pill shipped">Shipped</span></dt><dd>Live panel + relay · static map · CI gate · write the Constitution · summary.</dd>
-        <dt><code>yay tags</code> · <code>yay policy</code> · <code>yay batch</code> · <code>yay adopt</code> <span class="pill shipped">Shipped</span></dt><dd>Tag pool · signing policy (<code>--set</code> owner-signs; <code>inert</code>/<code>coverage</code>/<code>delegable</code> rules) · batch barrier · adopt existing code.</dd>
-        <dt><code>yay keygen</code> · <code>yay pair</code> · <code>yay enroll</code> · <code>yay invite</code> <span class="pill shipped">Shipped</span></dt><dd>Create key · pair phone · enroll a signer · mint a join link.</dd>
-        <dt><code>yay reverify</code> · <code>yay witness</code> · <code>yay metrics</code> · <code>yay capability</code> · <code>yay archive</code> <span class="pill shipped">Shipped</span></dt><dd>Append a re-verification (never rewrite) · integrity witness · earned-autonomy metrics · derived capability + drift check · Durable encrypted archive (<code>install</code> hook, <code>--restore</code>, <code>--forget</code>, <code>--verify</code>).</dd>
+        <dt><code>yay init [dir]</code></dt><dd>Guided setup. Flags: <code>--key</code>, <code>--relay/--lan</code>, <code>--name</code>, <code>--tags</code>, <code>--adopt</code>, <code>--constitution</code>, <code>--plan</code>, <code>--provider</code>, <code>--durable</code> (Durable mode).</dd>
+        <dt><code>yay sign [--cell IDs]</code></dt><dd>Approve the current specs. <code>--brief</code> (required), <code>--title</code>, <code>--tags</code>, <code>--name</code>, <code>--check</code>, <code>--phone/--local</code>, <code>--no-brief</code>. The seal references the verifier attestation when one covers the tree.</dd>
+        <dt><code>yay verify</code></dt><dd>Colour every Cell. <code>--strict</code> (CI), <code>--dir</code>. Reports whether a signed attestation still covers the tree.</dd>
+        <dt><code>yay attest [list|verify]</code></dt><dd>Mint / list / re-check the signed verifier attestation over the current verdict. Refuses a blocked gate (<code>--force</code>) or a capability drift.</dd>
+        <dt><code>yay grant</code></dt><dd>Signed capability envelope: <code>--for</code>, <code>--count</code>, <code>--cell</code>, <code>--allow</code>, <code>--deny</code>, <code>--max-risk</code>, <code>--child-grants</code>, <code>list</code>, <code>revoke [id]</code>.</dd>
+        <dt><code>yay ratify [--sign]</code></dt><dd>List / human-sign delegated Cells — shows grant scope + boundary report, TOCTOU-safe. <code>--reject --reason</code> records a signed rejection.</dd>
+        <dt><code>yay dashboard</code> · <code>yay map</code> · <code>yay gate</code> · <code>yay constitution</code> · <code>yay status</code></dt><dd>Live panel + relay · static map · CI gate · write the Constitution · summary.</dd>
+        <dt><code>yay tags</code> · <code>yay policy</code> · <code>yay batch</code> · <code>yay adopt</code></dt><dd>Tag pool · signing policy (<code>--set</code> owner-signs; <code>inert</code>/<code>coverage</code>/<code>delegable</code> rules) · batch barrier · adopt existing code.</dd>
+        <dt><code>yay keygen</code> · <code>yay pair</code> · <code>yay enroll</code> · <code>yay invite</code></dt><dd>Create key · pair phone · enroll a signer · mint a join link.</dd>
+        <dt><code>yay reverify</code> · <code>yay witness</code> · <code>yay metrics</code> · <code>yay capability</code> · <code>yay archive</code></dt><dd>Append a re-verification (never rewrite) · integrity witness · earned-autonomy metrics · derived capability + drift check · Durable encrypted archive (<code>install</code> hook, <code>--restore</code>, <code>--forget</code>, <code>--verify</code>).</dd>
       </dl>
     </section>
 
     <section id="security">
-      <p class="eyebrow">07 — Security model</p>
+      <p class="eyebrow">09 — Security model</p>
       <h2>How trust is protected</h2>
       <h3>Separation of duties</h3>
       <p>No actor grades its own work. The agent proposes, the verifier measures, the human authorizes. The agent is the <strong>untrusted producer</strong> — it may state what it made, never that it's correct or approved.</p>
+      <h3>How deep verification goes</h3>
+      <p>In a proven-tier language, Green is earned by execution, not inspection. Several checks stack:</p>
+      <ul>
+        <li><strong>Behavioural prover</strong> — runs each pure Cell against its <code>ensures</code> with spec-derived inputs.</li>
+        <li><strong>Mutation grading</strong> — mutates the code to see whether the spec's tests would catch the change; a spec too weak to catch its own mutants is capped at <span class="state s-yellow">Yellow</span> and names a surviving mutant.</li>
+        <li><strong>Spec-only adversary</strong> — an LLM that sees <em>only</em> the spec (never the code) proposes inputs to break it; a deterministic checker judges, so there are no LLM-judgement false positives.</li>
+        <li><strong>Inertness check</strong> — deletes each branch and re-runs every spec-derived test; a branch <em>nobody misses</em> (dead weight or a dormant payload) is flagged, with policy able to escalate it to gate-blocking.</li>
+        <li><strong>Literal-seeding</strong> — harvests the constants a branch compares against, builds the exact input that fires a trigger, and turns a payload that contradicts the promise <span class="state s-red">Red</span> with a concrete reproduction (a Red-only lane — it convicts, never acquits).</li>
+      </ul>
+      <p>The honest boundary: a payload woven into live, exercised, promise-relevant logic is still theoretically constructible; these raise the bar a long way without claiming impossibility, and are strongest on JS/TS/JSX.</p>
       <h3>Three keys, kept separate</h3>
       <p><strong>Human</strong> phone key ("a person decided") · <strong>Verifier</strong> key ("the machine measured") · <strong>Artifact</strong> content hashes ("the exact thing"). A ratification references the verifier attestation hash but is signed by the phone key.</p>
-      <div class="note warn"><span class="k">The verifier-key rule</span><p>Never ship the verifier's signing key inside the npm package. A public key lets anyone forge a Green and makes the whole machine-attestation half worthless. Now: a project/CI-scoped verifier key (machine-held, gitignored, public key pinned in config) — and the keyless verifier + capability registry at <code>yaylayer.com/verify</code>. Later (someday, not necessarily next): an optional <strong>notary-as-a-service</strong> that timestamps + countersigns attestation hashes for an independent public record. A signature carries trust only if its key is not universally available.</p></div>
-      <h3>Phone signing <span class="pill shipped">Shipped</span></h3>
+      <div class="note warn"><span class="k">The verifier-key rule</span><p>Never ship the verifier's signing key inside the npm package. A public key lets anyone forge a Green and makes the whole machine-attestation half worthless. The verifier key is project/CI-scoped: machine-held, gitignored, with the public key pinned in config. A signature carries trust only if its key is not universally available.</p></div>
+      <h3>Phone signing</h3>
       <p>The human's private key is generated on the phone and never leaves it — secure hardware, biometric per signature. The AI's machine only sees the public key. A compromised dev machine or rogue agent still cannot sign as the human.</p>
-      <h3>The gate &amp; Pink <span class="pill shipped">Shipped</span></h3>
+      <h3>The gate &amp; Pink</h3>
       <p>Enforcement lives in CI (<code>yay verify --strict</code>), not a local hook the AI could disable. Any unit with no spec, or loose top-level code, shows <span class="state s-pink">Pink</span> and blocks — you can't smuggle ungoverned code past the gate by simply not writing a spec.</p>
-      <h3>Injection resistance <span class="pill shipped">Shipped</span></h3>
+      <h3>Injection resistance</h3>
       <p>Injected un-specced code → Pink. Injected effect in a <code>pure</code> Cell → Red (line pinpointed). Behavior contradicting the spec → Red (counterexample). Tampered seal → Unsigned. Injected code can't reach Green without matching an approved spec or a fresh human signature.</p>
+      <h3>Malformed markers fail safe</h3>
+      <p>A broken spec marker can only make code look <em>more</em> suspicious, never less. An unterminated marker or a duplicate id is a reported problem that blocks the gate; the code it should have governed then falls to <span class="state s-pink">Pink</span> because the coverage net enumerates every unit independently of the markers. A typo'd marker is simply unrecognised, so its code is un-specced → Pink. Editing a spec block (broken or not) changes its <code>specHash</code>, so the seal no longer matches → Unsigned. Marker games push code toward Pink / Unsigned / a problem — never toward a false Green.</p>
+      <h3>Portable attestations &amp; <code>/verify</code></h3>
+      <p>An attestation is self-verifying: its signature and hash cover its own bytes, so anyone can check one offline or at <a href="https://yaylayer.com/verify">yaylayer.com/verify</a> — the content hash, the verifier's signature against the pinned key, and the declared capability against the canonical registry. No server, account, or upload; trust in the signature is trust in that project/CI-scoped verifier of record.</p>
       <h3>Silent-drift &amp; the integrity witness</h3>
-      <p>A validly-signed Brief whose Cell has since drifted must not read green — the Briefs view shows covered-Cell health and a "what changed" diff. <span class="pill shipped">Shipped</span> <code>yay witness</code> cross-checks the ledger against the tree — the attestation chain, the spec archive, and whether the latest attestation still covers the code — so git-history rewriting shows up as "the code git now claims existed here isn't what YayLayer verified."</p>
+      <p>A validly-signed Brief whose Cell has since drifted must not read green — the Briefs view shows covered-Cell health and a "what changed" diff. <code>yay witness</code> cross-checks the ledger against the tree — the attestation chain, the spec archive, and whether the latest attestation still covers the code — so git-history rewriting shows up as "the code git now claims existed here isn't what YayLayer verified."</p>
     </section>
 
     <section id="teams">
-      <p class="eyebrow">08 — Teams, roles &amp; recovery</p>
+      <p class="eyebrow">10 — Teams, roles &amp; recovery</p>
       <h2>Who may sign, and how to recover</h2>
-      <p class="lead">All ✅ shipped today — the foundational trust layer the rest stands on.</p>
+      <p class="lead">The foundational trust layer the rest stands on — who may sign, how they join, and how to recover when keys change.</p>
       <h3>Two roles: signer and owner</h3>
       <div class="tw"><table>
         <thead><tr><th>Role</th><th>Sign Briefs/specs</th><th>Enrol / revoke</th><th>Issue Autopilot grants</th><th>Sign policy</th><th>Re-root</th></tr></thead>
@@ -476,45 +579,48 @@ yay gate                <span class="cm"># write the CI workflow protecting main
       </ul>
     </section>
 
-    <section id="roadmap">
-      <p class="eyebrow">09 — Roadmap &amp; build plan</p>
-      <h2>Deliver the whole vision, incrementally</h2>
-      <p>The full architecture is adopted; the only question is order. Relaunch <code>1.0</code> on a clean foundation and grow in versions.</p>
-      <h3>Phases</h3>
+    <section id="limits">
+      <p class="eyebrow">11 — Limits &amp; non-goals</p>
+      <h2>What YayLayer does not (yet) do</h2>
+      <p class="lead">Being honest about the edges is part of the design — YayLayer never dresses up unverified code as proven. These are the current boundaries.</p>
+      <h3>Proof ceilings by language</h3>
+      <p>Behavioural proof (execution that earns <span class="state s-green">Green</span>) covers <strong>JS/TS/JSX/TSX</strong> and <strong>pure top-level functions in Python, Ruby and PHP</strong>. <strong>Solidity, Rust and C#</strong> are static-only (effect net) — behavioural proof needs a language harness (EVM / <code>cargo</code> / <code>dotnet</code>) that does not exist yet, so a good Cell caps at <span class="state s-yellow">Yellow</span>. In Ruby/PHP the provers resolve top-level/module functions only, so <strong>class/instance methods and framework-coupled code (Rails)</strong> cap at Yellow too — Rails can adopt now for governance, the gate and provenance, with proof on its pure slice.</p>
+      <h3>Grant constraints are enforced by detection</h3>
+      <p>A grant constraint is meaningful only if the verifier can detect its violation in the output. <strong>Scope constraints</strong> (allowed/denied paths, cells, count, expiry, max-risk) are enforced today. <strong>Content constraints</strong> (dependency additions, network/effect limits) are recorded in the envelope but only become enforceable as the verifier gains the matching detectors — never promise a boundary you can't verify.</p>
+      <h3>Single required-signer, not multi-sig</h3>
+      <p>Signing policy can require <em>a</em> specific person per path/tag/module. <strong>M-of-N multi-signature</strong> for crown-jewel Cells is not yet available.</p>
+      <h3>Verification, not sandboxing</h3>
+      <p>YayLayer measures the <em>output</em> of the agent; it does not sandbox the agent's execution. The authorization boundary lives outside the agent's reach (owner-signed policy, CI-pinned trust root), and the verifier is the backstop that catches an agent overstepping — but the model is detection at verify/ratify time, not runtime confinement.</p>
+      <h3>Non-goals (by design)</h3>
       <ul>
-        <li><strong>P0 — Relaunch hygiene</strong> <span class="pill shipped">Shipped</span> — rename "auto-approved" → Delegated/Awaiting and "Freedom mode" → Autopilot; <strong>fix the <code>ratify --sign</code> TOCTOU hole</strong> (not-optional); audit grant-broadening.</li>
-        <li><strong>P1 — Spec provenance</strong> <span class="pill shipped">Shipped</span> — content-addressed spec store; history reads store-first (kills the blank); immutable Cell revisions.</li>
-        <li><strong>P1.5 — Languages</strong> <span class="pill shipped">Shipped</span> — per-language effect/purity nets for all five; behavioral proof for Ruby + PHP.</li>
-        <li><strong>P2 — Verifier attestation</strong> <span class="pill shipped">Shipped</span> — signed at commit, verifier key, referenced by ratification; capability-versioning.</li>
-        <li><strong>P3 — Grants → envelopes, two-axis, rejections</strong> <span class="pill shipped">Shipped</span> — capability envelopes + detectors; non-delegable defaults; meaningful ratify screen; persisted rejections.</li>
-        <li><strong>P4 — Long-lived assurance</strong> <span class="pill shipped">Shipped</span> — Durable mode + governance/tombstones; historical re-verification; integrity witness; Cell timeline; earned-autonomy metrics.</li>
+        <li><strong>Not a code-approval system</strong> — a refactor that preserves the spec needs no new signature.</li>
+        <li><strong>Not a blockchain</strong> — just an append-only hash chain; no tokens, no consensus.</li>
+        <li><strong>Not an AI grading itself</strong> — the verifier is deliberately non-AI: bounded, reproducible, versioned.</li>
+        <li><strong>Not a hosted service</strong> — verification and provenance are local + CI; the keyless attestation checker + capability registry at <code>yaylayer.com/verify</code> are the only hosted pieces (an optional public-record notary is not part of the core).</li>
       </ul>
-      <h3>What ships in 1.0</h3>
-      <p>The <strong>whole architecture — P0 + P1 + P1.5 + P2 + P3 + P4</strong>: a TOCTOU-safe, non-blanking release with <strong>JS/TS + Python + Ruby + PHP behaviorally proven</strong> and <strong>Solidity/Rust/C# statically first-class</strong>, plus <strong>signed verifier attestations</strong> (derived, self-asserting capability versioning), <strong>capability-envelope grants + child grants + first-class rejections + a two-axis ratify screen</strong>, and <strong>Durable mode + governance + reverification + integrity witness + Cell timeline + earned-autonomy metrics</strong>. Only genuinely-later <em>language</em> work is deferred: C#/Rust/Solidity <em>behavioral</em> proof, <strong>class/instance-method proving</strong> (→ pure Rails service objects / value objects), framework-boot provers — and an optional <strong>notary-as-a-service</strong> (trusted timestamp + public record; the keyless verifier + registry already ship at <code>yaylayer.com/verify</code>).</p>
     </section>
 
-    <section id="decisions">
-      <p class="eyebrow">10 — Decision log</p>
-      <h2>Locked decisions</h2>
-      <p>All three advisor papers are adopted <strong>in full</strong> (not a menu). Converged 2026-08-29.</p>
+    <section id="rationale">
+      <p class="eyebrow">12 — Design rationale</p>
+      <h2>Why it's built this way</h2>
+      <p>The reasoning behind the choices an implementer will feel most.</p>
       <dl>
-        <dt>D1–D7 · Architecture (from the papers)</dt><dd>The triad with separation of duties; two chains (authorization vs verification); three cryptographic identities; append-only &amp; content-addressed, never rewritten; "Green is an event"; preserve every historical spec always; the Autopilot reform (grant authorizes action not artifact; Delegated/Ratified/Rejected; two axes; non-delegable defaults; persisted rejections).</dd>
-        <dt>D8 · Naming</dt><dd>Autopilot (friendly) + Delegated execution (formal); retire "Freedom mode"; drop "auto-approved." "Freedom" has the wrong polarity for a control/trust product.</dd>
-        <dt>D9 · Ship incrementally</dt><dd>Relaunch 1.0 on the foundation; grow in versions rather than hold for the whole system.</dd>
-        <dt>D10 · Storage = hybrid</dt><dd>Tiny bespoke sha256 store for the audit core; git bundles for bulk source. Our sha256 is the trust anchor, not git's SHA-1; one shared incremental pack, never per-approval bundles.</dd>
-        <dt>D11 · Verifier key</dt><dd>Project/CI-scoped first, hosted later; never shipped in the package.</dd>
-        <dt>D12 · Governance is first-class</dt><dd>Metadata clear + signed; source encrypted under a project-held key YayLayer never sees; owner-signed retention; pre-archive secret scan; deletion tombstones.</dd>
-        <dt>D13 · Two capture points</dt><dd>Human authorization at sign; verifier attestation at commit/verify-pass.</dd>
-        <dt>D14 · TOCTOU fix — not-optional</dt><dd><code>ratify --sign</code> signs the exact reviewed bundle; refuses on drift.</dd>
-        <dt>D15 · Envelope constraints gated by detectors</dt><dd>A grant only carries constraints the running verifier can detect; attestations record verifier version + capabilities.</dd>
-        <dt>D16 · Prover determinism, honestly</dt><dd>No RNG; only wall-clock timeouts + environment drift. Attestations record the environment; later, a deterministic step/fuel budget.</dd>
-        <dt>D17 · Language scope for 1.0</dt><dd>All five static first-class + Ruby/PHP proven; postpone C#/Rust/Solidity behavioral proof (Solidity its own EVM release).</dd>
-        <dt>D18 · Docs-first</dt><dd>Write the canonical manual, build the engine against it, update docs alongside code — YayLayer's own spec-first philosophy, applied to itself.</dd>
+        <dt>Separation of duties</dt><dd>No actor grades its own work: the human authorizes intent, the machine measures conformance, the agent only produces. Collapsing any two of these is the failure mode YayLayer exists to prevent.</dd>
+        <dt>Two chains — sign intent, not bytes</dt><dd>The human signs the spec + Brief, never the code bytes, so a spec-preserving refactor needs no re-approval. Authority (human) and verification (machine) are kept orthogonal, never merged into one traffic light.</dd>
+        <dt>Green is an event, not a property</dt><dd>Code is Green <em>relative to</em> a spec + verifier + semantics + time. A stronger verifier later can append a new assessment without making an old Green fraudulent — which is why history is never rewritten.</dd>
+        <dt>Append-only, content-addressed</dt><dd>Every material object is stored by the hash of its content, deduped, and never mutated in place. Integrity is free — the stored body must hash to the value the seal signed.</dd>
+        <dt>Preserve every spec, always</dt><dd>Specs are tiny and irreplaceable, so every signed spec is archived in both Standard and Durable modes — the "as signed" view never depends on git being intact.</dd>
+        <dt>The verifier key is never shipped</dt><dd>A verifier signature is worth something only if its key isn't universally available; a project/CI-scoped, gitignored key is the minimum honest form.</dd>
+        <dt>Governance is first-class</dt><dd>The real cost of "keep code forever" is governance, not disk — so Durable mode ships with encryption under a project-held key, owner-signed retention, a pre-archive secret scan, and honest deletion tombstones.</dd>
+        <dt>TOCTOU-safe ratification</dt><dd>Ratification vouches for the exact reviewed bundle: the hash is recomputed at sign and refused on any drift, so a human can't review one thing and unknowingly sign another.</dd>
+        <dt>Constraints gated by detectors</dt><dd>A grant only carries constraints the running verifier can actually detect; an unenforceable boundary would be theatre.</dd>
+        <dt>Deterministic proving</dt><dd>The prover has no RNG (enumerated inputs, fixed mutants), so the same environment yields an identical verdict; attestations record the environment and claim "Green under this verifier + environment at this time."</dd>
+        <dt>Naming reflects control</dt><dd>"Autopilot" / "Delegated execution", never "Freedom mode"; "Delegated · Awaiting ratification", never "auto-approved." A control product shouldn't borrow the vocabulary of removing control.</dd>
       </dl>
     </section>
 
     <section id="glossary">
-      <p class="eyebrow">11 — Glossary</p>
+      <p class="eyebrow">13 — Glossary</p>
       <h2>Terms</h2>
       <dl>
         <dt>Agent</dt><dd>The AI producing Briefs, specs, and code — the untrusted producer.</dd>
@@ -545,7 +651,7 @@ yay gate                <span class="cm"># write the CI workflow protecting main
 
 <footer class="foot">
   <span>YayLayer — human authorization &amp; cryptographic provenance for AI-generated code.</span>
-  <span class="mono">canonical source: <code>/documentation</code> · converged 2026-08-29</span>
+  <span class="mono">reference manual · <a href="https://yaylayer.com">yaylayer.com</a></span>
 </footer>
 
 <script>
