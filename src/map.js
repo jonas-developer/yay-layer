@@ -839,7 +839,7 @@ ${statblocks}
     Array.prototype.forEach.call(el.querySelectorAll('.ask-ex'),function(b){ b.onclick=function(){ q.value=b.getAttribute('data-q'); q.focus(); }; });
     function ask(){
       var text=(q.value||'').trim(); if(!text){ q.focus(); return; }
-      if(!live){ ansEl.innerHTML='<div class="snote" style="font-family:var(--sans)">Run <code>yay dashboard</code> to get real answers here — this static view can\'t call your AI.</div>'; return; }
+      if(!live){ ansEl.innerHTML='<div class="snote" style="font-family:var(--sans)">Run <code>yay dashboard</code> to get real answers here — a static view cannot call your AI.</div>'; return; }
       go.disabled=true; go.style.opacity='.6'; stt.style.color='var(--mut)'; stt.textContent='Thinking… (a few seconds)'; ansEl.textContent='';
       fetch('/api/ask',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({question:text})}).then(function(r){return r.json();}).then(function(j){
         go.disabled=false; go.style.opacity='1';
