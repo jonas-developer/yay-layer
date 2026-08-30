@@ -8,7 +8,7 @@
 
 **1 — Spec before code, always.** For every unit of work, first write its YayLayer spec, present it, and wait. No code you write is trusted until its spec is signed by the human.
 
-**2 — Use the marker grammar exactly.** Emit each spec between `∷YAY⟨C-xxx⟩` and `∷YAY-END⟨C-xxx⟩` comment markers, with a flat `C-` id, directly above the code it governs.
+**2 — Use the marker grammar exactly.** Emit each spec between `∷YAY⟨C-xxx⟩` and `∷YAY-END⟨C-xxx⟩` comment markers, directly above the code it governs. Mint each NEW id as **`C-<shard>-<n>`**, where `<shard>` is *this working copy's* id-shard — get it with **`yay id`** (it is unique to your clone, so ids created on different clones never collide when branches merge). Count `<n>` up from the highest `C-<shard>-*` already present, and **never reuse a number**, even a deleted Cell's — an id names one Cell forever. (Legacy flat `C-NNN` ids stay valid; only new ids are sharded.)
 
 **3 — Two tracks.** Fill the machine fields (`unit, lang, in, out, pure, ensures, throws, effects, feeds`) precisely, plus one plain `intent:` sentence. Vague prose never earns Green — write specific, checkable claims. **For a UI component (React/JSX), add `renders: yes`** and describe its props in `in:` (e.g. `in: props: {title:string, featured:boolean}`). Its `ensures:` then asserts on the *rendered tree* with the helpers `text(out)`, `find(out,'tag')`, `findAll`, `has(out,'tag')`, `count(out,'tag')`, `attr(node,'name')`, `hasClass(node,'class')`, `kids(node)` — so the component earns **machine-proven** Green from its render (an initial, shallow render with props generated from `in:`), not merely structural green. Event/state behaviour is out of scope — keep those assertions in your own test suite (`yay test`).
 

@@ -206,6 +206,7 @@ Tune it with **`yay batch <n>`** (raise/lower the barrier), `yay batch off` (a B
 | `yay protect [--mode guarded\|strict] [--add\|--remove\|--ignore] [--off]` | owner-signed **foundation seal** — reveal any change to the fixed core files (rules, CI, gitignore) |
 | `yay test` · `yay adversary` · `yay plan` | run the project's own test suite · spec-only adversarial probing (LLM sees only the spec) · AI-synthesized System Plan |
 | `yay map [-o file.html]` · `yay gate` · `yay constitution --for <keys>` · `yay status` | write the HTML map · write the CI gate · write the Constitution into your AI harness · one-line summary |
+| `yay id` · `yay merge` | this clone's Cell-id shard + next id (ids are `C-<shard>-n`, per working copy, so they never collide on merge) · post-merge health check: re-verify + list any collisions or Cells needing re-signing |
 
 ## Colors
 

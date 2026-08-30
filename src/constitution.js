@@ -105,8 +105,17 @@ function tagPoolBlock(root) {
   } catch (_) {}
   return '';
 }
+// Cell-id shard directive (Article 2). The literal shard is NOT baked in here — the constitution is
+// committed and shared, but each working copy needs its OWN shard so ids never collide on merge. So
+// the shard lives in gitignored .yaylayer/local.json; this tells the AI to look it up per clone.
+function shardBlock() {
+  return '\n\n---\n\n**Cell-id shard** (Article 2) — mint every NEW Cell as `C-<shard>-<n>`, where ' +
+    '`<shard>` is THIS working copy\'s shard: run `yay id` to get it (unique to your clone, so ids from ' +
+    'different clones never collide when branches merge). Count up from the highest `C-<shard>-*` already ' +
+    'present; never reuse a number, even a deleted Cell\'s. (Legacy flat `C-NNN` ids keep working as-is.)\n';
+}
 function block(method, root) {
-  return `${BEGIN}\n${header(method)}${constitutionText()}${root ? tagPoolBlock(root) : ''}\n${END}\n`;
+  return `${BEGIN}\n${header(method)}${constitutionText()}${root ? tagPoolBlock(root) : ''}${shardBlock()}\n${END}\n`;
 }
 
 function mergeInto(existing, blk) {

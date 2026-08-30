@@ -25,6 +25,7 @@ const { buildManifest } = require('../src/manifest');
 const { verifyManifest } = require('../src/verify');
 const { renderMap } = require('../src/map');
 const { adopt } = require('../src/adopt');
+const IDS = require('../src/ids');
 const { HARNESSES, writeConstitution, resolveKeys } = require('../src/constitution');
 const { specDiffForCell } = require('../src/specdiff');
 const dashboardMod = require('../src/dashboard');
@@ -80,7 +81,25 @@ function loadRoster(p) { return U.readJSON(rosterPath(p), null); }
 // local signer instead of the project owner (config.owners[0]).
 function localPath(p) { return path.join(path.dirname(p.config), 'local.json'); }
 function loadLocalSigner(p) { const d = U.readJSON(localPath(p), null); return d && d.signer ? d.signer : null; }
-function saveLocalSigner(p, name) { try { if (name) { U.writeJSON(localPath(p), { signer: name }); ensureGitignored(p.root, '.yaylayer/local.json'); } } catch (_) {} }
+function saveLocalSigner(p, name) { try { if (name) { const d = U.readJSON(localPath(p), null) || {}; d.signer = name; U.writeJSON(localPath(p), d); ensureGitignored(p.root, '.yaylayer/local.json'); } } catch (_) {} }
+// This working copy's Cell-id SHARD. Lives in gitignored local.json (never committed) so every clone
+// gets its OWN shard → new ids from different clones never collide on merge. First 2 hex encode the
+// local signer's identity (when known), last 2 are per-copy random. Created lazily, then stable.
+function ensureLocalShard(p) {
+  const d = U.readJSON(localPath(p), null) || {};
+  if (d.idShard) return d.idShard;
+  let idPart = null;
+  try { const cfg = U.readJSON(p.config, null) || {}; const first = Object.values(cfg.signers || {})[0]; const pub = first && (first.pub || first); if (pub) idPart = IDS.deriveShard(pub).slice(0, 2); } catch (_) {}
+  d.idShard = (idPart || IDS.deriveShard(null).slice(0, 2)) + IDS.deriveShard(null).slice(0, 2);
+  try { U.writeJSON(localPath(p), d); ensureGitignored(p.root, '.yaylayer/local.json'); } catch (_) {}
+  return d.idShard;
+}
+// Every Cell id the ledger has ever recorded (signed) — so a deleted-but-once-signed id is retired forever.
+function ledgerCellIds(p) {
+  const lock = U.readJSON(p.lock, null); const out = [];
+  if (lock && Array.isArray(lock.approvals)) for (const ap of lock.approvals) { if (ap && ap.items) for (const k of Object.keys(ap.items)) out.push(k); }
+  return out;
+}
 // Autopilot: the append-only, owner-signed grants log (committed) + the machine-held
 // grant private keys (in the gitignored keys/, used for UNATTENDED auto-signing).
 function grantsPath(p) { return path.join(path.dirname(p.config), 'grants.json'); }
@@ -348,6 +367,7 @@ async function cmdInit(flags, positional) {
     U.writeJSON(p.config, config);
     U.writeJSON(p.lock, { project, approvals: [] });
     fs.mkdirSync(p.keys, { recursive: true });
+    ensureLedgerMergeAttrs(target); // append-only ledgers auto-merge instead of conflicting
     console.log(U.c.green('✓ initialized YayLayer') + ` for "${project}"` + (rel === '.' ? '' : U.c.dim(` in ${rel}/`)));
     console.log('  ' + U.c.dim(`config + lock → ${path.join(rel, '.yaylayer')}/ (commit these) · keys → gitignored`));
   }
@@ -393,13 +413,16 @@ async function cmdInit(flags, positional) {
     }
   }
 
+  // This working copy's collision-free Cell-id shard (now that any local key exists to flavour it).
+  const myShard = ensureLocalShard(p);
+
   // 3 ── adopt existing code
   let doAdopt = flags.adopt ? true : (flags['no-adopt'] ? false : null);
   if (doAdopt === null) {
     doAdopt = tty ? /^y/i.test(await ask('\nDoes this project already have code to bring under YayLayer? Run `adopt` now? (y/N): ')) : false;
   }
   if (doAdopt) {
-    const res = adopt(target, { dry: false });
+    const res = adopt(target, { dry: false, shard: ensureLocalShard(p), ledgerIds: ledgerCellIds(p) });
     if (!res.total) console.log(U.c.dim('• adopt: no un-tagged top-level functions found.'));
     else {
       console.log(U.c.green(`✓ adopt: scaffolded ${res.total} draft Cell(s) across ${res.report.length} file(s)`));
@@ -548,6 +571,19 @@ function ensureGitignored(dir, entry) {
   if (txt.split(/\r?\n/).some((l) => l.trim() === entry)) return;
   fs.writeFileSync(gi, txt + (txt && !txt.endsWith('\n') ? '\n' : '') + entry + '\n');
 }
+// Make the append-only ledgers auto-merge (git's built-in `union` driver) instead of textually
+// conflicting. Per-cell trust is matched by specHash (order-independent), so a unioned lock.json
+// verifies fine; the roster is a chained governance log and is left to merge deliberately. Returns
+// true if anything was added. Idempotent.
+function ensureLedgerMergeAttrs(root) {
+  const ga = path.join(root, '.gitattributes');
+  let txt = ''; try { txt = fs.readFileSync(ga, 'utf8'); } catch (_) {}
+  const want = ['.yaylayer/lock.json merge=union', '.yaylayer/attest.json merge=union', '.yaylayer/rejections.json merge=union'];
+  let changed = false;
+  for (const l of want) { if (!txt.split(/\r?\n/).some((x) => x.trim() === l)) { txt += (txt && !txt.endsWith('\n') ? '\n' : '') + l + '\n'; changed = true; } }
+  if (changed) fs.writeFileSync(ga, txt);
+  return changed;
+}
 
 function cmdGate(flags, positional) {
   const target = path.resolve(positional[0] || process.cwd());
@@ -565,6 +601,7 @@ function cmdGate(flags, positional) {
   const w = gate.writeWorkflow(target, opts);
   const wmark = w.action === 'skipped' ? U.c.dim('• skipped (exists — use --force) ') : U.c.green('✓ ' + w.action + ' ');
   console.log('  ' + wmark + w.path);
+  if (ensureLedgerMergeAttrs(target)) console.log('  ' + U.c.green('✓ .gitattributes') + U.c.dim(' — ledgers set to auto-merge (union). Commit it.'));
 
   if (flags.hook) {
     const h = gate.writeHook(target, opts);
@@ -2797,9 +2834,54 @@ async function cmdMap(flags) {
   console.log(U.c.green('✓ map written → ') + out + U.c.dim(`  (${count} items)`));
 }
 
+// `yay id` — this working copy's Cell-id shard (creates it if absent) + the next id it would mint.
+function cmdId(flags) {
+  const { p, config } = loadState();
+  if (!config) return fail('run `yay init` first');
+  const shard = ensureLocalShard(p);
+  const taken = new Set(ledgerCellIds(p));
+  try { const man = buildManifest(p.root); for (const id of Object.keys(man.cells)) taken.add(id); } catch (_) {}
+  const next = IDS.nextCellId(shard, taken);
+  console.log(U.c.bold('Cell-id shard: ') + U.c.accent('C-' + shard + '-…') + U.c.dim('  (unique to this working copy — in gitignored local.json, never committed)'));
+  console.log('  ' + U.c.dim('next new id here → ') + U.c.bold(next));
+  console.log('  ' + U.c.dim('Other clones mint under their own shard, so ids never collide when branches merge.'));
+}
+
+// `yay merge` — run this right after a `git merge`/`git pull`. Re-verifies and surfaces exactly what
+// a merge can leave behind: id COLLISIONS (impossible for sharded ids; reported if two legacy flat ids
+// clashed) and Cells that need a fresh signature because the same Cell was edited on both branches.
+// A botched merge never goes green silently — it shows here and the gate stays blocked.
+function cmdMerge(flags) {
+  const { p, config, lock } = loadState();
+  if (!config) return fail('run `yay init` first');
+  const manifest = buildManifest(p.root);
+  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: loadRoster(p), grants: loadGrants(p), rejections: loadRejections(p), tracked: trackedFiles(p.root), root: trustRootPin(flags) });
+  const dups = (manifest.problems || []).filter((x) => /duplicate Cell id/.test(x.error || ''));
+  const attention = Object.keys(verified.results).filter((id) => { const s = verified.results[id].state; return s === 'UNSIGNED' || s === 'RED'; });
+  console.log(U.c.bold('Merge check · ') + config.project);
+  if (!dups.length && !attention.length) {
+    console.log('  ' + U.c.green('✓ clean') + U.c.dim(' — no id collisions, nothing needs re-signing.  ') + (verified.passed ? U.c.green('gate PASS') : U.c.red('gate BLOCKED')));
+    return;
+  }
+  if (dups.length) {
+    console.log('\n  ' + U.c.red(`● ${dups.length} duplicate Cell id(s)`) + U.c.dim(' — two Cells claim the same id (a collision):'));
+    for (const d of dups) console.log('    ' + U.c.bold(d.id) + U.c.dim('  ' + d.file + ' — ' + d.error));
+    console.log('  ' + U.c.dim('Renumber one side to a fresh ') + U.c.bold('C-' + ensureLocalShard(p) + '-<n>') + U.c.dim(' (see `yay id`), then re-sign it. Sharded ids prevent this going forward.'));
+  }
+  if (attention.length) {
+    console.log('\n  ' + U.c.yellow(`● ${attention.length} Cell(s) need attention`) + U.c.dim(' — unsigned or failing (a Cell edited on both branches drops its old signature):'));
+    for (const id of attention.slice(0, 40)) console.log('    ' + U.c.bold(id) + '  ' + (verified.results[id].state === 'RED' ? U.c.red('RED — fix, then sign') : U.c.gray('UNSIGNED — sign')));
+    if (attention.length > 40) console.log('    ' + U.c.dim(`… and ${attention.length - 40} more`));
+    console.log('  ' + U.c.dim('Reconcile each, then ') + U.c.bold('yay sign') + U.c.dim('.'));
+  }
+  console.log('\n  ' + (verified.passed ? U.c.green('gate PASS') : U.c.red('gate BLOCKED')) + U.c.dim(' — a merge never silently corrupts state; anything unresolved shows here and blocks the gate.'));
+  process.exitCode = dups.length ? 1 : 0;
+}
+
 async function cmdAdopt(flags, positional) {
   const target = positional[0] || '.';
-  const res = adopt(target, { dry: !!flags.dry });
+  const pAd = U.paths(path.resolve(target));
+  const res = adopt(target, { dry: !!flags.dry, shard: ensureLocalShard(pAd), ledgerIds: ledgerCellIds(pAd) });
   if (!res.total) { console.log(U.c.dim('nothing to adopt — no un-tagged top-level functions found.')); return; }
   console.log((res.dry ? U.c.yellow('(dry run) ') : U.c.green('✓ ')) + `${res.total} draft Cell(s) across ${res.report.length} file(s):`);
   for (const r of res.report) console.log('  ' + U.c.dim(r.file) + '  +' + r.added);
@@ -3039,6 +3121,10 @@ const HELP = `yay — a protocol for provable, signed AI code
                              (--for claude,agents,cursor,copilot,windsurf,cline,gemini,generic | all · --list)
   yay keygen --name <you>     create your signing key
   yay adopt [path] [--dry]    scaffold draft specs over existing code
+  yay id                      show THIS clone's Cell-id shard (C-<shard>-n) + the next id it would mint —
+                             each working copy gets its own shard so ids never collide when branches merge
+  yay merge                   run after a git merge/pull: re-verify + list any id collisions and Cells that
+                             need re-signing (edited on both sides). A botched merge never goes green silently.
   yay pair [--name you]      pair your phone as the signer (key stays on the phone; scan the QR) · SSL on by default (--no-https)
                              --relay routes via relay.yaylayer.com (off-LAN, end-to-end encrypted) · --lan forces the local path
                              the FIRST pairing makes the phone the trust root — no local key needed
@@ -3159,6 +3245,8 @@ async function main() {
     case 'adopt': return cmdAdopt(flags, positional);
     case 'constitution': case 'rules': return cmdConstitution(flags, positional);
     case 'gate': case 'ci': return cmdGate(flags, positional);
+    case 'id': case 'shard': return cmdId(flags);
+    case 'merge': return cmdMerge(flags);
     case 'status': return cmdStatus(flags);
     case 'batch': return cmdBatch(flags, positional);
     case 'policy': return cmdPolicy(flags);

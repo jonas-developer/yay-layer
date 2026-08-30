@@ -487,6 +487,30 @@ yay gate                <span class="cm"># write the CI workflow protecting main
       </table></div>
       <p>The <strong>contract is identical everywhere</strong> — run <code>yay verify --strict</code> on a protected branch that blocks merge on failure, with the trust root pinned; only the pipeline syntax and the settings page differ. The core (signing, verify, roster, seals, foundation, provenance) is pure git, so it works on any host or none. Branch protection lives in your host's settings only you control, so a leaked token or compromised dev machine can't switch it off — that's what makes the CI gate the real enforcement point, not the local hook. <code>yay gate --hook</code> also installs a local pre-push check for solo/offline feedback.</p>
 
+      <h3>Teams: Cell numbering &amp; merges</h3>
+      <p>Several people, each in their own clone, building in parallel and merging — this is where a naïve sequential counter would break, because two branches would independently mint <code>C-042</code> for two <em>different</em> Cells. YayLayer avoids that at the source.</p>
+      <p><strong>Every id is <code>C-&lt;shard&gt;-&lt;n&gt;</code>.</strong> The <code>&lt;shard&gt;</code> is a short token unique to <em>your working copy</em> — it lives in gitignored <code>.yaylayer/local.json</code> and is <strong>never committed</strong>, so every clone has its own. Two contributors therefore mint ids in disjoint namespaces (<code>C-3f2a-1</code> vs <code>C-9b7c-1</code>) that <strong>can never collide on merge</strong>. See yours anytime:</p>
+      <pre><code>yay id     <span class="cm"># this clone's shard + the next id it would mint</span></code></pre>
+      <p><strong>Numbers are monotonic and never reused.</strong> A new Cell counts up from the highest <code>C-&lt;shard&gt;-*</code> ever seen (current tree <em>and</em> ledger history), so deleting a Cell <strong>retires its number forever</strong> — an id names one Cell for the life of the project, like a git commit hash. Deletions leave permanent gaps; that is correct for an audit trail, not a defect.</p>
+      <p>In a large, long-lived repo the ids stay readable and tell you something at a glance:</p>
+      <div class="tw"><table>
+        <thead><tr><th>You see</th><th>It means</th></tr></thead>
+        <tbody>
+          <tr><td><code>C-3f2a-1 … C-3f2a-800</code></td><td>a founder's early work — low numbers under their shard</td></tr>
+          <tr><td><code>C-9b7c-1 …</code></td><td>a contributor who joined later — a fresh sequence under a new shard</td></tr>
+          <tr><td>a gap in a sequence</td><td>a deleted feature; the number is retired, never handed out again</td></tr>
+          <tr><td>legacy <code>C-041</code> (flat)</td><td>a pre-sharding id — still valid; only <em>new</em> ids are sharded</td></tr>
+        </tbody>
+      </table></div>
+      <p><strong>The ledgers auto-merge.</strong> <code>yay init</code> (and <code>yay gate</code>) writes a <code>.gitattributes</code> that marks the append-only records — <code>lock.json</code>, <code>attest.json</code>, <code>rejections.json</code> — as git <code>merge=union</code>, so git concatenates both sides' entries instead of raising a conflict. Trust is matched by content hash, not by line order, so a unioned ledger verifies exactly the same. (The roster is a chained governance log and is left to merge deliberately.)</p>
+      <p><strong>After a merge or pull, run <code>yay merge</code>.</strong> It re-verifies and surfaces the only two things a merge can leave behind:</p>
+      <pre><code>yay merge     <span class="cm"># re-verify + report collisions and Cells needing re-signing</span></code></pre>
+      <ul>
+        <li><strong>Id collisions</strong> — impossible for sharded ids; reported only if two <em>legacy flat</em> ids happened to clash. Fix: renumber one side to a fresh <code>C-&lt;shard&gt;-n</code> (see <code>yay id</code>), then re-sign it.</li>
+        <li><strong>The same Cell edited on both branches</strong> — a genuine semantic conflict, like any merge. Git flags the source conflict; you reconcile the code + spec, the Cell drops to <strong>Unsigned</strong> (its old signature no longer covers the new bytes), and you <code>yay sign</code> the reconciled version.</li>
+      </ul>
+      <p>The key guarantee: a botched merge <strong>never goes green silently</strong>. Anything unresolved shows up in <code>yay merge</code> / <code>yay verify</code> and keeps the gate blocked. In the common case — two people adding <em>different</em> Cells — merges are seamless: no collisions, no renumbering, no re-signing.</p>
+
       <h3>Signing policy (required signers, non-delegable, more)</h3>
       <p>Optional and neutral by default. A policy <em>adds</em> constraints in <code>.yaylayer/policy.json</code>; it is <strong>owner-signed</strong> into the roster, so the AI can't quietly relax it. Rules match a Cell by <code>path</code> (glob), <code>tag</code>, and/or <code>module</code>. See <a href="#security">Security</a> for what each enforces.</p>
       <pre><code>yay policy --init    <span class="cm"># write a neutral, commented template</span>
@@ -527,6 +551,7 @@ yay requests done &lt;id&gt;      <span class="cm"># clear one once it is signed
         <dt><code>yay dashboard</code> · <code>yay map</code> · <code>yay gate</code> · <code>yay constitution</code> · <code>yay status</code></dt><dd>Live panel + relay · static map · CI gate (<code>--for github|azure|gitlab|bitbucket|gitea</code>) · write the Constitution · summary.</dd>
         <dt><code>yay ask "&lt;question&gt;"</code></dt><dd>Ask the configured (System-Plan) LLM about THIS repo + the manual — primed with the live project state (Cells, states, briefs, grants, rejections, gate) and the manual text. Also the <strong>Ask</strong> tab in the dashboard. Needs an LLM key in <code>.env</code>.</dd>
         <dt><code>yay tags</code> · <code>yay policy</code> · <code>yay batch</code> · <code>yay adopt</code></dt><dd>Tag pool · signing policy (<code>--set</code> owner-signs; <code>inert</code>/<code>coverage</code>/<code>delegable</code> rules) · batch barrier · adopt existing code.</dd>
+        <dt><code>yay id</code> · <code>yay merge</code></dt><dd>This clone's Cell-id shard + next id (ids are <code>C-&lt;shard&gt;-n</code>, per working copy, so they never collide on merge) · post-merge health check: re-verify and list any id collisions or Cells needing re-signing. See <a href="#howto">Teams: Cell numbering &amp; merges</a>.</dd>
         <dt><code>yay keygen</code> · <code>yay pair</code> · <code>yay enroll</code> · <code>yay invite</code> · <code>yay revoke</code> · <code>yay reroot</code></dt><dd>Create key · pair phone · enroll a signer · mint a join link · revoke a key (owner-signed; refuses to leave zero owners) · retire the trust root and establish a new one (last-resort recovery — see <a href="#teams">Recovery</a>).</dd>
         <dt><code>yay protect</code></dt><dd>Create / re-seal the owner-signed <a href="#security">foundation seal</a> over the fixed core files. <code>--mode guarded|strict</code>, <code>--add</code>/<code>--remove &lt;glob&gt;</code>, <code>--ignore &lt;glob&gt;</code> (signed churn exclusion), <code>--off</code>. A broken seal warns in <code>yay verify</code>, the map, and the dashboard.</dd>
         <dt><code>yay reverify</code> · <code>yay witness</code> · <code>yay metrics</code> · <code>yay capability</code> · <code>yay archive</code></dt><dd>Append a re-verification (never rewrite) · integrity witness · earned-autonomy metrics · derived capability + drift check · Durable encrypted archive (<code>install</code> hook, <code>--restore</code>, <code>--forget</code>, <code>--verify</code>).</dd>

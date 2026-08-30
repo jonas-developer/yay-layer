@@ -1619,5 +1619,30 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
     ok(gate.normPlatform('ado') === 'azure' && gate.normPlatform('AZURE') === 'azure' && gate.normPlatform('bogus') === 'github', 'gate: platform aliases resolve (ado→azure, unknown→github)');
   }
 
+  // ── Cell-id sharding + monotonic never-reuse (distributed merge safety) ──
+  {
+    const IDS = require('../src/ids');
+    ok(IDS.deriveShard('keyA') !== IDS.deriveShard('keyB'), 'ids: distinct seeds → distinct shards');
+    ok(IDS.deriveShard('keyA') === IDS.deriveShard('keyA'), 'ids: shard derivation is deterministic per seed');
+    ok(/^[0-9a-f]{4}$/.test(IDS.deriveShard('x')), 'ids: shard is 4 hex chars');
+    // monotonic: gaps left by deleted ids (3..6) are NOT reused; count continues past the max (7)
+    const taken = new Set(['C-3f2a-1', 'C-3f2a-2', 'C-3f2a-7']);
+    const a = IDS.nextCellId('3f2a', taken), b = IDS.nextCellId('3f2a', taken);
+    ok(a === 'C-3f2a-8' && b === 'C-3f2a-9', 'ids: monotonic — deleted-id gaps are never reused');
+    // two clones with different shards never collide, even at the same counter
+    ok(IDS.nextCellId('aaaa', new Set()) !== IDS.nextCellId('bbbb', new Set()), 'ids: different shards never collide');
+    ok(IDS.nextCellId('aaaa', new Set()) === 'C-aaaa-1', 'ids: fresh shard starts at 1');
+    // a signed-then-deleted id (present only in the ledger `taken` set) is still retired
+    const led = new Set(['C-9m9m-5']); // id lives only in ledger history, not the tree
+    ok(IDS.nextCellId('9m9m', led) === 'C-9m9m-6', 'ids: ledger-recorded id is retired even if the Cell was deleted');
+    // constitution tells the AI to mint sharded ids via `yay id`
+    const fs2 = require('fs'), os2 = require('os'), path2 = require('path');
+    const { writeConstitution: wc, resolveKeys: rk } = require('../src/constitution');
+    const ctmp = fs2.mkdtempSync(path2.join(os2.tmpdir(), 'yay-shard-'));
+    wc(ctmp, rk('claude'), 'phone');
+    const cmd = fs2.readFileSync(path2.join(ctmp, 'CLAUDE.md'), 'utf8');
+    ok(/C-<shard>-<n>/.test(cmd) && /yay id/.test(cmd), 'constitution: embeds the sharded-id directive');
+  }
+
   console.log(`\nAll ${n} checks passed.`);
 })().catch((e) => { console.error('smoke failed:', e); process.exit(1); });

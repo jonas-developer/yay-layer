@@ -12,6 +12,7 @@ const path = require('path');
 const { walk, repoRoot, MARK_BEGIN, langOf, commentLeadOf } = require('./util');
 const { analyze, nearestUnitAfter } = require('./analyze');
 const { extractFile } = require('./extract');
+const IDS = require('./ids');
 
 const JS_LIKE = /\.(js|jsx|mjs|cjs|ts|tsx)$/;
 const ADOPT_FAMILIES = new Set(['js', 'brace', 'python', 'ruby']); // langs `yay adopt` can scaffold
@@ -35,7 +36,10 @@ function existingIds(root) {
   }
   return ids;
 }
-function nextId(ids) {
+// With a per-contributor `shard`, new ids are C-<shard>-<n>, monotonic and never reused (see ids.js)
+// so parallel branches never collide. Without one, the legacy flat C-NNN scheme (single-writer repos).
+function nextId(ids, shard) {
+  if (shard) return IDS.nextCellId(shard, ids);
   let n = 1;
   for (;;) { const id = 'C-' + String(n).padStart(3, '0'); if (!ids.has(id)) { ids.add(id); return id; } n++; }
 }
@@ -71,7 +75,7 @@ const ADOPT_PATS = {
 
 // Retrofit a non-JS file: insert a DRAFT block above each un-specced unit, using the
 // language's comment lead. Skips units already governed by a spec block.
-function adoptFileLang(file, ids, dry, fam) {
+function adoptFileLang(file, ids, dry, fam, shard) {
   const pats = ADOPT_PATS[fam];
   if (!pats) return 0;
   const lead = commentLeadOf(file);
@@ -92,7 +96,7 @@ function adoptFileLang(file, ids, dry, fam) {
         const indent = m[1] || '';
         const name = m[2];
         if (name && !covered.has(name)) {
-          out.push(draftBlock(nextId(ids), name, langStr, lines.slice(i, i + 25).join('\n'), indent, lead));
+          out.push(draftBlock(nextId(ids, shard), name, langStr, lines.slice(i, i + 25).join('\n'), indent, lead));
           covered.add(name);
           added++;
         }
@@ -105,14 +109,14 @@ function adoptFileLang(file, ids, dry, fam) {
   return added;
 }
 
-function adoptFile(file, ids, dry) {
+function adoptFile(file, ids, dry, shard) {
   const fam = langOf(file);
-  if (fam !== 'js') return adoptFileLang(file, ids, dry, fam); // brace / python / ruby
+  if (fam !== 'js') return adoptFileLang(file, ids, dry, fam, shard); // brace / python / ruby
   const lang = path.extname(file).slice(1);
   const code = fs.readFileSync(file, 'utf8');
   const lines = code.split(/\r?\n/);
   const ana = analyze(code);
-  if (!ana.ok) return adoptFileRegex(file, ids, dry, lines, lang); // unparseable (rare)
+  if (!ana.ok) return adoptFileRegex(file, ids, dry, lines, lang, shard); // unparseable (rare)
 
   // Units already governed by an existing Cell (skip those).
   const covered = new Set();
@@ -127,7 +131,7 @@ function adoptFile(file, ids, dry) {
     if (covered.has(u.startLine)) continue;
     const indent = (lines[u.startLine - 1].match(/^\s*/) || [''])[0];
     const body = lines.slice(u.startLine - 1, u.endLine).join('\n');
-    inserts.push({ line: u.startLine, text: draftBlock(nextId(ids), u.name, lang, body, indent) });
+    inserts.push({ line: u.startLine, text: draftBlock(nextId(ids, shard), u.name, lang, body, indent) });
   }
   if (!inserts.length) return 0;
   if (!dry) {
@@ -140,7 +144,7 @@ function adoptFile(file, ids, dry) {
 }
 
 // Shallow fallback for files the parser cannot handle.
-function adoptFileRegex(file, ids, dry, lines, lang) {
+function adoptFileRegex(file, ids, dry, lines, lang, shard) {
   const out = [];
   let added = 0;
   for (let i = 0; i < lines.length; i++) {
@@ -149,7 +153,7 @@ function adoptFileRegex(file, ids, dry, lines, lang) {
     if (m && !/∷YAY-END|∷YAY⟨/.test(prev)) {
       const name = m[1] || m[2];
       const indent = (lines[i].match(/^\s*/) || [''])[0];
-      out.push(draftBlock(nextId(ids), name, lang, lines.slice(i, i + 25).join('\n'), indent));
+      out.push(draftBlock(nextId(ids, shard), name, lang, lines.slice(i, i + 25).join('\n'), indent));
       added++;
     }
     out.push(lines[i]);
@@ -158,15 +162,17 @@ function adoptFileRegex(file, ids, dry, lines, lang) {
   return added;
 }
 
-function adopt(targetDir, { dry = false } = {}) {
+function adopt(targetDir, { dry = false, shard = null, ledgerIds = [] } = {}) {
   const root = repoRoot(targetDir);
   const ids = existingIds(root);
+  // Seed with every id the ledger has ever recorded so a deleted-but-once-signed id is never reused.
+  for (const id of ledgerIds) ids.add(id);
   const files = walk(path.resolve(targetDir || root)).filter((f) => ADOPT_FAMILIES.has(langOf(f)));
   const report = [];
   let total = 0;
   for (const f of files) {
     let n = 0;
-    try { n = adoptFile(f, ids, dry); } catch (_) { continue; }
+    try { n = adoptFile(f, ids, dry, shard); } catch (_) { continue; }
     if (n) { report.push({ file: path.relative(root, f), added: n }); total += n; }
   }
   return { total, report, dry };

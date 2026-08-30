@@ -59,6 +59,9 @@ const CORE_FILES = [
   // CI gate config across the common hosts (only the ones that exist are sealed).
   '.github/workflows/yaylayer.yml', '.gitea/workflows/yaylayer.yml', 'azure-pipelines.yml', '.gitlab-ci.yml', 'bitbucket-pipelines.yml',
   '.yaylayerignore', '.gitignore', 'CONSTITUTION.md', 'standard/STANDARD.md',
+  // `.gitattributes` sets the ledgers' union-merge driver — sealed so a rogue change to how the
+  // append-only records merge (e.g. silencing conflicts) is itself revealed.
+  '.gitattributes',
 ];
 // Zones whose TRACKED file-set should stay stable — a new/removed file here is revealed.
 // Root is watched at TOP LEVEL only (depth 0); the others recurse.
