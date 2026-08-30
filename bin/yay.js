@@ -2094,6 +2094,15 @@ async function cmdArchive(flags, positional) {
   }
   arc.retention = (config.provenance && config.provenance.retention) || arc.retention || null;
   D.saveArchive(p, arc);
+  // Record a reconstructable SNAPSHOT — the file→blob-hash map for this exact state, tied to its
+  // verification. Blobs are already deduped/preserved; this index is what lets a HISTORICAL tree be
+  // rebuilt later (the reverify substrate). Best-effort: never fail an archive over the index.
+  try {
+    const snapFiles = {};
+    for (const f of fileList) if (arc.files[f] && arc.files[f].status !== 'tombstoned') snapFiles[f] = arc.files[f].hash;
+    const last = A.latestEntry(p, config);
+    D.recordSnapshot(p, { at: new Date().toISOString(), codeTreeHash: A.codeTreeHashOf(manifest), attest: last ? last.hash : null, files: snapFiles });
+  } catch (_) { /* index is additive; a failure here never blocks archiving */ }
   if (!quiet) {
     console.log(U.c.green(`✓ archived ${fileList.length} signed file(s)`) + U.c.dim(` — ${stored} new · ${deduped} unchanged${flagged.length ? ' · ' + U.c.yellow(flagged.length + ' had secrets (forced)') : ''}`));
     console.log('  ' + U.c.dim('encrypted (AES-256-GCM), sha256-anchored → ') + U.c.bold('.yaylayer/archive/') + U.c.dim(' + clear signed metadata in .yaylayer/archive.json (commit both). Key never stored.'));

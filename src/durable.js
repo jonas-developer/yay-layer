@@ -102,7 +102,51 @@ function tombstone(p, hash, reason, signer) {
   return { contentHash: String(hash), status: 'deliberately removed', deletedAt: new Date().toISOString(), reason: reason || null, by: signer || null };
 }
 
+// ── reconstructable snapshots (the reverify substrate) ──────────────────────────────────────────
+// Blobs are content-addressed and never deleted, but arc.files only holds the LATEST path→hash map,
+// so a HISTORICAL tree can't be rebuilt without an index of "which blobs composed the tree at moment N".
+// recordSnapshot captures exactly that — the file→blob-hash map for one archived state, tied to the
+// verification it captured (codeTreeHash + the attestation hash). This is capture-going-forward: only
+// states archived after this exists become fully reconstructable. Append-only, deduped by codeTreeHash.
+function recordSnapshot(p, snap) {
+  const arc = loadArchive(p);
+  if (!arc) return null;
+  arc.snapshots = arc.snapshots || [];
+  const dup = arc.snapshots.find((s) => s.codeTreeHash && s.codeTreeHash === snap.codeTreeHash && s.specSetHash === (snap.specSetHash || s.specSetHash));
+  if (dup) return dup;
+  const rec = {
+    at: snap.at || null,
+    codeTreeHash: snap.codeTreeHash || null,
+    specSetHash: snap.specSetHash || null,
+    attest: snap.attest || null,
+    capability: snap.capability || null,
+    files: snap.files || {},
+  };
+  arc.snapshots.push(rec);
+  saveArchive(p, arc);
+  return rec;
+}
+function listSnapshots(p) { const arc = loadArchive(p); return (arc && arc.snapshots) || []; }
+
+// Materialize a snapshot's exact source into destDir from the encrypted blobs. Throws on a
+// tombstoned/missing/tampered blob (getBlob anchor-checks). Returns { dir, files: [rel…] }.
+function reconstructSnapshot(p, snap, key, destDir) {
+  const files = (snap && snap.files) || {};
+  const written = [];
+  for (const rel of Object.keys(files)) {
+    const hash = files[rel];
+    const pt = getBlob(p, hash, key);
+    if (pt == null) throw new Error('cannot reconstruct — blob ' + String(hash).slice(0, 12) + '… for ' + rel + ' is missing or tombstoned');
+    const abs = path.join(destDir, rel);
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(abs, pt);
+    written.push(rel);
+  }
+  return { dir: destDir, files: written };
+}
+
 module.exports = {
   archiveDir, archiveManifestPath, blobPath, resolveKey, encryptBlob, decryptBlob,
   secretScan, SECRET_PATTERNS, loadArchive, saveArchive, putBlob, getBlob, tombstone,
+  recordSnapshot, listSnapshots, reconstructSnapshot,
 };
