@@ -131,6 +131,56 @@ function unb64(s){var bin=atob(s),a=new Uint8Array(bin.length);for(var i=0;i<bin
 function ebytes(str){return new TextEncoder().encode(str);}
 function canonical(o){if(o===null||typeof o!=='object')return JSON.stringify(o);if(Array.isArray(o))return '['+o.map(canonical).join(',')+']';var k=Object.keys(o).sort(),p=[];for(var i=0;i<k.length;i++)p.push(JSON.stringify(k[i])+':'+canonical(o[k[i]]));return '{'+p.join(',')+'}';}
 function hasCrypto(){return typeof nacl!=='undefined' && typeof YayRecovery!=='undefined' && window.crypto && typeof window.crypto.getRandomValues==='function';}
+// WYSIWYS: a pure-JS sha256 (verified to match Node's crypto sha256 over the same UTF-8 bytes) so the
+// phone can recompute each Cell's specHash from the spec block it DISPLAYS and refuse to sign unless it
+// equals approval.items[id]. Runs regardless of https, so a compromised laptop can't show X and sign Y.
+function sha256hex(str){
+  function rotr(n,x){return (x>>>n)|(x<<(32-n));}
+  var K=[0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
+  var H=[0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];
+  var bytes=[];for(var i=0;i<str.length;i++){var c=str.charCodeAt(i);
+    if(c<0x80)bytes.push(c);
+    else if(c<0x800)bytes.push(0xc0|(c>>6),0x80|(c&0x3f));
+    else if(c<0xd800||c>=0xe000)bytes.push(0xe0|(c>>12),0x80|((c>>6)&0x3f),0x80|(c&0x3f));
+    else{i++;var c2=str.charCodeAt(i);var cp=0x10000+(((c&0x3ff)<<10)|(c2&0x3ff));bytes.push(0xf0|(cp>>18),0x80|((cp>>12)&0x3f),0x80|((cp>>6)&0x3f),0x80|(cp&0x3f));}}
+  var l=bytes.length;bytes.push(0x80);while((bytes.length%64)!==56)bytes.push(0);
+  var bl=l*8,hi=Math.floor(bl/0x100000000),lo=bl>>>0;
+  bytes.push((hi>>>24)&0xff,(hi>>>16)&0xff,(hi>>>8)&0xff,hi&0xff,(lo>>>24)&0xff,(lo>>>16)&0xff,(lo>>>8)&0xff,lo&0xff);
+  var w=new Array(64);
+  for(var j=0;j<bytes.length;j+=64){
+    for(var t=0;t<16;t++)w[t]=(bytes[j+t*4]<<24)|(bytes[j+t*4+1]<<16)|(bytes[j+t*4+2]<<8)|(bytes[j+t*4+3]);
+    for(t=16;t<64;t++){var s0=rotr(7,w[t-15])^rotr(18,w[t-15])^(w[t-15]>>>3);var s1=rotr(17,w[t-2])^rotr(19,w[t-2])^(w[t-2]>>>10);w[t]=(w[t-16]+s0+w[t-7]+s1)|0;}
+    var a=H[0],b=H[1],c3=H[2],d=H[3],e=H[4],f=H[5],g=H[6],hh=H[7];
+    for(t=0;t<64;t++){var S1=rotr(6,e)^rotr(11,e)^rotr(25,e);var ch=(e&f)^((~e)&g);var t1=(hh+S1+ch+K[t]+w[t])|0;var S0=rotr(2,a)^rotr(13,a)^rotr(22,a);var maj=(a&b)^(a&c3)^(b&c3);var t2=(S0+maj)|0;hh=g;g=f;f=e;e=(d+t1)|0;d=c3;c3=b;b=a;a=(t1+t2)|0;}
+    H[0]=(H[0]+a)|0;H[1]=(H[1]+b)|0;H[2]=(H[2]+c3)|0;H[3]=(H[3]+d)|0;H[4]=(H[4]+e)|0;H[5]=(H[5]+f)|0;H[6]=(H[6]+g)|0;H[7]=(H[7]+hh)|0;}
+  var hex='';for(var k=0;k<8;k++){var v=H[k]>>>0;hex+=('00000000'+v.toString(16)).slice(-8);}
+  return hex;
+}
+// Strip a comment lead (// # -- * ;) from a spec-block line — no regex (this lives in a template literal).
+function stripLead(s){s=String(s).trim();var lead=['//','#','--','*',';'];for(var i=0;i<lead.length;i++){if(s.indexOf(lead[i])===0){s=s.slice(lead[i].length);break;}}return s.trim();}
+// Parse the VERIFIED spec block into fields for display, so what the phone shows is derived from the
+// exact bytes it hash-checked (not from separately-sent, spoofable parsed fields).
+function parseSpecBlock(block){
+  var out={fields:[]},lines=String(block||'').split('\\n');
+  for(var i=0;i<lines.length;i++){
+    var t=stripLead(lines[i]);
+    if(!t||t.indexOf('YAY')>=0)continue; // skip blanks + the ∷YAY / ∷YAY-END marker lines
+    var ci=t.indexOf(':');
+    if(ci>0){var k=t.slice(0,ci).trim(),v=t.slice(ci+1).trim();if(k&&k.indexOf(' ')<0){out.fields.push({k:k,v:v});if(k==='unit')out.unit=v;if(k==='intent')out.intent=v;}}
+  }
+  return out;
+}
+// The heart of WYSIWYS: every Cell the signature would bind (approval.items) must have a DISPLAYED spec
+// block whose sha256 equals the bound specHash. Any missing block or mismatch → not verified → block signing.
+function wysiwygCheck(sess){
+  var ap=sess.approval||{},items=ap.items||{},sum=sess.summary||[];
+  var byId={};for(var i=0;i<sum.length;i++)byId[sum[i].id]=sum[i];
+  var ids=Object.keys(items),bad=[],perCell={};
+  for(var j=0;j<ids.length;j++){var id=ids[j],c=byId[id];
+    if(!c||typeof c.block!=='string'||!c.block){perCell[id]={ok:false};bad.push(id);continue;}
+    if(sha256hex(c.block)!==items[id]){perCell[id]={ok:false};bad.push(id);}else perCell[id]={ok:true};}
+  return {ok:(ids.length>0&&bad.length===0),bad:bad,perCell:perCell,count:ids.length};
+}
 function loadKey(){try{return JSON.parse(localStorage.getItem('yay.key')||'null');}catch(e){return null;}}
 function saveKey(o){localStorage.setItem('yay.key',JSON.stringify(o));}
 // New identity from a fresh 24-word recovery phrase (the phrase is shown once,
@@ -294,24 +344,31 @@ async function pollPairStatus(){
     await sleep(1500);
   }
 }
-// Full spec of a Cell (intent/ensures/in/out/pure/…) + any verify notes, shown on tap.
-function detailHTML(c){
-  var sp=c.spec||{}, order=['intent','ensures','in','out','pure','throws','feeds','contains','lang','unit'], seen={}, parts=[];
-  function add(k){ if(sp[k]!=null && String(sp[k]).trim()!==''){ seen[k]=1; parts.push('<div class="kv"><span class="k">'+esc(k)+'</span><span class="v">'+esc(String(sp[k]))+'</span></div>'); } }
+// Full spec of a Cell, rendered from the VERIFIED spec block (parsed on-phone), so what you read is
+// derived from the exact bytes whose sha256 the signature binds — never from separately-sent fields.
+// verified = did sha256(block) match approval.items[id]. When false, we say so loudly.
+function detailHTML(c, verified){
+  var pb=parseSpecBlock(c.block), order=['intent','ensures','in','out','pure','throws','feeds','contains','lang','unit'], byk={}, seen={}, parts=[];
+  pb.fields.forEach(function(fd){ byk[fd.k]=fd.v; });
+  function add(k){ if(byk[k]!=null && String(byk[k]).trim()!==''){ seen[k]=1; parts.push('<div class="kv"><span class="k">'+esc(k)+'</span><span class="v">'+esc(String(byk[k]))+'</span></div>'); } }
   order.forEach(add);
-  Object.keys(sp).forEach(function(k){ if(!seen[k]) add(k); });
+  pb.fields.forEach(function(fd){ if(!seen[fd.k]) add(fd.k); });
   if(c.file) parts.push('<div class="kv"><span class="k">file</span><span class="v">'+esc(c.file)+(c.line?':'+c.line:'')+'</span></div>');
+  var vbadge=verified
+    ?'<div class="difflbl" style="color:#1f9d57">✓ verified on this phone — sha256 matches what your signature binds</div>'
+    :'<div class="difflbl" style="color:var(--red)">⚠ NOT verified — the shown spec does NOT match what would be signed. Do not approve.</div>';
   var diff='';
   if(c.diff&&c.diff.length){
     diff='<div class="difflbl">changes vs last committed spec</div><div class="diff">'
       +c.diff.map(function(d){ var cl=d.t==='+'?'add':(d.t==='-'?'del':'ctx'); var pre=d.t==='+'?'+ ':(d.t==='-'?'- ':'  '); return '<div class="dl '+cl+'">'+pre+esc(d.text)+'</div>'; }).join('')
       +'</div>';
   }
+  var raw='<div class="difflbl">exact signed spec (this is what sha256 hashed)</div><pre class="codeblk">'+esc(c.block||'(no spec block was sent — cannot verify)')+'</pre>';
   var notes=(c.notes||[]).map(function(nt){ var col=nt.level==='red'?'var(--red)':(nt.level==='yellow'?'var(--amber)':'var(--mut)'); return '<div class="note" style="color:'+col+'">'+esc(nt.text)+'</div>'; }).join('');
   // Ratification only: the implementation already exists (built unattended under a grant), so
   // show it for review — this is the one sign where the human sees real code, not just intent.
   var code=c.code?('<div class="difflbl" style="color:var(--amber)">code it built'+(c.grant?' · ran under grant '+esc(c.grant):'')+'</div><pre class="codeblk">'+esc(c.code)+'</pre>'):'';
-  return '<div class="detail">'+(parts.join('')||'<div class="kv"><span class="v">No structured spec fields.</span></div>')+diff+code+(notes?'<div class="notes">'+notes+'</div>':'')+'</div>';
+  return '<div class="detail">'+vbadge+(parts.join('')||'<div class="kv"><span class="v">No structured spec fields.</span></div>')+diff+raw+code+(notes?'<div class="notes">'+notes+'</div>':'')+'</div>';
 }
 // Is THIS phone the one the laptop asked for? It tells us the intended signer
 // (sess.signer name + sess.signerPubs keys). If this phone holds a different key we
@@ -330,7 +387,13 @@ function approveFlow(sess){
   var key=loadKey();
   if(!key){ h('<div class="msg">This phone has no key on this page yet — restore it from your recovery phrase, or run <b>yay pair</b>.</div><button id="rst" class="btn">Restore from recovery phrase</button>'); document.getElementById('rst').onclick=function(){restoreFlow(sess);}; return; }
   var gate=signerGate(sess);
-  var rows=(sess.summary||[]).map(function(c,i){var ed=(c.diff&&c.diff.length)?' <span class="edited">edited</span>':'';return '<div class="crow"><div class="cell tap" data-i="'+i+'"><span class="dot" style="background:'+(c.color||'#888')+'"></span><div><div class="cid">'+esc(c.id)+' · '+esc(c.unit||'')+ed+'</div><div class="cin">'+esc(c.intent||'')+'</div></div><span class="col">'+esc(c.state||'')+'<span class="caret">▸</span></span></div><div class="detailwrap" id="d'+i+'" style="display:none">'+detailHTML(c)+'</div></div>';}).join('');
+  var wy=wysiwygCheck(sess); // re-hash every displayed spec against what the signature would bind
+  var rows=(sess.summary||[]).map(function(c,i){
+    var pb=parseSpecBlock(c.block), ver=!!(wy.perCell[c.id]&&wy.perCell[c.id].ok);
+    var unit=pb.unit||c.unit||'', intent=pb.intent||'', ed=(c.diff&&c.diff.length)?' <span class="edited">edited</span>':'';
+    var vm=ver?'':' <span style="color:var(--red);font-weight:700" title="This shown spec does not match what would be signed">⚠ unverified</span>';
+    return '<div class="crow"><div class="cell tap" data-i="'+i+'"><span class="dot" style="background:'+(ver?(c.color||'#888'):'var(--red)')+'"></span><div><div class="cid">'+esc(c.id)+' · '+esc(unit)+ed+vm+'</div><div class="cin">'+esc(intent)+'</div></div><span class="col">'+esc(c.state||'')+'<span class="caret">▸</span></span></div><div class="detailwrap" id="d'+i+'" style="display:none">'+detailHTML(c,ver)+'</div></div>';
+  }).join('');
   // BRIEF header (Standard §5): the human-owned headline over these parts. DISPLAY-ONLY —
   // it can't be reworded on the phone, because a Brief change must pull its Cells with it and
   // only the AI loop can do that. The choice is Accept, or Send back (with an optional note).
@@ -349,10 +412,13 @@ function approveFlow(sess){
     +(brief.title?('<div style="font-weight:800;font-size:1.08rem;color:var(--ink);margin:0 0 4px">'+esc(brief.title)+'</div>'):'')
     +'<div class="mtxt"'+(brief.title?' style="font-size:.95rem;color:var(--muted,#8a8a8a)"':'')+'>'+esc(brief.text)+'</div>'+tagSel
     +'<div class="msub">covers '+((sess.summary||[]).length)+' part(s) · sign it, or send it back for changes</div></div>'):'';
-  h(gate.banner+briefCard+'<div class="help">Approve these <b>'+((sess.summary||[]).length)+'</b> change(s) — tap a part to see its spec.</div>'+rows+(gate.ok?'<button id="go" class="btn" style="margin-top:16px">Accept &amp; sign</button><textarea id="sbnote" class="marea" rows="2" style="margin-top:12px" placeholder="What should change? (optional — for Send back)"></textarea><div id="sbwarn" class="sbwarn">What should change?</div><button id="sb" class="btn ghost">Send back</button>':''));
+  var wyBanner=wy.ok?'':'<div class="mcard" style="border-left-color:var(--red)"><div class="mtag" style="color:var(--red)">Do not sign — cannot verify</div><div class="mtxt" style="margin-top:6px">The spec shown here does <b>not</b> match what your signature would bind for <b>'+wy.bad.length+'</b> part(s). On a healthy setup this never happens — your laptop may be compromised or out of date.</div><div class="msub">Signing is disabled on this phone. Re-run <b>yay sign</b>; if it persists, stop and investigate.</div></div>';
+  var wyOkNote=(gate.ok&&wy.ok&&wy.count>0)?'<div class="help" style="color:#1f9d57;margin:2px 0 0">✓ What you see is what you sign — every part re-checked (sha256) on this phone.</div>':'';
+  h(gate.banner+briefCard+'<div class="help">Approve these <b>'+((sess.summary||[]).length)+'</b> change(s) — tap a part to see its spec.</div>'+rows+wyOkNote+(gate.ok?(wy.ok?'<button id="go" class="btn" style="margin-top:16px">Accept &amp; sign</button><textarea id="sbnote" class="marea" rows="2" style="margin-top:12px" placeholder="What should change? (optional — for Send back)"></textarea><div id="sbwarn" class="sbwarn">What should change?</div><button id="sb" class="btn ghost">Send back</button>':wyBanner):''));
   var taps=document.querySelectorAll('.cell.tap');
   for(var ti=0;ti<taps.length;ti++){(function(el){el.onclick=function(){var d=document.getElementById('d'+el.getAttribute('data-i'));var open=d.style.display!=='none';d.style.display=open?'none':'block';var car=el.querySelector('.caret');if(car)car.textContent=open?'▸':'▾';};})(taps[ti]);}
   if(!gate.ok) return; // wrong signer for this request — no buttons wired
+  if(!wy.ok) return;   // WYSIWYS failed — Accept isn't rendered; nothing to wire (never sign the unverifiable)
   function refreshTagUI(){ var ch=tagsChanged(); var go=document.getElementById('go'); if(go){go.disabled=ch;go.style.opacity=ch?'.45':'';go.style.cursor=ch?'not-allowed':'';} var hint=document.getElementById('taghint'); if(hint)hint.style.display=ch?'block':'none'; }
   Array.prototype.forEach.call(document.querySelectorAll('.tchip'),function(chip){ chip.onclick=function(){ var t=chip.getAttribute('data-tag'); if(selHas(t)) sel=sel.filter(function(x){return lc(x)!==lc(t);}); else sel.push(t); chip.setAttribute('style',chipStyle(selHas(t))); refreshTagUI(); }; });
   refreshTagUI();

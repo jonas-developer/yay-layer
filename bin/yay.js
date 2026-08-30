@@ -785,6 +785,10 @@ function signSummary(p, config, lock, manifest, items) {
       id, unit: c.unitName || (c.spec && c.spec.unit) || '', intent: (c.spec && c.spec.intent) || '',
       state: r.state || 'UNSIGNED', color: SEALCOLORS[r.state] || '#7f8796',
       file: c.file || '', line: c.line || 0, spec: c.spec || {},
+      // WYSIWYS: the EXACT normalized spec bytes whose sha256 IS the signed specHash. The phone
+      // recomputes sha256(block) and refuses to sign unless it equals approval.items[id] — so a
+      // compromised laptop can't show one spec and bind the signature to another.
+      block: c.specBlock || '',
       notes: (r.notes || []).map((nt) => ({ level: nt.level, text: nt.text })),
       diff: specDiffForCell(p.root, c),
       // Ratification only: the code ALREADY exists (built unattended under a grant), so show
