@@ -24,10 +24,17 @@ ok(Buffer.compare(C.decryptKeystore(ks, 'pw-123456'), privDer) === 0, 'keystore 
 assert.throws(() => C.decryptKeystore(ks, 'wrong'), 'keystore rejects wrong passphrase');
 ok(true, 'keystore rejects wrong passphrase');
 
-// 2) manifest extraction on the example
-const exDir = path.join(__dirname, '..', 'examples');
+// 2) manifest extraction on a self-contained fixture (C-040 clean pure → GREEN when signed;
+//    C-041 declares pure but writes localStorage → RED purity violation). Kept in-test so the
+//    suite doesn't depend on any examples/ directory.
+const exDir = require('fs').mkdtempSync(path.join(require('os').tmpdir(), 'yay-ex-'));
+require('fs').mkdirSync(path.join(exDir, 'coinwatch'), { recursive: true }); // subdir so path globs (**/…) have a dir to match
+require('fs').writeFileSync(path.join(exDir, 'coinwatch', 'calcPortfolioValue.js'),
+  '//∷YAY⟨C-040⟩\n//  unit: calcPortfolioValue\n//  intent: Sum each holding\'s quantity times price into one USD total.\n//  in: holdings: Array<{qty:number, priceUsd:number}>\n//  out: totalUsd: number\n//  pure: yes\n//  feeds: C-041\n//∷YAY-END⟨C-040⟩\nfunction calcPortfolioValue(holdings) {\n  return holdings.reduce((t, h) => t + h.qty * h.priceUsd, 0);\n}\n');
+require('fs').writeFileSync(path.join(exDir, 'coinwatch', 'calcGainLoss.js'),
+  '//∷YAY⟨C-041⟩\n//  unit: calcGainLoss\n//  intent: Return absolute and percentage gain versus cost basis.\n//  in: totalUsd:number, costBasisUsd:number\n//  out: { absUsd:number, pct:number }\n//  pure: yes\n//∷YAY-END⟨C-041⟩\nfunction calcGainLoss(totalUsd, costBasisUsd) {\n  const absUsd = totalUsd - costBasisUsd;\n  const pct = absUsd / costBasisUsd;\n  localStorage.setItem(\'lastPct\', pct);\n  return { absUsd, pct };\n}\n');
 const manifest = buildManifest(exDir);
-ok(manifest.cells['C-040'] && manifest.cells['C-041'], 'extracts C-040 and C-041 from examples');
+ok(manifest.cells['C-040'] && manifest.cells['C-041'], 'extracts C-040 and C-041 from the fixture');
 ok(manifest.cells['C-040'].specHash && manifest.cells['C-040'].specHash.length === 64, 'computes a sha256 spec hash');
 
 // 3) unsigned → UNSIGNED
@@ -1254,7 +1261,7 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
   // 16) signing policy — neutral by default; a rule requires a specific signer, gate-enforced.
   {
     const { requiredSigners } = require('../src/policy');
-    const pmani = buildManifest(path.join(__dirname, '..', 'examples'));
+    const pmani = buildManifest(exDir);
     const pkp = C.generateKeypair();
     const papp = { id: 'A-P', project: 'test', prev: 'genesis', nonce: 'n', at: 't', signer: 'tester', items: { 'C-040': pmani.cells['C-040'].specHash } };
     papp.signature = C.sign(canonical(papp), pkp.privDer);

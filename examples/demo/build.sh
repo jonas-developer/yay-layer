@@ -49,6 +49,6 @@ node "$YAY" ratify --reject --cell C-7 --reason "Prefer arrows over words; redo 
 ( cd "$WORK" && git add -A && git commit -q -m "snapshot" ) 2>/dev/null || true
 node "$YAY" protect --mode guarded >/dev/null 2>&1 || true
 
-node "$YAY" map -o "$OUT" >/dev/null
+node "$YAY" map --demo -o "$OUT" >/dev/null
 echo "✓ demo dashboard → $OUT"
 echo "  copy to yaylayer-site/public/demo/dashboard.html to publish."

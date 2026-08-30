@@ -2355,7 +2355,7 @@ function buildMapHTML(p, config, lock, flags) {
     // Verifier capability descriptor for the Capabilities view (derived from the live provers/nets/checks).
     let capability = null;
     try { capability = { version: CAP.CAPABILITY, fingerprint: CAP.capabilityFingerprint(), descriptor: CAP.describeCapability(), pinned: (config.verifier && { fp: config.verifier.fp, capability: config.verifier.capability }) || null }; } catch (_) {}
-    return { grants, rejections, attest, timelines, capability };
+    return { grants, rejections, attest, timelines, capability, demo: !!flags.demo };
   })();
   return { html: renderMap(manifest, verified, config && config.project, changes, times, planDoc, gov, briefs, tagsMod.loadTags(p), policyInfo, tagSets, batchConfig(config), extra), count: Object.keys(verified.results).length };
 }
@@ -2413,6 +2413,50 @@ async function cmdTest(flags) {
 
 // `yay dashboard` — a persistent live control panel (map that auto-refreshes).
 // Leave it running; re-reads the repo on every load so it always shows current state.
+// Read the shipped manual as plain text — the assistant's reference context.
+function readManualText() {
+  try {
+    const raw = fs.readFileSync(path.join(__dirname, '..', 'documentation', 'manual.html'), 'utf8');
+    return raw.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&#39;|&rsquo;|&lsquo;/g, "'").replace(/&quot;/g, '"').replace(/&nbsp;/g, ' ')
+      .replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim().slice(0, 48000);
+  } catch (_) { return ''; }
+}
+
+// The repo assistant — answer questions about THIS project + the manual using the configured
+// (System Plan) LLM. Pre-populates the model with the live project STATE and the MANUAL.
+async function askRepo(question, flags) {
+  const { p, config, lock } = loadState();
+  if (!config) return { ok: false, error: 'run `yay init` first' };
+  const q = String(question || '').trim();
+  if (!q) return { ok: false, error: 'ask a question' };
+  const auth = resolvePlanAuth(config, flags);
+  if (auth.error) return { ok: false, error: auth.error };
+  const manifest = buildManifest(p.root);
+  const verified = verifyManifest(manifest, lock, config, { mutate: false, roster: loadRoster(p), grants: loadGrants(p), rejections: loadRejections(p), tracked: trackedFiles(p.root), root: trustRootPin(flags) });
+  const cells = Object.keys(verified.results).sort().map((id) => { const r = verified.results[id], m = manifest.cells[id] || {}; return { id, unit: (m.unitName || (m.spec && m.spec.unit) || r.name || ''), state: r.state, file: r.file, signer: (r.trust && r.trust.signer) || null, delegated: !!(r.trust && r.trust.auto), intent: (m.spec && m.spec.intent) || '', notes: (r.notes || []).map((n) => n.text) }; });
+  const briefs = ((lock && lock.approvals) || []).map((a) => ({ id: a.id, at: a.at, signer: a.signer, delegated: !!a.autoApproved, title: (a.brief && (a.brief.title || a.brief.text)) || a.title || '', tags: (a.brief && a.brief.tags) || a.tags || [], cells: Object.keys(a.items || {}) }));
+  const grants = (((loadGrants(p) || {}).events) || []).filter((e) => e.type === 'grant').map((e) => ({ id: e.id, envelope: e.envelope, expiresAt: e.expiresAt, maxCount: e.maxCount }));
+  const rejections = (((loadRejections(p) || {}).events) || []).map((e) => ({ cells: e.cells, reason: e.reason, category: e.category, at: e.at, by: e.signer || e.by }));
+  const digest = { project: config.project, gate: verified.passed ? 'PASS' : 'BLOCKED', counts: verified.counts, foundation: verified.foundation || null, cells, briefs, grants, rejections };
+  const system = 'You are the YayLayer assistant for THIS project. You are given (1) the live PROJECT STATE as JSON — every Cell with its verifier state (GREEN/YELLOW/RED/UNSIGNED/PINK), signer, whether it is delegated, plus briefs, grants, rejections and the gate status — and (2) the YayLayer MANUAL. Answer the user\'s question accurately and concisely. For list/count questions use the PROJECT STATE (UNSIGNED = needs a human signature/approval; RED = code contradicts its spec; PINK = un-specced code; delegated = approved under a grant, awaiting human ratification). For "how does X work" questions use the MANUAL. Never invent Cells, states, or features; if the data does not contain the answer, say so plainly. Prefer short bullet lists, and cite Cell ids.';
+  const user = 'PROJECT STATE (JSON):\n' + JSON.stringify(digest) + '\n\nMANUAL (reference):\n' + readManualText() + '\n\nQUESTION: ' + q;
+  try {
+    const answer = await plan.chat(system, user, { provider: auth.provider, model: auth.model, apiKey: auth.apiKey, baseUrl: auth.baseUrl, maxTokens: 1400 });
+    return { ok: true, answer: String(answer || '').trim(), provider: auth.provider, model: auth.model };
+  } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
+}
+
+async function cmdAsk(flags, positional) {
+  const q = (positional || []).join(' ').trim() || (flags.q && flags.q !== true ? String(flags.q) : '');
+  if (!q) return fail('usage: yay ask "your question about this repo or how YayLayer works"');
+  process.stdout.write(U.c.dim('thinking…\n'));
+  const r = await askRepo(q, flags);
+  if (!r.ok) return fail(r.error);
+  console.log('\n' + r.answer + '\n' + U.c.dim(`— ${r.provider}/${r.model}`));
+}
+
 async function cmdDashboard(flags) {
   const { p, config } = loadState();
   if (!config) return fail('run `yay init` first');
@@ -2668,6 +2712,7 @@ async function cmdDashboard(flags) {
       }),
       // Issue an Autopilot grant (owner-signed) from the dashboard — spawns `yay grant … --phone`,
       // routing the owner approval to the phone (same pattern as enroll). Only a human can issue it.
+      ask: (q) => askRepo(q, flags),
       protect: () => new Promise((resolve) => {
         const child = require('child_process').spawn(process.execPath, [process.argv[1], 'protect', '--phone'], { cwd: p.root });
         let out = '';
@@ -3007,6 +3052,8 @@ const HELP = `yay — a protocol for provable, signed AI code
   yay protect [--mode guarded|strict|--off]  FOUNDATION SEAL: owner-sign a baseline of the fixed core files
                              (Constitution, CI workflow, .gitignore, protocol) so any change is REVEALED at
                              verify. --add/--remove/--ignore <glob> tune it. Guarded warns; strict blocks.
+  yay ask "<question>"       ask the configured AI about THIS repo + the manual (needs an LLM key in .env;
+                             also available as the Ask tab in the dashboard). e.g. which cells need approval?
   yay grant [--for 2h] [--count 20]  Autopilot: owner-signed capability ENVELOPE → the AI approves in-scope
                              (delegated), non-sensitive Cells unattended (no phone) until it expires.
                              envelope: --cell IDs · --allow/--deny "glob" · --allow-tag/--deny-tag TAG · --max-risk low|medium|high
@@ -3091,6 +3138,7 @@ async function main() {
     case 'revoke': return cmdRevoke(flags);
     case 'reroot': return cmdReroot(flags);
     case 'protect': return cmdProtect(flags, positional);
+    case 'ask': return cmdAsk(flags, positional);
     case 'grant': case 'autopilot': return cmdGrant(flags, positional);
     case 'ratify': return cmdRatify(flags);
     case 'verify': case 'check': return cmdVerify(flags);

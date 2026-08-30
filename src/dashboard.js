@@ -338,6 +338,13 @@ function startDashboard(deps, opts) {
       if (!deps.adversary) return sendJSON(res, 200, { error: 'adversary not available' });
       return sendJSON(res, 200, await deps.adversary());
     }
+    if (req.method === 'POST' && url === '/api/ask') {
+      if (!isLocal(req)) return sendJSON(res, 403, { error: 'local only' });
+      if (!deps.ask) return sendJSON(res, 200, { ok: false, error: 'assistant not available' });
+      const q = ((await readBody(req)).question || '').toString();
+      try { return sendJSON(res, 200, await deps.ask(q)); }
+      catch (e) { return sendJSON(res, 200, { ok: false, error: String((e && e.message) || e) }); }
+    }
     if (req.method === 'POST' && url === '/api/protect/reseal') {
       if (!isLocal(req)) return sendJSON(res, 403, { error: 'local only' });
       if (!deps.protect) return sendJSON(res, 200, { ok: false, error: 'foundation seal not available' });

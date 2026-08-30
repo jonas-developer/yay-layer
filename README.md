@@ -74,47 +74,20 @@ The Constitution's rules, in one breath: *spec before code; use the marker gramm
 
 ---
 
-## Try it in under a minute
+## See it in under a minute — no install
 
-You need **Node ≥ 18**, and you'll want **git installed first** — YayLayer works without it, but git is where the proof lives: the CI gate reads committed state, and the dashboard's history features (spec diffs on the phone, and the Briefs tab's *"as this Brief signed it"* view) reconstruct past versions straight from your git history. **Install git, then yay-layer.** Clone, install its two small dependencies ([`@babel/parser`](https://babeljs.io/docs/babel-parser) for JS/TS/JSX/TSX parsing, and `qrcode-terminal` for phone pairing), and run:
+Open the **[live demo dashboard](https://yaylayer.com/demo/dashboard.html)** in your browser: a real project painted by state (🟢 proven · 🟡 flagged · 🔴 mismatch · ⚪ unsigned · 🩷 un-specced), with **Briefs**, **Signers**, **Grants**, the **foundation seal**, and the **Ask** tab. It's exactly what `yay dashboard` shows, rendered static — the fastest way to get the feel before installing anything.
+
+## Install
+
+You need **Node ≥ 18** and **git** — install **git first**: it's where the proof lives (the CI gate reads committed state) and your recovery substrate. Its only runtime deps are [`@babel/parser`](https://babeljs.io/docs/babel-parser) (JS/TS/JSX/TSX parsing) and `qrcode-terminal` (phone pairing).
 
 ```bash
 git clone https://github.com/jonas-developer/yay-layer.git
-cd yay-layer
-npm install
-node bin/yay.js verify --dir examples
+cd yay-layer && npm install && npm link   # `npm link` puts `yay` on your PATH
 ```
 
-You'll see the gate paint the example:
-
-```
-● GREEN    C-040   examples/coinwatch/calcPortfolioValue.js:1   · jonas
-● RED      C-041   examples/coinwatch/calcGainLoss.js:1         · jonas
-    – purity violated: declared pure but uses localStorage
-```
-
-`C-040` is clean; `C-041` is **deliberately broken** — it declares `pure: yes` but writes `localStorage`, so verify catches the undeclared side effect (the anti-bloat check). No signing or setup is needed to try this: the example is **already signed** — its seal ships in `.yaylayer/lock.json` and the signer's public key in `.yaylayer/config.json`, and `verify` only needs the *public* key. See the visual version:
-
-```bash
-node bin/yay.js map --dir examples   # writes yay-layer-map.html — open it in a browser
-```
-
-Prefer the terminal? Add `-d` to drill into each Cell's spec, code, and checks inline:
-
-```bash
-node bin/yay.js verify --dir examples -d
-```
-
-## Optional: put `yay` on your PATH
-
-So you can type `yay …` instead of `node bin/yay.js …`:
-
-```bash
-npm link                    # from the repo root
-yay verify --dir examples   # now this works
-```
-
-Everything below uses `yay`; if you skipped `npm link`, just prefix commands with `node bin/yay.js` (e.g. `node bin/yay.js verify`).
+If you skip `npm link`, just prefix commands with `node bin/yay.js`. Everything below uses `yay`.
 
 ## Use it in your own project
 
@@ -221,7 +194,8 @@ Tune it with **`yay batch <n>`** (raise/lower the barrier), `yay batch off` (a B
 | `yay adopt [path] [--dry]` | insert draft (unsigned) spec blocks above un-tagged units |
 | `yay sign [--cell IDs] [--brief "…"] [--title "…"] [--tags "…"]` | ask for approval — routes to your phone; `--name "<other>"` routes to a teammate's inbox, `--check` collects it |
 | `yay verify [--strict] [-d]` | the gate — paint every Cell + run the prover; `--strict` exits non-zero if blocked (CI) |
-| `yay dashboard [--port N]` | live control panel + phone relay — map, Preview (run scripts), tests, sign requests |
+| `yay dashboard [--port N]` | live control panel + phone relay — map, Preview (run scripts), tests, sign requests, **Ask** |
+| `yay ask "<question>"` | ask the configured AI about THIS repo + the manual (primed with live state; needs an LLM key in `.env`) |
 | `yay briefs [--by-tag] [--tag X]` | the Brief ledger (newest-first, or grouped/filtered by tag) |
 | `yay tags [--set id\|add\|remove\|rename\|sets]` | the project's Brief-tag vocabulary (six sets or custom) |
 | `yay inbox` / `yay requests` | your on-duty relay link · plain requests queued from the dashboard |
@@ -263,7 +237,7 @@ YayLayer isn't only per-Cell — it models how Cells combine.
 //∷YAY-END⟨C-900⟩
 ```
 
-Run `node bin/yay.js verify --dir examples` and `C-900` shows **Red** — *"rolled up from contained Cells"* — because `C-041` inside it is Red. In the map it's tagged `· module`, and its popup lists what it **Contains**.
+If a contained Cell is Red, `C-900` **rolls up to Red** — *"rolled up from contained Cells"* — so a deep failure bubbles to the top and you can trace it down. In the map it's tagged `· module`, and its popup lists what it **Contains**.
 
 **Flow (`feeds`).** A Cell lists the Cells it hands output to with `feeds`. That builds the graph the map draws, and verify flags a **broken edge** — a `feeds →` pointing at a Cell that doesn't exist.
 
