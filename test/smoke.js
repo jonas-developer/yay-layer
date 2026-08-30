@@ -706,7 +706,7 @@ ok(C.verify('canonical-bytes', nsig, npub), 'pure-JS signer: TweetNaCl signature
   const dbase = 'http://127.0.0.1:' + ds.port;
   ok((await fetch(dbase + '/api/ping').then((r) => r.json())).yay === 'dashboard', 'dashboard: /api/ping identifies a running dashboard');
   const dpage = await fetch(dbase + '/').then((r) => r.text());
-  ok(dpage.includes('MAPBODY') && dpage.includes('yd-refresh') && dpage.includes('yd-tests') && dpage.includes('yd-plan'), 'dashboard: serves the live map with Refresh + Run-tests + System-Plan buttons');
+  ok(dpage.includes('MAPBODY') && dpage.includes('yd-refresh') && dpage.includes('yd-tests') && dpage.includes('plan-refresh') && !dpage.includes('id="yd-plan"'), 'dashboard: serves the live map with Refresh + Run-tests + System-Plan refresh (now the nav ↻, not a dock button)');
   const dver1 = (await fetch(dbase + '/api/version').then((r) => r.json())).v; dv = 'B';
   const dver2 = (await fetch(dbase + '/api/version').then((r) => r.json())).v;
   ok(dver1 === 'A' && dver2 === 'B', 'dashboard: /api/version reflects state so the page auto-refreshes on change');

@@ -340,7 +340,12 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);l
 .sidenav{flex:1;overflow-y:auto;padding:8px 12px 20px}
 .navgroup{font-family:var(--sans);font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:var(--mut);padding:12px 10px 5px;line-height:1.2}
 .navgroup:first-child{padding-top:8px}
-.tab{display:flex;align-items:center;gap:11px;width:100%;text-align:left;font-family:var(--sans);font-size:.88rem;font-weight:500;line-height:1.15;letter-spacing:-.005em;background:none;border:none;color:var(--ink2);border-radius:9px;padding:8px 12px;cursor:pointer;transition:color .15s ease,background .15s ease}
+.tab{display:flex;align-items:center;gap:11px;width:100%;text-align:left;font-family:var(--sans);font-size:.88rem;font-weight:500;line-height:1.10;letter-spacing:-.005em;background:none;border:none;color:var(--ink2);border-radius:9px;padding:8px 12px;cursor:pointer;transition:color .15s ease,background .15s ease}
+.navrow{display:flex;align-items:center;gap:2px}
+.navrow .tab{flex:1;min-width:0}
+.navrefresh{flex:none;background:none;border:none;color:var(--mut);cursor:pointer;font-size:.95rem;line-height:1;padding:4px 7px;margin-right:4px;border-radius:7px;transition:color .14s,background .14s}
+.navrefresh:hover{color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.navrefresh.spin{animation:ask-spin .7s linear infinite;color:var(--accent)}
 .tab .ti{width:18px;height:18px;flex:none;display:inline-flex;align-items:center;justify-content:center;opacity:.75}
 .tab .ti svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .projrow{display:flex;align-items:flex-start;gap:11px;padding:8px 12px;margin:0 2px;border-radius:9px;background:color-mix(in srgb,var(--ink) 4%,transparent);border:1px solid var(--rule)}
@@ -423,6 +428,7 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);l
 .ask-ref{font-family:var(--mono);font-size:.82em;color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);border-radius:5px;padding:.03em .32em;cursor:pointer;white-space:nowrap;text-decoration:none}
 .ask-ref:hover{background:color-mix(in srgb,var(--accent) 12%,transparent)}
 .ask-spin{width:12px;height:12px;border:2px solid color-mix(in srgb,var(--accent) 28%,transparent);border-top-color:var(--accent);border-radius:50%;display:inline-block;vertical-align:-2px;margin-right:7px;animation:ask-spin .7s linear infinite}
+.ask-think{margin-left:5px}
 .ask-think .ad{display:inline-block;width:4px;height:4px;margin:0 1px;border-radius:50%;background:var(--accent);animation:ask-blink 1.2s infinite both}
 .ask-think .ad:nth-child(2){animation-delay:.18s}.ask-think .ad:nth-child(3){animation-delay:.36s}
 @keyframes ask-spin{to{transform:rotate(360deg)}}
@@ -567,7 +573,7 @@ pre.code .tk-c{color:#7f8c84;font-style:italic}
 <div class="projrow" title="${esc(project || 'project')}"><span class="ti">${ICONS.project}</span><span class="projname">${esc(project || 'project')}</span></div>
 <div class="navgroup">Overview</div>
 <button class="tab active" data-tab="map"><span class="ti">${ICONS.map}</span>Map</button>
-<button class="tab" data-tab="plan" id="tab-plan" style="display:none"><span class="ti">${ICONS.plan}</span>System Plan</button>
+<div class="navrow" id="planrow" style="display:none"><button class="tab" data-tab="plan" id="tab-plan"><span class="ti">${ICONS.plan}</span>System Plan</button><button class="navrefresh" id="plan-refresh" title="Regenerate the System Plan (calls your configured AI)" aria-label="Regenerate System Plan" style="display:none">↻</button></div>
 <div class="navgroup">Work</div>
 <button class="tab" data-tab="briefs"><span class="ti">${ICONS.briefs}</span>Briefs</button>
 <button class="tab" data-tab="tags" id="tab-tags" style="display:none"><span class="ti">${ICONS.tags}</span>Tags</button>
@@ -877,7 +883,7 @@ ${statblocks}
     var examples=['Which cells need approval right now?','List every cell the verifier marked Red, and why.','What is awaiting ratification, and under which grant?','Explain exactly how grants work and what I can do with them.','How does the foundation seal protect my project?','What did the last few Briefs change?'];
     var chips=examples.map(function(q){ return '<button class="viewbtn ask-ex" data-q="'+esc2(q)+'">'+esc2(q)+'</button>'; }).join('');
     var note=live?'':('<div class="snote" style="font-family:var(--sans);margin:0 0 12px;color:#c9860f">This is a static '+(demo?'demo':'map')+' — answers need the live dashboard. Run <code>yay dashboard</code> (with an LLM key in <code>.env</code>) and open Ask to query your own repo.</div>');
-    el.innerHTML='<h1>Ask</h1><div class="snote" style="font-family:var(--sans);margin:0 0 14px">Ask about <b>this project</b> or <b>how YayLayer works</b> — answered by the AI you configured for the System Plan, primed with your live project state <i>and</i> the manual. Cell and Brief references in the answer are clickable.</div>'+note
+    el.innerHTML='<h1>Ask</h1><div class="snote" style="font-family:var(--sans);margin:0 0 14px">Ask about <b>this project</b> or <b>how YayLayer works</b> — answered by <b>your configured system AI</b>, primed with your live project state <i>and</i> the manual. Cell and Brief references in the answer are clickable.</div>'+note
       +'<div style="max-width:760px"><textarea id="ask-q" placeholder="e.g. Which cells need approval?  ·  Explain how grants work" style="'+fld+'"></textarea>'
       +'<div style="margin-top:10px;display:flex;gap:10px;align-items:center"><button id="ask-go" class="viewbtn">Ask</button><span id="ask-status" class="snote" style="font-family:var(--sans)"></span></div>'
       +'<div style="margin-top:14px"><div class="snote" style="font-size:.78rem;margin-bottom:6px">Try one (asks straight away):</div><div class="ask-ex-grid">'+chips+'</div></div>'
@@ -1612,7 +1618,9 @@ ${statblocks}
   // because the bar is injected AFTER this script, so it isn't in the DOM yet when we load.
   function isLive(){ return !!document.getElementById('yd-bar'); }
   (function(){
-    if(DATA.meta && DATA.meta.plan) Array.prototype.forEach.call(document.querySelectorAll('[data-tab="plan"]'),function(t){ t.style.display=''; });
+    // Show the System Plan row when a plan exists, or when live (so the ↻ can generate the first one).
+    if((DATA.meta && DATA.meta.plan) || isLive()){ var _pr=document.getElementById('planrow'); if(_pr) _pr.style.display=''; }
+    if(isLive()){ var _prf=document.getElementById('plan-refresh'); if(_prf) _prf.style.display=''; }
     function revealTags(){ if(isLive() || (DATA.meta && DATA.meta.tags && DATA.meta.tags.length)) Array.prototype.forEach.call(document.querySelectorAll('[data-tab="tags"]'),function(t){ t.style.display=''; }); }
     revealTags(); window.addEventListener('load', revealTags);
     var pol=(DATA.meta&&DATA.meta.policy)||{};
