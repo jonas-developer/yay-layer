@@ -516,6 +516,7 @@ yay requests done &lt;id&gt;      <span class="cm"># clear one once it is signed
         <dt><code>yay dashboard</code> · <code>yay map</code> · <code>yay gate</code> · <code>yay constitution</code> · <code>yay status</code></dt><dd>Live panel + relay · static map · CI gate · write the Constitution · summary.</dd>
         <dt><code>yay tags</code> · <code>yay policy</code> · <code>yay batch</code> · <code>yay adopt</code></dt><dd>Tag pool · signing policy (<code>--set</code> owner-signs; <code>inert</code>/<code>coverage</code>/<code>delegable</code> rules) · batch barrier · adopt existing code.</dd>
         <dt><code>yay keygen</code> · <code>yay pair</code> · <code>yay enroll</code> · <code>yay invite</code></dt><dd>Create key · pair phone · enroll a signer · mint a join link.</dd>
+        <dt><code>yay protect</code> <em>(upcoming)</em></dt><dd>Create / re-seal the owner-signed <a href="#security">foundation seal</a> over the fixed core files. <code>--mode guarded|strict</code>, <code>--add</code>/<code>--remove &lt;glob&gt;</code>, <code>--ignore &lt;glob&gt;</code> (signed churn exclusion), <code>--off</code>. A broken seal warns in <code>yay verify</code>, the map, and the dashboard.</dd>
         <dt><code>yay reverify</code> · <code>yay witness</code> · <code>yay metrics</code> · <code>yay capability</code> · <code>yay archive</code></dt><dd>Append a re-verification (never rewrite) · integrity witness · earned-autonomy metrics · derived capability + drift check · Durable encrypted archive (<code>install</code> hook, <code>--restore</code>, <code>--forget</code>, <code>--verify</code>).</dd>
       </dl>
     </section>
@@ -550,6 +551,31 @@ yay requests done &lt;id&gt;      <span class="cm"># clear one once it is signed
       <p>An attestation is self-verifying: its signature and hash cover its own bytes, so anyone can check one offline or at <a href="https://yaylayer.com/verify">yaylayer.com/verify</a> — the content hash, the verifier's signature against the pinned key, and the declared capability against the canonical registry. No server, account, or upload; trust in the signature is trust in that project/CI-scoped verifier of record.</p>
       <h3>Silent-drift &amp; the integrity witness</h3>
       <p>A validly-signed Brief whose Cell has since drifted must not read green — the Briefs view shows covered-Cell health and a "what changed" diff. <code>yay witness</code> cross-checks the ledger against the tree — the attestation chain, the spec archive, and whether the latest attestation still covers the code — so git-history rewriting shows up as "the code git now claims existed here isn't what YayLayer verified."</p>
+
+      <h3>The foundation seal — tamper &amp; corruption evidence for the core <em>(upcoming — next release)</em></h3>
+      <p>Ordinary code changes freely — that's dev work, governed by the normal spec&nbsp;→&nbsp;sign&nbsp;→&nbsp;verify gate. But a handful of files define <em>how the AI and the rules operate</em> and should stay fixed in ~99% of cases: the Constitution, the CI gate workflow, <code>.gitignore</code> / <code>.yaylayerignore</code>, the protocol files. The <strong>foundation seal</strong> is an <strong>owner-signed baseline</strong> of that fixed core, so any change to it is <strong>revealed</strong> at verify time. It is <strong>detection, not prevention</strong> — and it is <strong>cause-agnostic</strong>: a hijacked AI, disk/bit-rot corruption, a bad merge, or a fat-fingered edit all surface the same way, because the current bytes no longer match what the Owner last vouched for. The baseline is signed by the <strong>Owner's phone key</strong>, which never touches the AI's machine — so it's math a rogue agent can't forge, and you're never left blind to a change in the crown jewels.</p>
+      <p>It watches two kinds of drift:</p>
+      <ul>
+        <li><strong>Content drift</strong> — the hash of each sealed core file. For the AI-rule files it hashes only the managed <code>∷ YAYLAYER:BEGIN…END</code> block, so your own guidance <em>around</em> it stays free.</li>
+        <li><strong>Structural drift</strong> — the <em>tracked</em> file-set of watched zones (repo root top-level, <code>.github/</code>, <code>.yaylayer/</code>): a new or removed file is revealed — a dropped payload, a rogue workflow, a file quietly untracked. This <strong>complements the Pink net</strong>: Pink catches un-specced <em>code</em>; the seal catches unexpected <em>files</em> of any type.</li>
+      </ul>
+      <p><strong>Why <code>.gitignore</code> is sealed:</strong> the structural watch keys off the tracked set, so <code>.gitignore</code> controls the blind spot — adding <code>payload.js</code> to it would make the file untracked and invisible. Sealing <code>.gitignore</code> means any change to <em>what is hidden</em> is itself revealed. (Untracking an already-sealed file is caught too — it vanishes from the zone set.)</p>
+      <div class="note"><span class="k">The signed ignore list</span><p>Tracked files that legitimately churn inside a watched zone (a committed CHANGELOG, a version file) can be excluded — but the exclude list lives <strong>inside the owner-signed seal</strong>, so adding an exclusion is itself an owner-vouched act. A rogue AI cannot add <code>ignore: my-payload.js</code> without the phone key; each exclusion is a deliberate, signed blind spot. (Gitignored files like <code>.env</code> are already outside the tracked set — you never list those.)</p></div>
+      <h4>Postures — chosen at <code>yay init</code> / <code>yay adopt</code></h4>
+      <div class="tw"><table>
+        <thead><tr><th>Posture</th><th>Seal</th><th>On drift</th><th>Gate</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Off</strong></td><td>none</td><td>—</td><td>unaffected</td></tr>
+          <tr><td><strong>Guarded</strong> <em>(default)</em></td><td>on</td><td>loud warning banner</td><td>still passes (informational)</td></tr>
+          <tr><td><strong>Strict</strong></td><td>on</td><td>warning</td><td>blocks until re-sealed</td></tr>
+        </tbody>
+      </table></div>
+      <p>The only difference between Guarded and Strict is whether foundation drift <em>fails</em> the gate or merely <em>warns</em>; everything else — the normal Red/Unsigned/Pink gate, signing, grants — is identical across postures. Default is <strong>Guarded</strong>: near-zero daily friction (it only speaks when the fixed core moves), maximum awareness. <strong>Secure by default, yours to tune.</strong></p>
+      <p><strong>Un-removable.</strong> The seal is an owner-signed, append-only event pinned via the trust root (the roster mechanism), so it can't be silently deleted or switched off — removing it breaks the pinned chain and is itself flagged. Only a human Owner can create it, re-seal it, or turn it off.</p>
+      <h4>Re-sealing</h4>
+      <p>When drift is revealed, you investigate with the diff the seal shows, then — if the change was legitimate (you edited the rules; you fixed a disk fault) — you <strong>re-seal</strong>: <code>yay protect</code> re-signs the current state on your phone. Only a human with the Owner key can clear the alarm; the AI can't (no key). Each seal is an append-only signed event, so you also get an audit trail of the foundation itself (<em>"re-sealed after disk-corruption fix"</em>). It's ratification, applied to the crown-jewel files.</p>
+      <h4>Commands</h4>
+      <p><code>yay protect</code> (create / re-seal), <code>--mode guarded|strict</code>, <code>--add</code> / <code>--remove &lt;glob&gt;</code> (tune the sealed set), <code>--ignore &lt;glob&gt;</code> (a signed churn exclusion), <code>--off</code> (owner-signed disable). Re-seal from the dashboard with the <strong>Re-seal foundation</strong> button. A broken seal shows a warning in <code>yay verify</code>, the map, and the dashboard.</p>
     </section>
 
     <section id="teams">

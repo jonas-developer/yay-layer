@@ -217,6 +217,7 @@ Tune it with **`yay batch <n>`** (raise/lower the barrier), `yay batch off` (a B
 | `yay policy [--init\|--set]` · `yay grant [--allow\|--deny\|--max-risk\|--child-grants]` · `yay ratify [--sign\|--reject]` | signing policy (who must sign) · Autopilot capability-envelope grants (+ child grants for helper-agent swarms) · ratify or reject delegated approvals |
 | `yay attest [list\|verify]` · `yay reverify` · `yay witness` · `yay metrics` · `yay capability` | the machine verifier signs its own verdict (chained, capability-versioned) · re-verify history without rewriting it · integrity witness · earned-autonomy metrics · the verifier's derived capability + drift check |
 | `yay archive [install\|--restore\|--verify\|--forget]` | Durable mode — encrypted, sha256-anchored archive of signed source (secret scan + signed tombstones) |
+| `yay protect [--mode guarded\|strict] [--add\|--remove\|--ignore] [--off]` _(upcoming)_ | owner-signed **foundation seal** — reveal any change to the fixed core files (rules, CI, gitignore) |
 | `yay test` · `yay adversary` · `yay plan` | run the project's own test suite · spec-only adversarial probing (LLM sees only the spec) · AI-synthesized System Plan |
 | `yay map [-o file.html]` · `yay gate` · `yay constitution --for <keys>` · `yay status` | write the HTML map · write the CI gate · write the Constitution into your AI harness · one-line summary |
 
@@ -340,6 +341,17 @@ Chrome/Safari read the macOS **system keychain**; **Firefox** keeps its own stor
 **3b. Android.** **Settings → Security (or Security & privacy) → Encryption & credentials / More security → Install a certificate → CA certificate** → pick the file → accept the warning. (Android 7+ apps don't trust user-added CAs by default, but **browser** traffic does, so the signing page works. Menu names vary by manufacturer.)
 
 **Note:** the cert is bound to your machine's **LAN IP** (in the SAN), so it regenerates when that IP changes; the phone key is per-origin, so a new IP just means restoring the key from your 24 words. A future hosted domain with a real CA cert removes this whole dance.
+
+## Foundation seal — tamper & corruption evidence for the core *(upcoming)*
+
+Ordinary code changes freely — that's the job, and it's governed by the normal spec→sign→verify gate. But a few files define **how the AI and the rules operate** and should stay fixed in ~99% of cases: the **Constitution** (`CLAUDE.md`/`AGENTS.md`…), the **CI gate workflow**, `.gitignore`/`.yaylayerignore`, the protocol files. The **foundation seal** is an **owner-signed baseline** of that fixed core, so any change to it is **revealed** at `yay verify` — whether from a hijacked AI, disk/bit-rot corruption, a bad merge, or an accident. It's **detection, not prevention**, and **cause-agnostic**: the current bytes simply no longer match what the Owner last vouched for. The baseline is signed by the **Owner's phone key** (never on the AI's machine), so it's math a rogue agent can't forge — you're never left blind to a change in the crown jewels.
+
+It watches **content drift** (the hash of each sealed file — for rule files, only the managed `YAYLAYER:BEGIN…END` block, so your own notes around it stay free) and **structural drift** (a new or removed *tracked* file in a watched zone — repo root, `.github/`, `.yaylayer/`). That complements the Pink net: **Pink catches rogue *code*; the seal catches rogue *files*** of any type (a workflow, a shell script). `.gitignore` is itself sealed, because it controls the blind spot.
+
+- **Postures, picked at `yay init`/`adopt` (default Guarded):** **Off** (no seal) · **Guarded** (drift raises a loud warning, gate still passes) · **Strict** (drift blocks the gate until you re-seal). The only difference between Guarded and Strict is warn-vs-block; nothing else changes. *Secure by default, yours to tune.*
+- **Un-removable:** the seal is an owner-signed, append-only, trust-root-pinned event — deleting or disabling it breaks the pinned chain and is itself flagged. Only a human Owner can create, re-seal, or turn it off.
+- **Signed ignore list:** a tracked file that legitimately churns (a committed CHANGELOG) can be excluded — but the exclusion lives *inside the owner-signed seal*, so the AI can't add `ignore: payload.js` without the phone key. (Gitignored files like `.env` are already outside the watch.)
+- **Re-seal** on a legitimate change with `yay protect` (one phone tap) — the AI can't clear the alarm; only a human with the Owner key can. Each seal is an append-only signed event, so the foundation has its own audit trail.
 
 ## Security notes
 
