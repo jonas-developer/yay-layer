@@ -8,9 +8,11 @@
 
 # Internal decision — the reverification record model (reverify engine, P3)
 
-**Status:** DECIDED — Hybrid (open report + opt-in signing). P3 (engine + records) + P4 (posture) shipped
-2026-08-31; P4b (per-Cell scoping + capability bump to 1.2.0) shipped 2026-09-01. Deferred: site
-`capabilities.json` (release-time) + posture hardening + P5 (see §6).
+**Status:** COMPLETE at P4b. Hybrid (open report + opt-in signing). P3 (engine + records) + P4 (posture)
+shipped 2026-08-31; P4b (per-Cell scoping + capability bump to 1.2.0) shipped 2026-09-01. **P5 (dependency-
+aware behavioural re-proof) investigated and CLOSED OUT of the reverify series** — it is a separate core-
+prover project, not a reverify add-on (see §9). Deferred: site `capabilities.json` (release-time) + posture
+hardening (see §6).
 **Date:** 2026-08-31 (updated 2026-09-01).
 **Scope:** How `yay reverify` (the historical sweep) records what it finds. Companion to the public
 decision log (`10-decision-log.md`); this file holds the *deliberation* — the alternatives we rejected
@@ -267,7 +269,8 @@ All dates 2026 (repo is private; commits authored L.J Bergman).
   records, `kind:"reverification"`, chained into the ledger) + post-capability-bump nudge. (f844b6d)
 - **P4.** `yay reverify posture [off|guarded|strict]` — the grandfathering gate control. (0516643)
 - **P4b.** Per-Cell scoping (`reverify: latest` policy rule) + capability bump 1.1.0 → 1.2.0. (2026-09-01)
-- **P5 (planned).** Behavioural re-proof with reconstructed historical dependencies.
+- **P5.** Investigated 2026-09-01, **closed out of the reverify series** (§9) — dependency-aware proving
+  is a separate core-prover project. The reverify engine is COMPLETE at P4b.
 
 ## 8. Documentation scope — what is public vs internal (a standing decision)
 
@@ -292,3 +295,52 @@ Planned coverage when done:
 - Emphasise the honest framing throughout: a re-verification is a NEW immutable event beside the old;
   original approvals stay historically valid; the report is keyless, signing is opt-in, and the posture
   gates on record existence — never on holding a key.
+
+---
+
+## 9. P5 — investigated and closed out of the reverify series (2026-09-01)
+
+**Decision:** the reverify engine is COMPLETE at P4b. "P5 = dependency-aware behavioural re-proof" was
+investigated and is NOT a reverify add-on; it is a separate core-prover project. User chose "close reverify
+at P4b" after the trade-off was laid out.
+
+**What the investigation found (code evidence):**
+- The behavioural prover is **same-file only**: `prove.js` strips every `import` (`neutralizeModules`),
+  undefined identifiers resolve to a `blackHole()` stub (never a ReferenceError), and `proveManifest`
+  reads ONE file at a time — there is no cross-file dependency wiring anywhere.
+- This is a property of **live `yay verify`**, not of reverify. Reverify re-runs `verifyManifest` (mutation,
+  inertness, coverage, predicate) at the SAME fidelity live verify proves. So reverify already does
+  behavioural re-proof within the prover's actual model; there is no reverify-specific gap to fill.
+
+**Why closing at P4b costs (essentially) nothing:** reverify matches the verifier it wraps. The premise of
+"reconstructed historical dependencies" assumed the prover *uses* cross-file deps — it doesn't, so
+reconstructing dep files has zero effect on proof outcomes under the current prover.
+
+**What dependency-aware proving WOULD add (i.e. what the whole system, not just reverify, lacks today):**
+- *Completeness:* a unit calling an imported PURE helper is proven against a blackHole stub, so its
+  `ensures` usually fails to prove → it caps at **Yellow (signed, unproven)** rather than machine-proven
+  Green. Dep-aware proving would let those reach Green. Fails safe (Yellow, not false Green).
+- *A narrow soundness edge:* a `pure: yes` unit could import an IMPURE helper; the prover neither executes
+  the real helper (black-holed) nor sees its effects statically (one-file analysis), so purity there is
+  over-generous. Still human-signed + gated — a machine-proof-strength gap, not a gate bypass.
+
+**Why adding it LATER (even with a large installed base) is clean, not a retrofit crisis:** capability
+versioning makes it a new dated capability (e.g. 2.0.0) — old attestations keep their fingerprint, nothing
+is rewritten; the **reverify engine we just built is the rollout tool** (`yay reverify --all` shows each
+user which historical Yellows would become Green and which Cells the stronger prover judges more strictly);
+the **grandfathering posture (P4/P4b)** governs the blast radius (off/guarded/strict/scoped) so no one's CI
+fails on a flag day. The genuinely hard parts of "later": (a) the prover engineering (cross-file
+resolution, import cycles, pure/impure propagation across modules); (b) pre-upgrade history lacks an
+archived dependency closure (Durable stored only signed files), so old states re-prove as
+"dependency-context incomplete" — honestly reported, not wrong; going forward, archive the closure.
+
+**Future project (not a reverify P):** "dependency-aware proving." Optional truth-in-labeling precursor —
+flag in BOTH `yay verify` and the reverify report when a proven unit references imported (cross-file)
+symbols (same-file-only proof). Belongs in live verify too; not built (user did not opt in).
+
+**Roadmap status (decided 2026-09-01):** dependency-aware behavioural proving is **POTENTIALLY ON THE
+ROADMAP for an upcoming version** — a post-1.2.0 core-prover capability (a future capability bump, e.g.
+2.0.0). NOT committed and NOT scheduled; recorded here so the decision + reasoning are preserved and the
+option is not lost. It is deliberately kept OUT of the public site/roadmap for now (this is an internal
+decision-log note only). When/if taken up, it rides the rails already shipped: capability versioning +
+`yay reverify --all` (the rollout report) + the grandfathering posture (blast-radius control).
