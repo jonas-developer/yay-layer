@@ -281,10 +281,11 @@ never touch them. We briefly drafted a manual/README note and **reverted it** (u
 mentioning"). Do not re-add to the user-facing manual or site; contributor context belongs at most in a
 future CONTRIBUTING doc, not the Documentation nav.
 
-**Public (user-facing), but DEFERRED until all P's are finished:** the `yay reverify` command family is a
-real end-user feature and SHOULD be documented on the website + in the manual once P4b/P5 land — deferred
-per the user so the public docs describe the finished surface in one pass rather than tracking each P.
-Planned coverage when done:
+**Public (user-facing) — DONE 2026-09-01 (pushed live to yaylayer.com):** the `yay reverify` family is
+documented on the site + manual now that all P's are finished. Shipped: manual Recipes section
+("Re-verify preserved history…") + CLI entry + v1.2.0 capabilities snapshot (`documentation/manual.html`,
+mirrored to `public/docs/manual.html`); site `public/capabilities.json` 1.2.0 entry; App.jsx "Reverify &
+witness" card + "what happens to old Green" FAQ; `llms.txt`/`llms-full.txt`. Original plan (for reference):
 - **Manual (`documentation/manual.html` → mirror to `public/docs/manual.html`):** a Recipes entry and/or a
   short section covering `yay reverify --all` (the keyless upgrade report), `--attest` (signed
   reverification records — append-only, references originals), and `yay reverify posture`
