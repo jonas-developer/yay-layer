@@ -234,3 +234,46 @@ policy for one concern) and would imply "Closed" is a mechanism when it is a rul
   so Standard-mode repos can sweep too.
 - **`yay attest list`** could label reverification entries distinctly (kind is in the object, not the index).
 - **Behavioural re-proof (P5)** with reconstructed historical dependencies.
+
+---
+
+## 7. Timeline (what shipped, when)
+
+All dates 2026 (repo is private; commits authored L.J Bergman).
+
+- **Test substrate (pre-P0).** `test/fixtures/scenario.js` — one reusable builder that drives the real
+  CLI to stand up realistic projects; `npm test` unified runner; `npm run confirm` confirmation report.
+  **Repo-only** (not shipped to npm, not on the site) — see §8. (commit 8f1ff60)
+- **P0.** History reconstruction primitive + fixture (`test/history-reconstruct.js`). Snapshot index in
+  the Durable archive; `reconstructSnapshot`. (earlier)
+- **P1.** `reverifyState` — re-run today's verifier over one reconstructed state. (earlier)
+- **P2.** `reverifySweep` — replay all snapshots + diff vs original verdict. (95ccadf)
+- **P3.** `yay reverify --all` (keyless upgrade report) + `--attest` (signed, append-only reverification
+  records, `kind:"reverification"`, chained into the ledger) + post-capability-bump nudge. (f844b6d)
+- **P4.** `yay reverify posture [off|guarded|strict]` — the grandfathering gate control. (0516643)
+- **P4b (next).** Per-Cell scoping (`reverify: latest` policy rule) — will carry the capability bump.
+- **P5 (planned).** Behavioural re-proof with reconstructed historical dependencies.
+
+## 8. Documentation scope — what is public vs internal (a standing decision)
+
+**Repo-only, deliberately NOT in public docs:** the scenario builder + tester (`npm test`, `npm run
+confirm`, `test/fixtures/scenario.js`). These only exist in a clone of the repo — `test/` is excluded from
+the npm package and the site never pulls it — so an end-user running `yay init` on their own project would
+never touch them. We briefly drafted a manual/README note and **reverted it** (user call: "skip
+mentioning"). Do not re-add to the user-facing manual or site; contributor context belongs at most in a
+future CONTRIBUTING doc, not the Documentation nav.
+
+**Public (user-facing), but DEFERRED until all P's are finished:** the `yay reverify` command family is a
+real end-user feature and SHOULD be documented on the website + in the manual once P4b/P5 land — deferred
+per the user so the public docs describe the finished surface in one pass rather than tracking each P.
+Planned coverage when done:
+- **Manual (`documentation/manual.html` → mirror to `public/docs/manual.html`):** a Recipes entry and/or a
+  short section covering `yay reverify --all` (the keyless upgrade report), `--attest` (signed
+  reverification records — append-only, references originals), and `yay reverify posture`
+  (off/guarded/strict grandfathering). Cross-link from the provenance/attestation section
+  ("Green is an event" / verifier versioning) and the commands list.
+- **Website (`yaylayer-site`):** mention in the FAQ (e.g. "what happens to old Green when the verifier
+  improves?") and the capabilities snapshot; keep the WYSIWYS/phone-signing and gate copy untouched.
+- Emphasise the honest framing throughout: a re-verification is a NEW immutable event beside the old;
+  original approvals stay historically valid; the report is keyless, signing is opt-in, and the posture
+  gates on record existence — never on holding a key.
