@@ -43,6 +43,11 @@ function reverifyState(p, snap, key, config, opts) {
         coverage: (r.coverage && r.coverage.total) ? { exercised: r.coverage.exercised, total: r.coverage.total } : null,
       };
     }
+    // The signable verification object for this reconstructed historical tree, judged under TODAY's
+    // verifier. `yay reverify --attest` turns this into a signed, append-only reverification record
+    // (see reverificationObj). Built from the reconstructed manifest, so its code/spec hashes describe
+    // the HISTORICAL state, while its capability/fingerprint describe today's verifier.
+    const verObj = A.buildVerification(manifest, verified, { config });
     return {
       codeTreeHash: rebuilt,
       capability: cap.CAPABILITY || null,
@@ -50,6 +55,7 @@ function reverifyState(p, snap, key, config, opts) {
       counts: verified.counts,
       passed: verified.passed,
       cells,
+      verObj,
     };
   } catch (e) {
     return { error: (e && e.message) || String(e) };
@@ -85,15 +91,23 @@ function defaultBaselineOf(p, config) {
 function reverifySweep(p, key, config, opts) {
   opts = opts || {};
   const baselineOf = opts.baselineOf || defaultBaselineOf(p, config);
-  const snaps = D.listSnapshots(p);
+  const nowCap = cap.CAPABILITY || null;
+  const allSnaps = D.listSnapshots(p);
   const cache = {};
   const report = {
-    total: snaps.length, checked: 0, deduped: 0, errors: 0,
+    total: allSnaps.length, filtered: 0, checked: 0, deduped: 0, errors: 0,
     unchanged: 0, improved: 0, regressed: 0, noBaseline: 0,
-    capability: cap.CAPABILITY || null, fingerprint: cap.capabilityFingerprint ? cap.capabilityFingerprint() : null,
+    capability: nowCap, fingerprint: cap.capabilityFingerprint ? cap.capabilityFingerprint() : null,
     regressions: [], improvements: [], states: [],
   };
-  for (const snap of snaps) {
+  for (const snap of allSnaps) {
+    // Cheap pre-filters (no reconstruction needed): --since keeps snapshots at/after a date; --eligible
+    // keeps only those a capability change could actually re-judge (baseline capability ≠ today's).
+    if (opts.since && snap.at && String(snap.at) < String(opts.since)) { report.filtered++; continue; }
+    if (opts.eligibleOnly) {
+      const b = baselineOf(snap);
+      if (b && b.capability && b.capability === nowCap) { report.filtered++; continue; }
+    }
     const ck = snap.codeTreeHash;
     let rv;
     if (ck && cache[ck]) { rv = cache[ck]; report.deduped++; }
@@ -114,9 +128,27 @@ function reverifySweep(p, key, config, opts) {
       else if (verdict === 'unchanged') report.unchanged++;
       else if (verdict === 'no-baseline') report.noBaseline++;
     }
-    report.states.push({ at: snap.at, codeTreeHash: ck, fromCapability: baseCap, toCapability: rv.capability, cells: perCell });
+    // A state "changed" if any Cell moved against its baseline — this is what --attest mints a record for.
+    const changed = Object.keys(perCell).some((id) => perCell[id].verdict === 'regressed' || perCell[id].verdict === 'improved');
+    const st = { at: snap.at, codeTreeHash: ck, attest: snap.attest || null, fromCapability: baseCap, toCapability: rv.capability, changed, cells: perCell };
+    if (opts.keepVerObj) st.verObj = rv.verObj;
+    report.states.push(st);
   }
   return report;
 }
 
-module.exports = { reverifyState, reverifySweep, classify };
+// Turn a reconstructed state's verification object into a signable REVERIFICATION record: the same
+// canonical verification bytes (today's capability judging the historical code/spec), tagged as a
+// reverification and carrying a reference to the ORIGINAL attestation it re-assesses (Paper 3: append
+// a new immutable record beside the old, never rewrite). The caller signs it with the verifier key and
+// appends it to the same chain (A.signAttestation → A.appendAttestation).
+function reverificationObj(verObj, snap, baseline) {
+  return Object.assign({}, verObj, {
+    kind: 'reverification',
+    reassesses: (snap && snap.attest) || null,      // hash of the original attestation for this state
+    reassessedAt: (snap && snap.at) || null,        // when the original state was archived
+    originalCapability: (baseline && baseline.capability) || null,
+  });
+}
+
+module.exports = { reverifyState, reverifySweep, reverificationObj, classify };

@@ -19,6 +19,7 @@ const O = require('../src/objects');
 const A = require('../src/attest');
 const CAP = require('../src/capability');
 const AS = require('../src/assurance');
+const RV = require('../src/reverify');
 const D = require('../src/durable');
 const F = require('../src/foundation');
 const { buildManifest } = require('../src/manifest');
@@ -1945,6 +1946,13 @@ function reportAttestStatus(p, config, manifest, verified) {
   const covered = cur.codeTreeHash === last.codeTreeHash;
   if (covered) console.log('  ' + U.c.dim('verifier attestation ' + U.c.green(last.hash.slice(0, 12)) + U.c.dim(` · ${last.passed ? 'PASS' : 'BLOCKED'} · capability ${last.capability}`)));
   else console.log('  ' + U.c.yellow('⚠ attestation stale') + U.c.dim(` — code changed since ${last.hash.slice(0, 12)}; re-mint with `) + U.c.bold('yay attest'));
+  // Post-capability-bump nudge (P3): the verifier's capability advanced since the last attestation and
+  // there's preserved history — a sweep can re-judge old approvals under the new checks (never rewrites them).
+  if (last.capability && last.capability !== CAP.CAPABILITY) {
+    let n = 0; try { n = D.listSnapshots(p).length; } catch (_) {}
+    console.log('  ' + U.c.accent('↻ verifier capability advanced ' + last.capability + ' → ' + CAP.CAPABILITY)
+      + U.c.dim((n ? ' — re-judge ' + n + ' preserved state(s) with ' : ' — run ')) + U.c.bold('yay reverify --all'));
+  }
 }
 
 // `yay attest` — mint a signed VERIFIER ATTESTATION over the current verified tree (P2). This is
@@ -2133,6 +2141,10 @@ function cmdCapability(flags) {
 // APPEND a new attestation that chains to the prior one. Never rewrites old attestations: a better
 // verifier's assessment is a NEW event beside the old, so history compounds instead of being edited.
 function cmdReverify(flags) {
+  // Sweep mode (P3): replay ALL preserved history through today's verifier and diff each state against
+  // its original attestation — Paper 3's "verifier upgrade report." Distinct from the default below,
+  // which re-attests only the CURRENT tree. Needs Durable snapshots + (for reconstruction) the archive key.
+  if (flags.all || flags.since || flags.eligible || flags.history) return cmdReverifyAll(flags);
   const { p, config, lock } = loadState();
   if (!config) return fail('run `yay init` first');
   const manifest = buildManifest(flags.dir || p.root);
@@ -2164,6 +2176,112 @@ function cmdReverify(flags) {
   const att = A.signAttestation(verObj, id);
   A.appendAttestation(p, config, att);
   console.log('\n' + U.c.green('✓ appended re-verification') + U.c.dim(` ${att.hash.slice(0, 16)} (chained to ${att.prev.slice(0, 12)}) — old attestations are untouched.`));
+}
+
+function stripAnsi(s) { return String(s).replace(/\x1b\[[0-9;]*m/g, ''); }
+
+// Render Paper 3's "verifier upgrade report" for a historical sweep. emit defaults to console.log;
+// pass a collector to also capture a plaintext copy (see `-o`).
+function renderUpgradeReport(report, flags, emit) {
+  const say = emit || ((s) => console.log(s));
+  const line = '─'.repeat(56);
+  say(U.c.bold('Verifier upgrade report') + U.c.dim(' — capability ' + report.capability + ' · fingerprint ' + String(report.fingerprint || '').slice(0, 16) + '…'));
+  say('  ' + U.c.dim(line));
+  say('  ' + report.checked + ' historical state(s) checked'
+    + (report.deduped ? U.c.dim(' · ' + report.deduped + ' deduped') : '')
+    + (report.filtered ? U.c.dim(' · ' + report.filtered + ' filtered') : '')
+    + (report.errors ? U.c.red(' · ' + report.errors + ' error(s)') : ''));
+  say('  ' + U.c.green(report.unchanged + ' unchanged') + U.c.dim(' · ') + U.c.green(report.improved + ' improved')
+    + U.c.dim(' · ') + (report.regressed ? U.c.red(report.regressed + ' regressed') : U.c.dim('0 regressed'))
+    + (report.noBaseline ? U.c.dim(' · ' + report.noBaseline + ' no-baseline') : ''));
+  if (report.regressions.length) {
+    say('  ' + U.c.dim(line));
+    say('  ' + U.c.red('Regressions') + U.c.dim(" — old code today's verifier now judges more strictly (the original approvals stay historically valid):"));
+    for (const r of report.regressions) say('    ' + U.c.red('▼ ') + r.cell
+      + U.c.dim(' · ' + r.from + ' → ' + r.to + (r.predicate ? ' (◈ undeclared input)' : '')
+      + ' · ' + (r.fromCapability || '?') + ' → ' + r.toCapability + (r.at ? ' · ' + String(r.at).slice(0, 10) : '')));
+  }
+  if (report.improvements.length) {
+    if (!report.regressions.length) say('  ' + U.c.dim(line));
+    for (const r of report.improvements) say('    ' + U.c.green('▲ ') + r.cell
+      + U.c.dim(' · ' + r.from + ' → ' + r.to + ' · ' + (r.fromCapability || '?') + ' → ' + r.toCapability + (r.at ? ' · ' + String(r.at).slice(0, 10) : '')));
+  }
+  if (report.errors) for (const s of report.states) if (s.error) say('    ' + U.c.red('✗ ') + (s.at ? String(s.at).slice(0, 10) + ' ' : '') + U.c.dim(s.error));
+  say('  ' + U.c.dim(line));
+  say('  ' + (report.regressed
+    ? U.c.yellow('⚠ ' + report.regressed + ' regression(s) — worth review; old approvals remain historically valid under their original verifier')
+    : U.c.green('✓ no regressions — preserved history holds up under capability ' + report.capability)));
+}
+
+// `yay reverify --all` (P3) — the HISTORICAL SWEEP. Reconstruct every preserved snapshot, re-run
+// today's verifier against it, and diff each Cell against its ORIGINAL signed verdict → Paper 3's
+// "verifier upgrade report" (what a better verifier now sees in old, already-approved code). Read-only
+// and KEYLESS by default — the re-verdict is a deterministic recomputation, so anyone can look without
+// a secret. `--attest` mints signed, append-only reverification records for the states that changed,
+// never rewriting the originals (a new immutable event beside the old). `--since <date>` / `--eligible`
+// filter the sweep; `-o <file>` saves a plaintext copy; `--json` prints the report as data.
+async function cmdReverifyAll(flags) {
+  const { p, config } = loadState();
+  if (!config) return fail('run `yay init` first');
+  const snaps = D.listSnapshots(p);
+  if (!snaps.length) return fail('no preserved snapshots to reverify — the sweep needs Durable history.\n  Enable it (`yay archive enable`) and archive signed states (`yay archive`), then re-run. (Standard mode keeps history in git; reconstruct-from-git is not yet wired into the sweep.)');
+  const arc = D.loadArchive(p);
+  if (!arc) return fail('no archive found — Durable history is required for the sweep.');
+  let key; try { key = D.resolveKey(await getArchivePass(flags), arc.salt); } catch (e) { return fail(e.message); }
+
+  const wantAttest = !!flags.attest;
+  const report = RV.reverifySweep(p, key, config, {
+    since: (flags.since && flags.since !== true) ? String(flags.since) : null,
+    eligibleOnly: !!flags.eligible,
+    keepVerObj: wantAttest,
+  });
+
+  if (flags.json) console.log(JSON.stringify(report, null, 2));
+  else renderUpgradeReport(report, flags);
+
+  const outPath = (flags.o && flags.o !== true) ? String(flags.o) : ((flags.out && flags.out !== true) ? String(flags.out) : null);
+  if (outPath) {
+    const lines = [];
+    renderUpgradeReport(report, flags, (s) => lines.push(stripAnsi(s)));
+    fs.writeFileSync(outPath, lines.join('\n') + '\n');
+    console.log('  ' + U.c.dim('→ wrote ' + outPath));
+  }
+
+  if (!wantAttest) {
+    if (report.regressed || report.improved) console.log('\n  ' + U.c.dim('record these as signed, append-only reverification attestations with ') + U.c.bold('yay reverify --all --attest') + U.c.dim(' (needs the verifier key).'));
+    if (flags.strict) process.exit(report.regressed ? 1 : 0);
+    return;
+  }
+
+  // ── --attest: mint signed reverification records for the changed states ──
+  const id = A.verifierIdentity(p, config, { create: false });
+  if (!id) return fail('--attest needs the verifier identity (the key that mints attestations) — run on the machine that holds .yaylayer/keys/verifier.json. The read-only report above needs no key.');
+  const capChk = CAP.assertCapability();
+  if (capChk.drift && !flags['allow-capability-drift']) return fail(`verifier capability DRIFT — detectors changed without a version bump (actual ${capChk.actual.slice(0, 16)}…). Bump CAPABILITY + register it, or pass --allow-capability-drift.`);
+
+  // Existing reverifications, to dedup — never re-mint an identical (original × capability × code) re-assessment.
+  const led = A.loadLedger(p, config);
+  const already = new Set();
+  for (const e of led.entries) { const a = A.loadAttestation(p, config, e.hash); if (a && a.kind === 'reverification') already.add(a.reassesses + '|' + a.capability + '|' + a.codeTreeHash); }
+  const baselineOf = (snap) => { if (!snap || !snap.attest) return null; const a = A.loadAttestation(p, config, snap.attest); return a ? { capability: a.capability || null, evidence: a.evidence || null } : null; };
+
+  let minted = 0, skipped = 0;
+  for (const st of report.states) {
+    if (!st.changed || !st.verObj) continue;
+    const dedupKey = (st.attest || null) + '|' + report.capability + '|' + st.codeTreeHash;
+    if (already.has(dedupKey)) { skipped++; continue; }
+    const robj = RV.reverificationObj(st.verObj, { attest: st.attest, at: st.at }, baselineOf({ attest: st.attest }));
+    const att = A.signAttestation(robj, id);
+    A.appendAttestation(p, config, att);
+    already.add(dedupKey);
+    minted++;
+    console.log('  ' + U.c.green('✓ reverification') + U.c.dim(' ' + att.hash.slice(0, 16) + ' — re-assesses ' + (st.attest ? String(st.attest).slice(0, 12) : '(no original)') + ' · ' + (st.fromCapability || '?') + ' → ' + report.capability));
+  }
+  A.pinVerifier(config, id) && U.writeJSON(p.config, config);
+  console.log('\n  ' + (minted ? U.c.green('✓ appended ' + minted + ' reverification record(s)') : U.c.dim('nothing new to record'))
+    + (skipped ? U.c.dim(' · ' + skipped + ' already recorded') : '')
+    + U.c.dim(' — originals untouched; chained into .yaylayer/attest.json (commit it).'));
+  if (flags.strict) process.exit(report.regressed ? 1 : 0);
 }
 
 // `yay witness` (P4) — integrity witness: cross-check the append-only ledgers against each other and
@@ -3286,9 +3404,11 @@ const HELP = `yay — a protocol for provable, signed AI code
                              can also verify an attestation in-browser at https://yaylayer.com/verify (no upload).
   yay capability [--json]    the verifier's DERIVED capability descriptor + fingerprint (provers, effect
                              nets, checks, policy kinds); flags DRIFT if detectors changed without a version bump
-  yay reverify               re-run verification at the current verifier capability; if a capability bump,
-                             a verdict change (e.g. Yellow→Green), or code drift is found, APPEND a new
-                             attestation chained to the prior one (never rewrites old Green). Prints an upgrade report.
+  yay reverify               re-run verification on the CURRENT tree at today's capability; on a change,
+                             APPEND a new attestation chained to the prior one (never rewrites old Green).
+  yay reverify --all         the HISTORICAL SWEEP: replay every preserved (Durable) snapshot through today's
+    [--since D] [--eligible] verifier + diff vs its original verdict → a "verifier upgrade report." Read-only and
+    [--attest] [-o f] [--json]  KEYLESS by default; --attest mints signed, append-only reverification records.
   yay witness [--strict]     integrity witness — cross-check the attestation chain, the spec archive, and
                              whether the latest attestation still covers the code (git/tree vs ledger vs archive)
   yay metrics                earned-autonomy metrics from the delegation + ratification + rejection history
