@@ -1892,7 +1892,7 @@ function cmdVerify(flags) {
   reportFoundation(verified);
   // Verifier attestation status (P2): is the current tree covered by a signed attestation?
   reportAttestStatus(p, config, manifest, verified);
-  const rvGate = reportReverifyPosture(p, config);
+  const rvGate = reportReverifyPosture(p, config, manifest, verified);
   reportProtection(p, config, verified);
   const blocked = !verified.passed || manifest.problems.length || (rvGate && rvGate.posture === 'strict' && !rvGate.satisfied);
   console.log('\n  ' + (blocked ? U.c.red('GATE: BLOCKED') + U.c.dim(' (red, unsigned, or unspecified/pink code cannot reach main)')
@@ -2245,10 +2245,26 @@ function cmdReverifyPosture(flags, positional) {
 // Reverification posture readout under `yay verify` (P4). Returns the gate result so the caller can fold
 // a strict, unsatisfied posture into the gate decision. Never needs a key — a deterministic check of
 // whether signed reverification records exist for preserved history under the current capability.
-function reportReverifyPosture(p, config) {
-  let g; try { g = RV.reverifyGate(p, config); } catch (_) { return { posture: 'off', satisfied: true }; }
+function reportReverifyPosture(p, config, manifest, verified) {
+  let g;
+  try {
+    // Per-Cell scoping (P4b): if the enforced (owner-signed) policy carries any `reverify: latest` rule,
+    // only Cells it matches are subject; compute that Cell-id set from the live tree and pass it in.
+    const policy = (verified && verified.policy) || null;
+    let opts;
+    if (policy && policyMod.hasReverifyScope(policy) && manifest) {
+      const ids = new Set();
+      for (const id of Object.keys(manifest.cells || {})) {
+        const c = manifest.cells[id];
+        if (policyMod.reverifyRequired(policy, { file: c.file, spec: c.spec, module: c.module })) ids.add(id);
+      }
+      opts = { scoped: true, scopedIds: ids };
+    }
+    g = RV.reverifyGate(p, config, opts);
+  } catch (_) { return { posture: 'off', satisfied: true }; }
   if (g.posture === 'off') return g;
-  if (g.satisfied) { console.log('  ' + U.c.dim('↻ reverification posture (' + g.posture + ') — preserved history covered under capability ' + g.capability)); return g; }
+  const scopeNote = g.scoped ? U.c.dim(' [scoped]') : '';
+  if (g.satisfied) { console.log('  ' + U.c.dim('↻ reverification posture (' + g.posture + ')' ) + scopeNote + U.c.dim(' — preserved history covered under capability ' + g.capability)); return g; }
   const n = g.pending.length;
   if (g.posture === 'strict') console.log('  ' + U.c.red('↻ REVERIFICATION REQUIRED') + U.c.dim(' — ' + n + ' preserved state(s) not re-verified under capability ' + g.capability + '; run ') + U.c.bold('yay reverify --all --attest') + U.c.dim(' (strict → gate blocked)'));
   else console.log('  ' + U.c.yellow('↻ reverification pending') + U.c.dim(' — ' + n + ' preserved state(s) predate capability ' + g.capability + '; run ') + U.c.bold('yay reverify --all') + U.c.dim(' to review'));

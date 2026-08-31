@@ -8,9 +8,10 @@
 
 # Internal decision — the reverification record model (reverify engine, P3)
 
-**Status:** DECIDED — Hybrid (open report + opt-in signing). P3 (engine + records) and P4 (grandfathering
-posture) SHIPPED 2026-08-31. Per-Cell scoping (P4b) + posture hardening deferred (see §6).
-**Date:** 2026-08-31.
+**Status:** DECIDED — Hybrid (open report + opt-in signing). P3 (engine + records) + P4 (posture) shipped
+2026-08-31; P4b (per-Cell scoping + capability bump to 1.2.0) shipped 2026-09-01. Deferred: site
+`capabilities.json` (release-time) + posture hardening + P5 (see §6).
+**Date:** 2026-08-31 (updated 2026-09-01).
 **Scope:** How `yay reverify` (the historical sweep) records what it finds. Companion to the public
 decision log (`10-decision-log.md`); this file holds the *deliberation* — the alternatives we rejected
 and why — which does not belong in user-facing docs.
@@ -213,13 +214,27 @@ policy for one concern) and would imply "Closed" is a mechanism when it is a rul
   history is current, pending under a newer capability (guarded warns / strict blocks), and a
   reverification at the new capability clearing the pending state.
 
-**Open questions / follow-ups (P4b / P5+):**
-- **Per-Cell scoping** (the "critical cells reverify / normal grandfathered" refinement) — an owner-signed
-  policy rule `{ match: {...}, reverify: "latest" }`. This WOULD be a new POLICY_KIND (`reverify-latest`),
-  so it forces a capability bump (1.1.0 → 1.2.0) + a new REGISTERED fingerprint + a site
-  `capabilities.json` update. Deferred deliberately: the project-wide posture already delivers a complete
-  grandfathering model (off = grandfather-all default; strict = require-all), and scoping is a refinement
-  worth its own change so the capability bump is clean and intentional.
+**Shipped in P4b (2026-09-01) — per-Cell scoping + the capability bump:**
+- Owner-signed policy rule `{ match: {...}, reverify: "latest" }` — narrows WHICH Cells are subject to the
+  posture; unmatched Cells stay grandfathered ("critical cells reverify; the rest grandfathered"). With no
+  such rule, the posture stays project-wide. `policy.js`: `reverifyRequired()` + `hasReverifyScope()`.
+- `reverifyGate()` gains `opts.scoped` / `opts.scopedIds`; membership is read from each state's own
+  attestation EVIDENCE (Cell ids) so scoping stays KEYLESS (no reconstruction to consult the posture).
+  `reportReverifyPosture()` computes the in-scope id set from the live manifest + the enforced policy.
+- **Capability bump 1.1.0 → 1.2.0** (MINOR): added the `reverify-latest` POLICY_KIND to the descriptor.
+  New fingerprint `f29468bffd24b0f93529bd1daa6b1f98e96dce9df1b55993d44b4055c9599d75`, REGISTERED. Clean,
+  intentional — no existing verdict's meaning changed; it only adds a policy kind the verifier understands.
+- Tests: `test/reverify-p4.js` extended (18 checks) — capability bump, `reverifyRequired`/`hasReverifyScope`,
+  and scoped strict (in-scope state pending / out-of-scope state grandfathered).
+
+**Open questions / follow-ups (release / P5+):**
+- **Site `capabilities.json` (DEFERRED — release-time).** The engine is at 1.2.0 but the public registry
+  (`yaylayer-site/public/capabilities.json`) still ends at 1.1.0. Not updated yet: 1.2.0 is unreleased
+  (not on npm, no attestations in the wild) and the site auto-deploys on push, so an early update would
+  disclose 1.2.0 + publish before the feature docs are ready. Update it (add the 1.2.0 entry with the
+  fingerprint above + `reverify-latest` in policyKinds) together with the deferred public docs when all P's
+  land. Nothing breaks meanwhile — the local REGISTERED map validates; only the optional online
+  `--registry` cross-check needs the site, and nothing hits it pre-release.
 - **Posture hardening** — the posture lives in committed config (like `config.foundation`), so it is
   AI-writable in principle; a future step could move it into the owner-signed enforced policy (roster) for
   tamper-evidence, exactly as `yay policy --set` does for signing rules. Matches the foundation precedent's
@@ -251,7 +266,7 @@ All dates 2026 (repo is private; commits authored L.J Bergman).
 - **P3.** `yay reverify --all` (keyless upgrade report) + `--attest` (signed, append-only reverification
   records, `kind:"reverification"`, chained into the ledger) + post-capability-bump nudge. (f844b6d)
 - **P4.** `yay reverify posture [off|guarded|strict]` — the grandfathering gate control. (0516643)
-- **P4b (next).** Per-Cell scoping (`reverify: latest` policy rule) — will carry the capability bump.
+- **P4b.** Per-Cell scoping (`reverify: latest` policy rule) + capability bump 1.1.0 → 1.2.0. (2026-09-01)
 - **P5 (planned).** Behavioural re-proof with reconstructed historical dependencies.
 
 ## 8. Documentation scope — what is public vs internal (a standing decision)

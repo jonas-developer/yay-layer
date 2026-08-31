@@ -182,6 +182,13 @@ function reverifyGate(p, config, opts) {
     const a = A.loadAttestation(p, config, e.hash);
     if (a && a.kind === 'reverification' && a.capability === cur && a.reassesses) covered[a.reassesses] = true;
   }
+  // Optional per-Cell scoping (P4b): when opts.scoped is set, only states that contained at least one
+  // in-scope Cell (an owner-signed `reverify: latest` match — opts.scopedIds is that Cell-id set) are
+  // subject; the rest stay grandfathered. Membership is read from the state's own attestation evidence,
+  // so scoping stays KEYLESS (no reconstruction needed to consult the posture).
+  const scoped = !!opts.scoped;
+  const scopedIds = opts.scopedIds || null;
+  if (scoped) out.scoped = true;
   const seen = new Set();
   for (const s of D.listSnapshots(p)) {
     if (!s.attest) continue;                                   // never attested — no baseline capability to compare
@@ -191,6 +198,11 @@ function reverifyGate(p, config, opts) {
     const origCap = orig ? orig.capability : null;
     if (!origCap || origCap === cur) continue;                 // already at the current capability
     if (covered[s.attest]) continue;                           // a current-capability reverification covers it
+    if (scoped) {
+      const ev = (orig && orig.evidence) || {};
+      const inScope = Object.keys(ev).some((id) => scopedIds && scopedIds.has(id));
+      if (!inScope) continue;                                  // no in-scope Cell in this state — grandfathered
+    }
     out.pending.push({ at: s.at, attest: s.attest, fromCapability: origCap, codeTreeHash: s.codeTreeHash });
   }
   out.satisfied = out.pending.length === 0;

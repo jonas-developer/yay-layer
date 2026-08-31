@@ -13,6 +13,8 @@
 const assert = require('assert');
 const A = require('../src/attest');
 const RV = require('../src/reverify');
+const CAP = require('../src/capability');
+const POL = require('../src/policy');
 const { scenario } = require('./fixtures/scenario');
 
 let n = 0;
@@ -70,7 +72,20 @@ try {
   const gCovered = RV.reverifyGate(p, config, { posture: 'strict', capability: NEW });
   ok(gCovered.satisfied && gCovered.pending.length === 0, 'a reverification at the new capability clears the pending state (strict now satisfied)');
 
-  console.log('\nReverify P4 (grandfathering posture): all ' + n + ' checks passed.');
+  // ── P4b: per-Cell scoping ──
+  ok(CAP.CAPABILITY === '1.2.0' && !CAP.assertCapability().drift, 'capability bumped to 1.2.0 with the reverify-latest policy kind (no drift)');
+  ok(CAP.describeCapability().policyKinds.includes('reverify-latest'), 'reverify-latest is a registered policy kind');
+  const scopePolicy = { rules: [{ match: { tag: 'sensitive' }, reverify: 'latest' }] };
+  ok(POL.hasReverifyScope(scopePolicy) && !POL.hasReverifyScope({ rules: [] }), 'hasReverifyScope detects a reverify:latest rule');
+  ok(POL.reverifyRequired(scopePolicy, { file: 'x.js', spec: { tag: 'sensitive' } }) === true
+    && POL.reverifyRequired(scopePolicy, { file: 'x.js', spec: {} }) === false, 'reverifyRequired matches only in-scope Cells');
+  // Scoped gate under the newer capability: the old state (evidence = {C-1}) is subject only if C-1 is in scope.
+  const gInScope = RV.reverifyGate(p, config, { posture: 'strict', capability: '9.9.8', scoped: true, scopedIds: new Set(['C-1']) });
+  ok(gInScope.scoped && !gInScope.satisfied && gInScope.pending.length === 1, 'scoped strict: a state containing an in-scope Cell is pending');
+  const gOutScope = RV.reverifyGate(p, config, { posture: 'strict', capability: '9.9.8', scoped: true, scopedIds: new Set(['C-2']) });
+  ok(gOutScope.scoped && gOutScope.satisfied && gOutScope.pending.length === 0, 'scoped strict: a state with no in-scope Cell is grandfathered (not pending)');
+
+  console.log('\nReverify P4 (grandfathering posture + scoping): all ' + n + ' checks passed.');
 } finally {
   s.cleanup();
 }
