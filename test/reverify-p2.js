@@ -6,55 +6,34 @@
 // since 1.0.0 genuinely couldn't detect the undeclared input. The sweep must report exactly one
 // regression (the bait Cell: GREEN@1.0.0 → YELLOW@today) and leave the clean state unchanged. Nothing
 // in the recorded history is mutated — deltas are computed, never written over.
+//
+// The history is stood up via the shared scenario factory (test/fixtures/scenario.js).
 
-const { execFileSync } = require('child_process');
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
 const assert = require('assert');
-const U = require('../src/util');
-const D = require('../src/durable');
+const { scenario } = require('./fixtures/scenario');
 const { reverifySweep } = require('../src/reverify');
 
-const YAY = path.join(__dirname, '..', 'bin', 'yay.js');
 let n = 0;
 const ok = (cond, msg) => { n++; assert.ok(cond, msg); console.log('  ✓ ' + msg); };
 
-const work = fs.mkdtempSync(path.join(os.tmpdir(), 'yay-rvp2-'));
-const proj = path.join(work, 'cart');
-fs.mkdirSync(proj, { recursive: true });
-const ARCH_KEY = 'archive-key-secret-123';
-const env = { ...process.env, YAY_PASSPHRASE: 'secret123', YAY_ARCHIVE_KEY: ARCH_KEY };
-const yay = (args) => execFileSync('node', [YAY, ...args], { cwd: proj, env, stdio: 'pipe' });
-const git = (args) => execFileSync('git', args, { cwd: proj, env, stdio: 'pipe' });
+const SPEC = { unit: 'applyDiscount', intent: 'apply a percentage discount to a price',
+  in: 'price: number, pct: number', out: 'number', ensures: 'out === price * (1 - pct)', pure: true, file: 'cart.js' };
+const CLEAN = 'function applyDiscount(price, pct){ return price * (1 - pct); }';
+const BAIT = 'function applyDiscount(price, pct, mode){ if (mode === "wholesale") return price * (1 - pct); return price * (1 - pct); }';
 
-const CLEAN =
-  '//∷YAY⟨C-1⟩\n// unit: applyDiscount\n// intent: apply a percentage discount to a price\n' +
-  '// in: price: number, pct: number\n// out: number\n// ensures: out === price * (1 - pct)\n// pure: yes\n' +
-  '//∷YAY-END⟨C-1⟩\nfunction applyDiscount(price, pct){ return price * (1 - pct); }\n';
-const BAIT =
-  '//∷YAY⟨C-1⟩\n// unit: applyDiscount\n// intent: apply a percentage discount to a price\n' +
-  '// in: price: number, pct: number\n// out: number\n// ensures: out === price * (1 - pct)\n// pure: yes\n' +
-  '//∷YAY-END⟨C-1⟩\nfunction applyDiscount(price, pct, mode){ if (mode === "wholesale") return price * (1 - pct); return price * (1 - pct); }\n';
-
+const s = scenario({ name: 'cart', archiveKey: 'archive-key-secret-123' });
 try {
-  git(['init', '-q']); git(['config', 'user.email', 't@e.com']); git(['config', 'user.name', 'T']);
+  s.gitInit();
+  s.cell('C-1', { ...SPEC, body: CLEAN });
+  s.init({ durable: true });
+  s.sign('C-1', { brief: 'Discount helper.' }).archive().commit('s1');
 
-  fs.writeFileSync(path.join(proj, 'cart.js'), CLEAN);
-  yay(['init', '--durable', '--key', 'local', '--name', 'alex', '--passphrase', 'secret123', '--no-adopt', '--tags', 'none', '--no-pair']);
-  yay(['sign', '--cell', 'C-1', '--brief', 'Discount helper.', '--no-title', '--yes']);
-  yay(['archive', '--quiet']);
-  git(['add', '-A']); git(['commit', '-q', '-m', 's1']);
+  s.cell('C-1', { ...SPEC, body: BAIT });
+  s.sign('C-1', { brief: 'Wholesale branch (undeclared mode).' }).archive().commit('s2');
 
-  fs.writeFileSync(path.join(proj, 'cart.js'), BAIT);
-  yay(['sign', '--cell', 'C-1', '--brief', 'Wholesale branch (undeclared mode).', '--no-title', '--yes']);
-  yay(['archive', '--quiet']);
-  git(['add', '-A']); git(['commit', '-q', '-m', 's2']);
-
-  const p = U.paths(proj);
-  const config = U.readJSON(p.config, {});
-  const arc = D.loadArchive(p);
-  const key = D.resolveKey(ARCH_KEY, arc.salt);
+  const p = s.paths();
+  const config = s.config();
+  const key = s.archiveKeyResolved();
 
   // Baseline stand-in: "verifier 1.0.0 (no predicate check) recorded C-1 as GREEN here." Honest —
   // 1.0.0's descriptor genuinely lacked predicate-provenance, so this Cell truly was Green then.
@@ -76,5 +55,5 @@ try {
 
   console.log('\nReverify P2 (sweep + diff): all ' + n + ' checks passed.');
 } finally {
-  try { fs.rmSync(work, { recursive: true, force: true }); } catch (_) {}
+  s.cleanup();
 }

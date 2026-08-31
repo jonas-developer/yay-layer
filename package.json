@@ -30,7 +30,9 @@
   },
   "scripts": {
     "yay": "node bin/yay.js",
-    "test": "node test/smoke.js",
+    "test": "node test/run.js",
+    "test:smoke": "node test/smoke.js",
+    "confirm": "node test/confirm.js",
     "example": "node bin/yay.js verify --dir examples"
   },
   "files": [

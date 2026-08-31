@@ -5,61 +5,42 @@
 // branches on an input its `in:` never declared comes back YELLOW with the predicate flag, even though
 // it was archived as an approved state. This is "replay the tape through today's better reader" working
 // on one state; the sweep (P2) fans this across all snapshots and diffs against the original attestation.
+//
+// The Durable history is stood up via the shared scenario factory (test/fixtures/scenario.js) — the
+// same builder the demo and confirmation report use — so this test exercises the real fixture path.
 
-const { execFileSync } = require('child_process');
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
 const assert = require('assert');
-const U = require('../src/util');
-const D = require('../src/durable');
+const { scenario } = require('./fixtures/scenario');
 const { reverifyState } = require('../src/reverify');
 
-const YAY = path.join(__dirname, '..', 'bin', 'yay.js');
 let n = 0;
 const ok = (cond, msg) => { n++; assert.ok(cond, msg); console.log('  ✓ ' + msg); };
 
-const work = fs.mkdtempSync(path.join(os.tmpdir(), 'yay-rvp1-'));
-const proj = path.join(work, 'cart');
-fs.mkdirSync(proj, { recursive: true });
-const ARCH_KEY = 'archive-key-secret-123';
-const env = { ...process.env, YAY_PASSPHRASE: 'secret123', YAY_ARCHIVE_KEY: ARCH_KEY };
-const yay = (args) => execFileSync('node', [YAY, ...args], { cwd: proj, env, stdio: 'pipe' });
-const git = (args) => execFileSync('git', args, { cwd: proj, env, stdio: 'pipe' });
-
+// The shared spec for both states; only the body changes between them.
+const SPEC = { unit: 'applyDiscount', intent: 'apply a percentage discount to a price',
+  in: 'price: number, pct: number', out: 'number', ensures: 'out === price * (1 - pct)', pure: true, file: 'cart.js' };
 // State 1: a clean, machine-provable pure Cell (will be GREEN).
-const CLEAN =
-  '//∷YAY⟨C-1⟩\n// unit: applyDiscount\n// intent: apply a percentage discount to a price\n' +
-  '// in: price: number, pct: number\n// out: number\n// ensures: out === price * (1 - pct)\n// pure: yes\n' +
-  '//∷YAY-END⟨C-1⟩\nfunction applyDiscount(price, pct){ return price * (1 - pct); }\n';
-// State 2: SAME promise, but the code now branches on `mode` — an input `in:` never declares.
-// Both branches return the same value, so the ensures still holds (prover passes) — yet today's
+const CLEAN = 'function applyDiscount(price, pct){ return price * (1 - pct); }';
+// State 2: SAME promise, but the code now branches on `mode` — an input `in:` never declares. Both
+// branches return the same value, so the ensures still holds (prover passes) — yet today's
 // predicate-provenance check flags the undeclared control input → YELLOW.
-const BAIT =
-  '//∷YAY⟨C-1⟩\n// unit: applyDiscount\n// intent: apply a percentage discount to a price\n' +
-  '// in: price: number, pct: number\n// out: number\n// ensures: out === price * (1 - pct)\n// pure: yes\n' +
-  '//∷YAY-END⟨C-1⟩\nfunction applyDiscount(price, pct, mode){ if (mode === "wholesale") return price * (1 - pct); return price * (1 - pct); }\n';
+const BAIT = 'function applyDiscount(price, pct, mode){ if (mode === "wholesale") return price * (1 - pct); return price * (1 - pct); }';
 
+const s = scenario({ name: 'cart', archiveKey: 'archive-key-secret-123' });
 try {
-  git(['init', '-q']); git(['config', 'user.email', 't@e.com']); git(['config', 'user.name', 'T']);
+  s.gitInit();
+  s.cell('C-1', { ...SPEC, body: CLEAN });
+  s.init({ durable: true });
+  s.sign('C-1', { brief: 'Discount helper.' }).archive().commit('s1');
 
-  fs.writeFileSync(path.join(proj, 'cart.js'), CLEAN);
-  yay(['init', '--durable', '--key', 'local', '--name', 'alex', '--passphrase', 'secret123', '--no-adopt', '--tags', 'none', '--no-pair']);
-  yay(['sign', '--cell', 'C-1', '--brief', 'Discount helper.', '--no-title', '--yes']);
-  yay(['archive', '--quiet']);
-  git(['add', '-A']); git(['commit', '-q', '-m', 's1']);
+  s.cell('C-1', { ...SPEC, body: BAIT });
+  s.sign('C-1', { brief: 'Wholesale branch (undeclared mode).' }).archive().commit('s2');
 
-  fs.writeFileSync(path.join(proj, 'cart.js'), BAIT);
-  yay(['sign', '--cell', 'C-1', '--brief', 'Wholesale branch (undeclared mode).', '--no-title', '--yes']);
-  yay(['archive', '--quiet']);
-  git(['add', '-A']); git(['commit', '-q', '-m', 's2']);
-
-  const p = U.paths(proj);
-  const config = U.readJSON(p.config, {});
-  const snaps = D.listSnapshots(p);
+  const p = s.paths();
+  const config = s.config();
+  const snaps = s.snapshots();
   ok(snaps.length >= 2, 'two archived snapshots (got ' + snaps.length + ')');
-  const arc = D.loadArchive(p);
-  const key = D.resolveKey(ARCH_KEY, arc.salt);
+  const key = s.archiveKeyResolved();
 
   // Reverify the CLEAN historical state under today's verifier.
   const r1 = reverifyState(p, snaps[0], key, config, {});
@@ -76,5 +57,5 @@ try {
 
   console.log('\nReverify P1: all ' + n + ' checks passed.');
 } finally {
-  try { fs.rmSync(work, { recursive: true, force: true }); } catch (_) {}
+  s.cleanup();
 }
