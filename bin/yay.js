@@ -1892,8 +1892,9 @@ function cmdVerify(flags) {
   reportFoundation(verified);
   // Verifier attestation status (P2): is the current tree covered by a signed attestation?
   reportAttestStatus(p, config, manifest, verified);
+  const rvGate = reportReverifyPosture(p, config);
   reportProtection(p, config, verified);
-  const blocked = !verified.passed || manifest.problems.length;
+  const blocked = !verified.passed || manifest.problems.length || (rvGate && rvGate.posture === 'strict' && !rvGate.satisfied);
   console.log('\n  ' + (blocked ? U.c.red('GATE: BLOCKED') + U.c.dim(' (red, unsigned, or unspecified/pink code cannot reach main)')
     : U.c.green('GATE: PASS')));
   if (!flags.dir && process.argv.includes('--strict')) process.exit(blocked ? 1 : 0);
@@ -2140,7 +2141,10 @@ function cmdCapability(flags) {
 // changed (a capability bump, a verdict moving Yellow→Green as a prover lands, or code drift),
 // APPEND a new attestation that chains to the prior one. Never rewrites old attestations: a better
 // verifier's assessment is a NEW event beside the old, so history compounds instead of being edited.
-function cmdReverify(flags) {
+function cmdReverify(flags, positional) {
+  positional = positional || [];
+  // Posture management (P4): `yay reverify posture [off|guarded|strict]` — the grandfathering control.
+  if (positional[0] === 'posture' || flags.posture) return cmdReverifyPosture(flags, positional);
   // Sweep mode (P3): replay ALL preserved history through today's verifier and diff each state against
   // its original attestation — Paper 3's "verifier upgrade report." Distinct from the default below,
   // which re-attests only the CURRENT tree. Needs Durable snapshots + (for reconstruction) the archive key.
@@ -2211,6 +2215,44 @@ function renderUpgradeReport(report, flags, emit) {
   say('  ' + (report.regressed
     ? U.c.yellow('⚠ ' + report.regressed + ' regression(s) — worth review; old approvals remain historically valid under their original verifier')
     : U.c.green('✓ no regressions — preserved history holds up under capability ' + report.capability)));
+}
+
+// `yay reverify posture [off|guarded|strict]` (P4) — the grandfathering control. With no mode, prints
+// the current posture; with a mode, sets it. Stored in committed config (survives reroot), mirroring the
+// foundation seal posture. It gates on the EXISTENCE of signed reverification records, never on holding a
+// key — the keyless upgrade report is always available regardless of posture.
+function cmdReverifyPosture(flags, positional) {
+  const { p, config } = loadState();
+  if (!config) return fail('run `yay init` first');
+  const raw = positional[1] || (flags.posture && flags.posture !== true ? flags.posture : '');
+  const mode = String(raw || '').toLowerCase();
+  if (!mode) {
+    const cur = RV.reverifyPosture(config);
+    console.log(U.c.bold('Reverification posture: ') + (cur === 'off' ? U.c.dim(cur) : U.c.accent(cur)));
+    console.log('  ' + U.c.dim('off = preserved history is grandfathered (default) · guarded = warn when history predates the current verifier · strict = the gate blocks until history is re-verified under it.'));
+    console.log('  ' + U.c.dim('set with ') + U.c.bold('yay reverify posture <off|guarded|strict>'));
+    return;
+  }
+  if (!['off', 'guarded', 'strict'].includes(mode)) return fail('posture must be off, guarded, or strict.');
+  config.reverification = mode; U.writeJSON(p.config, config);
+  console.log(U.c.green('✓ reverification posture: ' + mode)
+    + U.c.dim(mode === 'strict' ? ' — the gate now BLOCKS until preserved history is re-verified under the current capability (`yay reverify --all --attest`).'
+      : mode === 'guarded' ? ' — `yay verify` will WARN when preserved history predates the current capability.'
+        : ' — grandfathered; nothing enforced.'));
+  console.log('  ' + U.c.dim('stored in committed config (survives reroot), like the foundation seal posture.'));
+}
+
+// Reverification posture readout under `yay verify` (P4). Returns the gate result so the caller can fold
+// a strict, unsatisfied posture into the gate decision. Never needs a key — a deterministic check of
+// whether signed reverification records exist for preserved history under the current capability.
+function reportReverifyPosture(p, config) {
+  let g; try { g = RV.reverifyGate(p, config); } catch (_) { return { posture: 'off', satisfied: true }; }
+  if (g.posture === 'off') return g;
+  if (g.satisfied) { console.log('  ' + U.c.dim('↻ reverification posture (' + g.posture + ') — preserved history covered under capability ' + g.capability)); return g; }
+  const n = g.pending.length;
+  if (g.posture === 'strict') console.log('  ' + U.c.red('↻ REVERIFICATION REQUIRED') + U.c.dim(' — ' + n + ' preserved state(s) not re-verified under capability ' + g.capability + '; run ') + U.c.bold('yay reverify --all --attest') + U.c.dim(' (strict → gate blocked)'));
+  else console.log('  ' + U.c.yellow('↻ reverification pending') + U.c.dim(' — ' + n + ' preserved state(s) predate capability ' + g.capability + '; run ') + U.c.bold('yay reverify --all') + U.c.dim(' to review'));
+  return g;
 }
 
 // `yay reverify --all` (P3) — the HISTORICAL SWEEP. Reconstruct every preserved snapshot, re-run
@@ -3409,6 +3451,9 @@ const HELP = `yay — a protocol for provable, signed AI code
   yay reverify --all         the HISTORICAL SWEEP: replay every preserved (Durable) snapshot through today's
     [--since D] [--eligible] verifier + diff vs its original verdict → a "verifier upgrade report." Read-only and
     [--attest] [-o f] [--json]  KEYLESS by default; --attest mints signed, append-only reverification records.
+  yay reverify posture       GRANDFATHERING control: off (default — history grandfathered) · guarded (verify
+    [off|guarded|strict]     warns when history predates the current verifier) · strict (gate blocks until
+                             preserved history is re-verified under it). Gates on record existence, never on a key.
   yay witness [--strict]     integrity witness — cross-check the attestation chain, the spec archive, and
                              whether the latest attestation still covers the code (git/tree vs ledger vs archive)
   yay metrics                earned-autonomy metrics from the delegation + ratification + rejection history
@@ -3457,7 +3502,7 @@ async function main() {
     case 'ratify': return cmdRatify(flags);
     case 'verify': case 'check': return cmdVerify(flags);
     case 'attest': case 'attestation': return cmdAttest(flags, positional);
-    case 'reverify': return cmdReverify(flags);
+    case 'reverify': return cmdReverify(flags, positional);
     case 'capability': case 'caps': return cmdCapability(flags);
     case 'witness': return cmdWitness(flags);
     case 'metrics': return cmdMetrics(flags);

@@ -8,7 +8,8 @@
 
 # Internal decision — the reverification record model (reverify engine, P3)
 
-**Status:** DECIDED — Hybrid (open report + opt-in signing). Enforcement deferred to P4.
+**Status:** DECIDED — Hybrid (open report + opt-in signing). P3 (engine + records) and P4 (grandfathering
+posture) SHIPPED 2026-08-31. Per-Cell scoping (P4b) + posture hardening deferred (see §6).
 **Date:** 2026-08-31.
 **Scope:** How `yay reverify` (the historical sweep) records what it finds. Companion to the public
 decision log (`10-decision-log.md`); this file holds the *deliberation* — the alternatives we rejected
@@ -194,9 +195,35 @@ policy for one concern) and would imply "Closed" is a mechanism when it is a rul
   appended via `A.appendAttestation` — the SAME chain + verifier identity as `yay attest`.
 - Tests: `test/reverify-p3.js` (13 checks) via the shared scenario factory.
 
-**Open questions / follow-ups (P4+):**
-- **Grandfathering policy** — the reverification posture above (`verifier: ">=X"`, scoped matches, gate
-  consultation, Off/Guarded/Strict). This is the "Closed by policy" delivery.
+**Shipped in P4 (2026-08-31) — the grandfathering posture ("closeable by policy"):**
+- `yay reverify posture [off|guarded|strict]` — a project-level gate control stored in committed config
+  (`config.reverification`), set via the command, mirroring the foundation seal posture EXACTLY.
+  off = grandfather all preserved history (default) · guarded = `yay verify` warns when history predates
+  the current capability · strict = the gate BLOCKS until each such state has a signed reverification
+  under the current capability.
+- Enforcement is on the EXISTENCE of the signed record at the gate — never key-possession at view time
+  (the keyless report stays available under any posture). `reverifyGate()` in `src/reverify.js` is the
+  pure consultation (ledger + snapshots + capability → { pending, satisfied }); `reportReverifyPosture()`
+  surfaces it under `yay verify` and folds a strict, unsatisfied posture into the gate `blocked` decision.
+- **Deliberate scope call:** the posture is NOT a per-Cell capability policy kind, so it is absent from
+  the capability fingerprint and required NO capability bump — consistent with the foundation posture,
+  which is likewise a project-level gate control outside the fingerprint (it changes gate enforcement, not
+  how any Cell's verdict is computed). This also avoided the site `capabilities.json` blast radius.
+- Tests: `test/reverify-p4.js` (12 checks) — default off, CLI set/show/persist, strict-satisfied when
+  history is current, pending under a newer capability (guarded warns / strict blocks), and a
+  reverification at the new capability clearing the pending state.
+
+**Open questions / follow-ups (P4b / P5+):**
+- **Per-Cell scoping** (the "critical cells reverify / normal grandfathered" refinement) — an owner-signed
+  policy rule `{ match: {...}, reverify: "latest" }`. This WOULD be a new POLICY_KIND (`reverify-latest`),
+  so it forces a capability bump (1.1.0 → 1.2.0) + a new REGISTERED fingerprint + a site
+  `capabilities.json` update. Deferred deliberately: the project-wide posture already delivers a complete
+  grandfathering model (off = grandfather-all default; strict = require-all), and scoping is a refinement
+  worth its own change so the capability bump is clean and intentional.
+- **Posture hardening** — the posture lives in committed config (like `config.foundation`), so it is
+  AI-writable in principle; a future step could move it into the owner-signed enforced policy (roster) for
+  tamper-evidence, exactly as `yay policy --set` does for signing rules. Matches the foundation precedent's
+  current limitation.
 - **`assumeSigned` artifact** — reverify treats a reconstructed state as approved, so a Cell that was
   UNSIGNED at attest time reads as an *improvement* (UNSIGNED→GREEN) on reverify. Harmless but slightly
   noisy in the report; consider tracking which cells were actually signed in the snapshot, or excluding

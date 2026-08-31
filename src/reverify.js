@@ -151,4 +151,50 @@ function reverificationObj(verObj, snap, baseline) {
   });
 }
 
-module.exports = { reverifyState, reverifySweep, reverificationObj, classify };
+// ── P4: the reverification posture (grandfathering) ──────────────────────────────────────────────
+// A project-level gate control — off / guarded / strict — in the same spirit as the foundation seal
+// posture (and, like it, NOT a per-Cell capability policy kind: it changes gate ENFORCEMENT of record
+// existence, never how any Cell's verdict is computed, so it stays out of the capability fingerprint).
+//   off      — preserved history is grandfathered (the default). A better verifier never blocks old work.
+//   guarded  — `yay verify` WARNS when preserved history predates the current verifier capability.
+//   strict   — the gate BLOCKS until each such state has a signed reverification under the current
+//              capability (`yay reverify --all --attest`). Enforces the EXISTENCE of the signed record —
+//              never key-possession at view time (the keyless report is always available).
+function reverifyPosture(config) {
+  const m = String((config && config.reverification) || 'off').toLowerCase();
+  return (m === 'guarded' || m === 'strict') ? m : 'off';
+}
+
+// Consult the posture against preserved history. Returns { posture, capability, subject, pending, satisfied }
+// where `pending` lists distinct preserved states whose ORIGINAL attestation predates the current
+// capability and that no reverification at the current capability yet covers. `opts.capability` overrides
+// the current capability (used in tests to simulate a bump without a live version change).
+function reverifyGate(p, config, opts) {
+  opts = opts || {};
+  const posture = opts.posture || reverifyPosture(config);
+  const cur = opts.capability || cap.CAPABILITY || null;
+  const out = { posture, capability: cur, subject: posture !== 'off', pending: [], satisfied: true };
+  if (posture === 'off') return out;
+  // Which original attestations already have a reverification at the CURRENT capability?
+  const led = A.loadLedger(p, config);
+  const covered = {};
+  for (const e of led.entries) {
+    const a = A.loadAttestation(p, config, e.hash);
+    if (a && a.kind === 'reverification' && a.capability === cur && a.reassesses) covered[a.reassesses] = true;
+  }
+  const seen = new Set();
+  for (const s of D.listSnapshots(p)) {
+    if (!s.attest) continue;                                   // never attested — no baseline capability to compare
+    if (s.codeTreeHash && seen.has(s.codeTreeHash)) continue;  // dedup identical trees
+    if (s.codeTreeHash) seen.add(s.codeTreeHash);
+    const orig = A.loadAttestation(p, config, s.attest);
+    const origCap = orig ? orig.capability : null;
+    if (!origCap || origCap === cur) continue;                 // already at the current capability
+    if (covered[s.attest]) continue;                           // a current-capability reverification covers it
+    out.pending.push({ at: s.at, attest: s.attest, fromCapability: origCap, codeTreeHash: s.codeTreeHash });
+  }
+  out.satisfied = out.pending.length === 0;
+  return out;
+}
+
+module.exports = { reverifyState, reverifySweep, reverificationObj, classify, reverifyPosture, reverifyGate };
