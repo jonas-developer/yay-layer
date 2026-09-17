@@ -30,6 +30,8 @@
 
 **Gate** — the CI check (`yay verify --strict`) that blocks Red / Unsigned / Pink from `main`.
 
+**Grandfathering** — leaving already-approved history valid when the verifier improves, rather than re-failing it. Configured by the **reverification posture** (off/guarded/strict), optionally scoped per-Cell via a `reverify: latest` policy rule.
+
 **Grant** — an owner-signed authorization for the agent to act autonomously within an envelope, to be ratified later.
 
 **Green / Yellow / Red / Unsigned / Pink** — the **verification** states. Green = satisfies spec; Yellow = signed-but-unproven / capped; Red = contradicts spec; Unsigned = no valid signature; Pink = code with no governing Cell.
@@ -51,6 +53,10 @@
 **Spec** — the structured behavioral promises above a Cell's code (`unit`, `intent`, `in`, `out`, `pure`, `ensures`, `renders`, …). What the human authorizes and the verifier checks.
 
 **specHash** — `sha256(normalized spec block)`; what the seal signs and what the archive is keyed by.
+
+**Reverification** — a new immutable assessment of a *preserved historical state* under today's verifier, appended beside the original (never rewriting it). `yay reverify --all` produces the keyless **upgrade report**; `--attest` mints the signed records. See **Reverification posture**.
+
+**Reverification posture** — the project-level grandfathering control (`yay reverify posture off|guarded|strict`): off grandfathers history, guarded warns at `yay verify`, strict blocks the gate until preserved history is re-verified under the current capability. Gates on whether the signed record **exists**, never on holding a key.
 
 **Standard (provenance)** — default mode: specs + attestations archived; code by git reference. Cf. **Durable**.
 

@@ -93,7 +93,7 @@ yay tags sets                  # list the built-in sets and their tags
 yay policy            # view enforced + draft rules
 yay policy --set      # owner-sign the draft into effect
 ```
-Rules bind path/tag/module → a required signer, an inert-code level, or an ignore authorization. Built-in security: **inert-code strictness** (off by default; turn on per path/tag). Owner-signed either way, so it can't be quietly weakened.
+Rules bind path/tag/module → one of the understood kinds: a **required signer**, an **inert-code level**, **full branch coverage**, **predicate-declared**, an **ignore authorization**, **non-delegable**, or **reverify: latest** (which Cells the reverification posture applies to — see below). Built-in security: **inert-code strictness** (off by default; turn on per path/tag). Owner-signed either way, so it can't be quietly weakened.
 
 ## Add a teammate
 
@@ -112,3 +112,15 @@ yay enroll --name Bob --pubkey <b64>   # or enroll directly via an owner-signed 
 🔭 Later. At `yay init` / `yay adopt` (changeable later):
 - **Standard** (default) — specs + attestations archived; code by git reference. Full audit while the repo survives.
 - **Durable** — code also archived (encrypted) in the project store; survives git loss. For regulated/compliance environments. Ships with encryption + retention + tombstones. See [02 — Governance](02-provenance-architecture.md#governance--designed-in-not-bolted-on).
+
+## Re-verify history when the verifier improves
+
+A better verifier can re-judge everything you've ever trusted — old approvals stay valid; nothing is rewritten. In **Durable** mode:
+
+```bash
+yay reverify --all                 # keyless upgrade report: what today's verifier now sees in old code
+yay reverify --all --attest        # record each re-assessment as a signed, append-only event (needs the verifier key)
+yay reverify posture strict        # grandfathering: off (default) · guarded (warn) · strict (block until re-verified)
+```
+
+`--all` reconstructs every preserved snapshot, re-runs today's verifier, and diffs each Cell against its original verdict (`--since <date>` · `--eligible` · `-o file` · `--json`). It's **read-only and keyless** — the re-verdict is a deterministic recomputation. `--attest` then appends signed reverification records beside the originals. The **posture** decides what a capability bump does at the gate, and gates on whether the signed record *exists* — never on holding a key; scope it to crown-jewel Cells with a policy rule `{ "match": { "tag": "sensitive" }, "reverify": "latest" }` (unmatched Cells stay grandfathered). See [02 — Verifier versioning](02-provenance-architecture.md#verifier-versioning).

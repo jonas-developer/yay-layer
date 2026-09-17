@@ -7,7 +7,7 @@ This is the **canonical manual** — the source of truth we build the engine aga
 
 ## How to read these docs
 
-Each section is numbered. Concepts (01) and Architecture (02–03) are the "what and why." How-to (05) and CLI (06) are the "how." Roadmap (08) and the Decision Log (09) tell you what's built, what's next, and *why we chose it*.
+Each section is numbered. Concepts (01) and Architecture (02–03) are the "what and why." How-to (05) and CLI (06) are the "how." Roadmap (09) and the Decision Log (10) tell you what's built, what's next, and *why we chose it*.
 
 Everything is tagged with a **status** so the docs never claim unbuilt things exist:
 

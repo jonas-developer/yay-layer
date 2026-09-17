@@ -81,11 +81,11 @@ The human ratification then references `V22`'s attestation hash, tying the perso
 
 ## Verifier versioning
 
-🔭 Later. The verifier is a **versioned participant** in provenance. "Green" always expands to "Green under these exact semantics." Consequences:
+✅ Shipped. The verifier is a **versioned participant** in provenance. "Green" always expands to "Green under these exact semantics." Consequences:
 
 - Release notes classify upgrades by *capability*, not just SemVer: **PATCH** (bug fix, semantics unchanged) · **MINOR** (new reasoning; may strengthen evidence) · **MAJOR** (meaning of Green materially changed; historical re-verification recommended).
-- A stronger verifier can **re-verify history**: append new assessments to old artifacts. `2026 → GREEN under 1.8.4` and `2029 → YELLOW under 4.2.0` both remain true. **Never** rewrite the old Green.
-- Re-verification is **not** an automatic CI failure. *Historical verification status* is separate from *current policy compliance*; orgs configure grandfathering (e.g., "existing Cells grandfathered unless modified; critical Cells always reverify").
+- A stronger verifier can **re-verify history** with `yay reverify --all`: reconstruct every preserved (Durable) state, re-run today's verifier over it, and diff each Cell against its original verdict — a **keyless upgrade report**. `--attest` records each re-assessment as a **new immutable event beside the old** (`2026 → GREEN under 1.0.0` and `2029 → YELLOW under 4.2.0` both remain true — the old Green is **never** rewritten).
+- Re-verification is **not** an automatic CI failure. *Historical verification status* is separate from *current policy compliance*: the **reverification posture** (`yay reverify posture off|guarded|strict` — off grandfathers history, guarded warns, strict blocks until re-verified) configures grandfathering, scopeable to crown-jewel Cells with an owner-signed `{ "match": {…}, "reverify": "latest" }` rule. It gates on whether the signed record **exists** — never on holding a key.
 - This turns verifier improvements into a **compounding asset** — every improvement can raise confidence in the *historical* codebase, not just new code.
 
 See [04 — Languages](04-languages.md): a language's behavioral prover landing in `1.x` is exactly such a capability bump.

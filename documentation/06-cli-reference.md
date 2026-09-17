@@ -38,7 +38,7 @@ Every command and its main flags. ✅ = shipped in 1.0. Passphrases/keys come fr
 
 **`yay attest [list|verify]`** ✅ — Mint a **signed verifier attestation** over the current verdict (the verifier signs its own result — the third crypto identity). Run at commit / after a green verify. Refuses a blocked gate unless `--force`. Append-only, chained, capability-versioned. `list` shows the ledger; `verify` re-checks every attestation (`--strict` exits non-zero on any invalid). The verifier private key stays machine-side (gitignored); the public verifier of record is pinned in `config.verifier` (committed).
 
-**`yay reverify`** ✅ — Re-run verification at the current verifier capability; if a capability bump, a verdict change (e.g. Yellow→Green), or code drift is found, **append** a new attestation chained to the prior one (never rewrites old Green). Prints an upgrade report. `--force` records a failing re-verification.
+**`yay reverify [--all] [--attest] [posture …]`** ✅ — Plain `yay reverify` re-attests the **current tree** (appends a new chained attestation if a capability bump, verdict change, or drift is found — never rewrites old Green). `--all` is the **historical sweep**: reconstruct every preserved (Durable) snapshot, re-run today's verifier over it, and diff each Cell against its original verdict → a **keyless upgrade report** (`--since <date>` · `--eligible` · `-o <file>` · `--json`). `--all --attest` mints **signed, append-only reverification records** (`kind:"reverification"`, referencing the original; needs the verifier key). `yay reverify posture off|guarded|strict` sets the **grandfathering** control (off = grandfather history, the default · guarded = `yay verify` warns · strict = the gate blocks until history is re-verified under the current capability); scope it to crown-jewel Cells with an owner-signed policy rule `{ "match": {…}, "reverify": "latest" }`.
 
 **`yay witness [--strict]`** ✅ — Integrity witness: cross-check the attestation chain, the spec archive, and whether the latest attestation still covers the code (git/tree vs ledger vs archive).
 
@@ -62,7 +62,7 @@ Every command and its main flags. ✅ = shipped in 1.0. Passphrases/keys come fr
 
 **`yay tags [--set id]`** ✅ — The project's Brief-tag pool. `--set <id>` (technical/responsibility/component/layer/area/product/custom) · `add "Tag"` · `remove "Tag"` · `rename "A" "B"` (blocked once used in a signed Brief) · `desc "Tag" "…"` · `sets`.
 
-**`yay policy [--set]`** ✅ — View enforced + draft signing policy; `--set` owner-signs the draft into effect. Rules bind path/tag/module → required signer, inert-code level, or ignore authorization.
+**`yay policy [--set]`** ✅ — View enforced + draft signing policy; `--set` owner-signs the draft into effect. Rules bind path/tag/module → one of the understood kinds: `required-signer`, `non-delegable`, `inert-level`, `coverage-full`, `predicate-declared`, `ignore-source`, or `reverify-latest`.
 
 **`yay adopt`** ✅ — Scaffold spec blocks over existing code.
 
