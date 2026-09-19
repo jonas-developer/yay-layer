@@ -301,14 +301,14 @@ A **working reference implementation** of the protocol — honest about scope.
 
 Every color in YayLayer ultimately rests on one thing: a **human signature** over the spec. That makes the signing key the crown jewel — whoever holds it can approve code *as you*. If that key ever sat on the machine the AI runs on, the AI (or any malware there) could forge your approval and paint its own code Green. **Mobile signing removes the key from the AI's reach entirely** — and it's built: pick it at `yay init` (Mobile-LAN or Mobile-relay), then `yay pair` your phone. *(A local passphrase-encrypted keystore is still available for solo work and CI, chosen with the Local option.)*
 
-**Where the key lives.** Your private key is generated on your **phone** and never leaves it — held in the phone's secure hardware (Secure Enclave / Android Keystore) and released only by **Face ID / biometric**, per signature. The AI's machine only ever sees your **public** key (in the committed roster).
+**Where the key lives.** Your private key is an **ed25519 key generated on your phone** and it **never leaves it** — stored **PIN-encrypted** (sealed with `nacl.secretbox` under a key derived from your PIN/passphrase; only ciphertext is kept) and unlocked by that PIN to sign. The AI's machine only ever sees your **public** key (in the committed roster). To be precise (no overclaim): the key lives in the phone's **browser storage, not** the device's hardware keystore (Secure Enclave / Android Keystore), and is gated by a **PIN/passphrase, not biometrics** — a hardware-backed option (native app or WebAuthn/passkeys) is a possible future addition. The security comes from the key being **out-of-band** (off the AI's machine), PIN-encrypted, and recoverable via your **24 words**.
 
 **How you approve — the flow:**
 
 1. **Pair once.** Scan a QR code to enroll your phone's public key into the project roster. After that the phone and `yay` talk over an encrypted push channel.
 2. **Request.** When specs are ready, `yay` sends an **approval request** — the spec **hashes**, the plain-English `intent` of each Cell, and a per-request **nonce** — up to a **rendezvous server**.
 3. **Review on-device — and the phone *proves* it (WYSIWYS).** Your phone shows *exactly what you're signing*, and it doesn't just trust what the laptop sent: before you can Accept, it **recomputes each spec's `sha256` on the phone itself** and **refuses to sign unless that hash equals what the signature would bind** — the review is rendered *from* those verified bytes. On any mismatch the Accept button is hidden and you're warned. So a compromised laptop or hijacked AI **cannot show you one spec and have you sign another.** This covers **every kind of phone signing** — code approvals *and* governance events (grants, the foundation seal, enroll/revoke/reroot/policy), each rendered from the exact event the key signs.
-4. **Sign.** You confirm with Face ID; the phone signs the canonical bytes and returns only the **signature**; `yay` appends it to `.yaylayer/lock.json`.
+4. **Sign.** You confirm with your **PIN/passphrase**; the phone signs the canonical bytes and returns only the **signature**; `yay` appends it to `.yaylayer/lock.json`.
 
 **Why it's safe — what each party can and can't do:**
 

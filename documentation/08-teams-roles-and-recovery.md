@@ -64,7 +64,7 @@ Chosen at `yay init` (per project), each identity's key can live in one of three
 | Method | Where the key lives | Transport | Best for |
 |--------|--------------------|-----------|----------|
 | **Local** | An encrypted keystore on this machine (`*.keystore`, gitignored) | none | solo / CI-less local work; a passphrase unlocks it per sign |
-| **Mobile · LAN** | Your **phone** (secure hardware) | phone ⇄ laptop directly over your Wi-Fi | private, no server; you're on the same network |
+| **Mobile · LAN** | Your **phone** (key held on-device, PIN-encrypted) | phone ⇄ laptop directly over your Wi-Fi | private, no server; you're on the same network |
 | **Mobile · Relay** | Your **phone** | via **`relay.yaylayer.com`**, end-to-end encrypted | signing off your LAN; the relay never sees your code |
 
 The first `yay pair` with no roster yet makes the **phone itself the trust root** (phone-as-genesis) — no local key is ever needed. The AI's machine only ever holds **public** keys; the private key never touches it (see [07 — Security](07-security-model.md#phone-signing--why-the-key-lives-on-the-phone)).

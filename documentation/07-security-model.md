@@ -5,7 +5,7 @@
 YayLayer rests on **two independent chains**: the **cryptographic truth** (signatures, roster, attestations — kept in keys, *off* the git host) and the **automatic enforcement** (the CI gate + trust-root pin — *on* the git host). They fail independently, so **a single-point compromise never collapses the system** — only simultaneous compromise of *both* a git-host account **and** the out-of-band signing key breaks the strong guarantee, and the phone key is the hardest target.
 
 **Trusted (the TCB — what the guarantees rest on)**
-- The human's **phone signing key** — never leaves the device (secure enclave + PIN).
+- The human's **phone signing key** — an ed25519 key generated on the phone, **PIN-encrypted** and never leaving it (the AI's machine only ever sees the public key).
 - The **verifier key** — project/CI-scoped, machine-held, **never shipped in the npm package**.
 - The **CI gate + protected-branch policy + the pinned trust root**.
 - The **git host's account/access controls**.
@@ -47,7 +47,7 @@ No actor grades its own work. The agent **proposes**, the verifier **measures**,
 
 | Identity | Key | Attests |
 |----------|-----|---------|
-| **Human** | Phone key (ed25519, biometric-gated) | "I authorized / ratified this intent." |
+| **Human** | Phone key (ed25519, PIN-gated, held only on the phone) | "I authorized / ratified this intent." |
 | **Verifier** | Verifier key (separate) ✅ | "This verifier's semantics evaluated this code against this spec → Z." |
 | **Artifacts** | Content hashes (no key) | "This is the exact thing referred to." |
 
@@ -64,7 +64,9 @@ A hash proves bytes are unchanged; only a **signature from a non-public key** pr
 
 ## Phone signing — why the key lives on the phone
 
-✅ Shipped. The human's private key is generated on the **phone** and never leaves it — held in the phone's secure hardware (Secure Enclave / Android Keystore), released only by biometric, per signature. The AI's machine only ever sees the **public** key (in the committed roster). So even a fully compromised dev machine or a rogue agent cannot sign as the human — signing authority is physically off the box the AI runs on.
+✅ Shipped. The human's private key is an **ed25519 key generated on the phone** (in the signer web page, via bundled TweetNaCl) and **never leaves it** — stored **encrypted** (sealed with `nacl.secretbox` under a key derived from your **PIN/passphrase** via PBKDF2; only ciphertext is kept) and unlocked by that PIN to sign. The AI's machine only ever sees the **public** key (in the committed roster). So even a fully compromised dev machine or a rogue agent cannot sign as the human — signing authority is physically off the box the AI runs on.
+
+**What it is, precisely (no overclaim):** the key lives in the phone's **browser storage — not** the device's hardware keystore (Secure Enclave / Android Keystore) — and signing is gated by a **PIN/passphrase, not biometrics**. The security rests on the key being **out-of-band** (off the AI's machine), **PIN-encrypted at rest**, and **recoverable via your 24 words** — not on secure-enclave hardware. A hardware-backed / biometric option (a native app or WebAuthn/passkeys) is a possible future addition. This also means the signer page needs **no secure-context/HTTPS requirement** to hold the key (TweetNaCl only needs `crypto.getRandomValues`); WYSIWYS still holds over plain HTTP because the phone re-hashes what it displays.
 
 ## What a signature attests to
 
