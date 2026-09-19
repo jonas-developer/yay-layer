@@ -24,6 +24,8 @@ The default discipline your AI follows (Constitution, Article 4):
 3. On a returned signature, implement code to match, run `yay verify`, report.
 4. On Green, **commit code + `.yaylayer/` together in one commit**. Don't `git push` unless asked.
 
+> **Writing a good `ensures`** (the one genuinely new skill): make it a **boolean expression over `out` and the declared inputs** that captures the *contract* — strong enough that a broken implementation fails it, but describing *what*, not *how*. Prose → Yellow; too weak → Yellow with a named surviving mutant; a branch on an undeclared input → the ◈ flag. Rule of thumb: *the strongest executable statement about `out` (and the edges) that still describes the contract, not the code.* See the worked **bad → good** examples in [`manual.html` → "Writing a good `ensures`"](manual.html).
+
 ## Sign at your own pace (batch)
 
 Batch mode is **on by default**: small changes get their spec + code immediately (so you can try them, Unsigned) and accumulate into a per-concern batch. At the barrier (default 5) — or before a commit/push — you're shown the batch and asked *close & sign / add one more / keep going*.

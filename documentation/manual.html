@@ -287,6 +287,20 @@ function memoKey(...parts){ return parts.join('|'); }</code></pre>
         </tbody>
       </table></div>
       <div class="note"><span class="k">The rule of Green</span><p>Vague prose never earns Green. Green requires a machine-checkable claim — an <code>ensures</code> the prover can execute (in a proven-tier language) or, at minimum, effect/purity claims the static net can check. See <a href="#languages">Languages</a> for which tier each language reaches.</p></div>
+
+      <h3>Writing a good <code>ensures</code></h3>
+      <p>This is the one genuinely new skill. A good <code>ensures</code> is a <strong>boolean expression over <code>out</code> and the declared inputs</strong> that captures the <em>contract</em> — strong enough that a broken implementation fails it, yet describing <em>what</em> the code must do, not <em>how</em>. The verdict guides you: prose → <span class="state s-yellow">Yellow</span>; too weak → <span class="state s-yellow">Yellow</span> with a <strong>named surviving mutant</strong>; a branch on an input <code>in:</code> never declares → the ◈ flag.</p>
+      <div class="tw"><table>
+        <thead><tr><th>Instead of…</th><th>Write…</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td><code>ensures: returns the total</code></td><td><code>ensures: out === price * qty</code></td><td>Prose can't be executed → Yellow; an expression can → Green.</td></tr>
+          <tr><td><code>ensures: typeof out === "number"</code></td><td><code>ensures: out === a + b</code></td><td>Too weak — a broken <code>add</code> that returns <code>0</code> still passes it (a mutant survives). Pin the actual result.</td></tr>
+          <tr><td><code>ensures: out === price - price * pct</code></td><td><code>ensures: out === Math.max(0, price * (1 - pct))</code></td><td>Capture the <em>contract</em> (percent off, never below zero), not one incidental formula.</td></tr>
+          <tr><td>"sorts [3,1,2] → [1,2,3]" (one example)</td><td><code>ensures: out.length === arr.length &amp;&amp; out.every((v,i) =&gt; i===0 || out[i-1] &lt;= v)</code></td><td>State the <em>property</em> that holds for all inputs, not a single case.</td></tr>
+          <tr><td>a branch on <code>mode</code> that <code>in:</code> never declares</td><td>add <code>mode</code> to <code>in:</code> (or remove the hidden branch)</td><td>Every input that steers behaviour must be declared — otherwise the ◈ undeclared-input flag.</td></tr>
+        </tbody>
+      </table></div>
+      <p><strong>Rule of thumb:</strong> the strongest executable statement about <code>out</code> (and the edges — empty, zero, negative) that still describes the <em>contract</em>, not the code. For an effectful unit don't force it into <code>ensures</code> — declare <code>pure: no</code> and use <code>records:</code> for the effects the static net checks.</p>
     </section>
 
     <section id="provenance">
@@ -750,7 +764,10 @@ function invoiceTotal(items, mode) {
         <li><strong>Not a blockchain</strong> — just an append-only hash chain; no tokens, no consensus.</li>
         <li><strong>Not an AI grading itself</strong> — the verifier is deliberately non-AI: bounded, reproducible, versioned.</li>
         <li><strong>Not a hosted service</strong> — verification and provenance are local + CI; the keyless attestation checker + capability registry at <code>yaylayer.com/verify</code> are the only hosted pieces (an optional public-record notary is not part of the core).</li>
+        <li><strong>Not a replacement for supply-chain provenance</strong> — see below.</li>
       </ul>
+      <h3>How it relates to SLSA / in-toto / Sigstore</h3>
+      <p>YayLayer <strong>complements</strong> supply-chain provenance; it covers a different boundary. <strong>SLSA / in-toto</strong> attest <em>how an artifact was built, and by whom</em> — the pipeline's integrity from source to release. <strong>Sigstore</strong> signs <em>an artifact</em> and its identity (with a transparency log). YayLayer attests an <strong>earlier, different thing</strong>: that a <strong>human authorized the intended behaviour</strong> (the signed spec + Brief) and that the <strong>code conforms to that intent</strong>, continuously re-checked, with the verifier signing its own verdict (<code>yay attest</code>). Two halves of "can I trust this code" — <em>where it came from</em> vs <em>whether a human authorized what it does, with the code held to that</em>. Use both; an export bridge to in-toto/Sigstore-friendly attestations is a <a href="#rationale">roadmap</a> item.</p>
     </section>
 
     <section id="rationale">

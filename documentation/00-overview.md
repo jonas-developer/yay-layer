@@ -52,6 +52,15 @@ That promise is what separates YayLayer from a signing convenience. It turns the
 - **Not** a blockchain. Tamper-evidence is an append-only hash chain; no consensus, no tokens, no network.
 - **Not** an AI grading itself. The verifier is deliberately **non-AI** — bounded, reproducible, versioned, and cryptographically identifiable.
 
+## How it relates to SLSA / in-toto / Sigstore
+
+YayLayer **complements** supply-chain provenance; it doesn't replace it. They cover different boundaries — use both:
+
+- **SLSA / in-toto** attest *how an artifact was built, and by whom* — the pipeline's integrity from source to release. YayLayer attests an **earlier, different boundary**: that a **human authorized the intended behaviour** and the **code conforms to that signed intent**, continuously re-checked.
+- **Sigstore** signs *an artifact* and its identity (with a transparency log). YayLayer signs a **different object** — the **behavioural intent** (spec + Brief) — and the verifier separately signs its **conformance verdict** (`yay attest`), append-only and capability-versioned.
+
+Two halves of "can I trust this code": *where it came from* (SLSA/in-toto/Sigstore) and *whether a human authorized what it does, with the code held to that* (YayLayer). An export bridge that emits YayLayer attestations in in-toto/Sigstore-friendly form is a [roadmap](09-roadmap-and-build-plan.md) item.
+
 ## Maturity levels — start small, grow into it
 
 YayLayer has a lot of surface, but you don't meet it all at once. Each level is optional depth on top of the last; newcomers live at Level 1.
