@@ -80,6 +80,17 @@ yay gate     # writes the CI workflow
 ```
 Require a check running `yay verify --strict`. Anything Red / Unsigned / Pink fails and can't merge — enforcement lives in infrastructure the AI doesn't control.
 
+### Record *which verifier* produced a build's verdicts
+
+"Green" is always "Green **under this verifier capability**." To answer that months later, capture the machine-readable capability as a CI artifact next to your attestation:
+
+```bash
+yay capability --json > capability.json   # provers · effect-nets · checks · policy-kinds + the fingerprint
+# then upload capability.json (and .yaylayer/attest.json) as build artifacts
+```
+
+The version + fingerprint are also embedded in every attestation (`yay attest`) and cross-checkable against the canonical registry at [yaylayer.com/capabilities.json](https://yaylayer.com/capabilities.json) — so a stored `capability.json` lets an auditor confirm *exactly* which semantics a past verdict was produced under.
+
 ## Manage Brief tags
 
 ```bash

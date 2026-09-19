@@ -80,14 +80,22 @@ Open the **[live demo dashboard](https://yaylayer.com/demo/dashboard.html)** in 
 
 ## Install
 
-You need **Node ≥ 18** and **git** — install **git first**: it's where the proof lives (the CI gate reads committed state) and your recovery substrate. Its only runtime deps are [`@babel/parser`](https://babeljs.io/docs/babel-parser) (JS/TS/JSX/TSX parsing) and `qrcode-terminal` (phone pairing).
+You need **Node ≥ 18** and **git** — install **git first**: it's where the proof lives (the CI gate reads committed state) and your recovery substrate. Runtime deps are just [`@babel/parser`](https://babeljs.io/docs/babel-parser) (JS/TS/JSX/TSX parsing) and `qrcode-terminal` (phone pairing).
+
+```bash
+npm install -g yay-layer          # puts the `yay` command on your PATH
+```
+
+> **1.0 is relaunching.** Until it ships as `latest`, install the release candidate explicitly: `npm install -g yay-layer@next`.
+
+**From source** (to contribute, or run the test suite):
 
 ```bash
 git clone https://github.com/jonas-developer/yay-layer.git
-cd yay-layer && npm install && npm link   # `npm link` puts `yay` on your PATH
+cd yay-layer && npm install && npm link
 ```
 
-If you skip `npm link`, just prefix commands with `node bin/yay.js`. Everything below uses `yay`.
+Everything below uses `yay`; if you skip `npm link`, just prefix commands with `node bin/yay.js`.
 
 ## Quickstart (5 minutes)
 
