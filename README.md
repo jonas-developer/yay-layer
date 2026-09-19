@@ -89,6 +89,58 @@ cd yay-layer && npm install && npm link   # `npm link` puts `yay` on your PATH
 
 If you skip `npm link`, just prefix commands with `node bin/yay.js`. Everything below uses `yay`.
 
+## Quickstart (5 minutes)
+
+YayLayer sits between you and your AI. **You** describe what you want in plain, even messy words and **approve on your phone**; **your AI** writes the code, the spec, *and* a polished **Brief**, then asks you to sign. Here's the whole loop.
+
+```bash
+mkdir hello-yay && cd hello-yay && git init
+yay init --relay --name you --constitution claude \
+         --no-adopt --no-plan --tags none --no-foundation
+```
+
+That puts your signing key **on your phone** (relay — recommended; scan the QR), teaches your AI the YayLayer rules (the **Constitution** — swap `claude` for `cursor`, `copilot`, `cline`, `gemini`, `agents`…), and skips optional setup you don't need yet.
+
+Now just **tell your AI, in your own rough words** — e.g. *"add a function that adds two numbers."* Your AI does the work:
+
+**1 · It writes the Cell** — the code with a signed **spec** block above it:
+
+```js
+//∷YAY⟨C-1⟩
+// unit: add
+// intent: add two numbers
+// in: a: number, b: number
+// out: number
+// ensures: out === a + b
+// pure: yes
+//∷YAY-END⟨C-1⟩
+function add(a, b) { return a + b; }
+```
+
+**2 · It turns your rough ask into a real Brief and asks you to sign — this is the heart of it.** A **Brief** is the plain-English record of *what you ordered*; **your AI drafts it from what you said** ("add two numbers" → a proper, reviewable sentence) and runs:
+
+```bash
+yay sign --brief "Add two numbers and return their sum — a pure helper with no side effects."   # ← your AI runs this; the Brief is its polish of your ask
+```
+
+**3 · Your phone buzzes — you approve.** The Brief + spec appear; you *read what the AI wrote* and tap **Accept** (or **Send back** with a note like *"also reject non-numbers"* and the AI revises). **You never write the Brief yourself — you approve it.** Your signature covers the spec *and* the Brief, so your history reads as intent in your own words — and the phone re-hashes what it shows, so you can't be tricked into signing something else.
+
+**4 · Prove it:**
+
+```bash
+yay verify                 # 🟢 GREEN — the code is proven to match the signed spec + Brief
+```
+
+**5 · Watch a break get caught.** Ask your AI to *"change add to subtract"* (without re-signing), then:
+
+```bash
+yay verify                 # 🔴 RED — the code no longer keeps the signed promise (with a counterexample)
+```
+
+That's YayLayer: **your AI proposes, you authorize, the machine enforces.** The AI can write anything, but it can't forge your signature or slip past the gate. Make enforcement real by protecting `main` in CI (`yay gate`) — that and every option is in the full setup below.
+
+*(No AI harness yet, or want to try it solo? You can do every step by hand — write the spec, run `yay sign --brief "…"`, verify. A local on-machine key is also available with `yay init --key local`, but it's the least secure: the key then sits on the same box as the AI.)*
+
 ## Use it in your own project
 
 Run these **from inside your project** (`cd` there first) — `init` sets up whatever folder you're in. Or point it at a path from anywhere: `yay init path/to/project`.
