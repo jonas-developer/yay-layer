@@ -151,7 +151,8 @@ dl{margin:14px 0} dt{font-weight:600;margin-top:14px} dd{margin:2px 0 0;color:va
       <li><a href="#teams"><span class="n">10</span>Teams, roles &amp; recovery</a></li>
       <li><a href="#limits"><span class="n">11</span>Limits &amp; non-goals</a></li>
       <li><a href="#rationale"><span class="n">12</span>Design rationale</a></li>
-      <li><a href="#glossary"><span class="n">13</span>Glossary</a></li>
+      <li><a href="#roadmap"><span class="n">13</span>Roadmap</a></li>
+      <li><a href="#glossary"><span class="n">14</span>Glossary</a></li>
     </ol>
   </details>
 
@@ -658,7 +659,7 @@ function invoiceTotal(items, mode) {
       <p><strong>Human</strong> phone key ("a person decided") · <strong>Verifier</strong> key ("the machine measured") · <strong>Artifact</strong> content hashes ("the exact thing"). A ratification references the verifier attestation hash but is signed by the phone key.</p>
       <div class="note warn"><span class="k">The verifier-key rule</span><p>Never ship the verifier's signing key inside the npm package. A public key lets anyone forge a Green and makes the whole machine-attestation half worthless. The verifier key is project/CI-scoped: machine-held, gitignored, with the public key pinned in config. A signature carries trust only if its key is not universally available.</p></div>
       <h3>Phone signing</h3>
-      <p>The human's private key is an <strong>ed25519 key generated on the phone</strong> (in the signer web page, via bundled TweetNaCl) and never leaves it — stored <strong>encrypted</strong> (sealed with <code>nacl.secretbox</code> under a key derived from your <strong>PIN/passphrase</strong>; only ciphertext is kept) and unlocked by that PIN to sign. The AI's machine only ever sees the public key, so a compromised dev machine or rogue agent still cannot sign as the human. <strong>Precisely (no overclaim):</strong> the key lives in the phone's <strong>browser storage — not</strong> the device's hardware keystore (Secure Enclave / Android Keystore) — and signing is gated by a <strong>PIN/passphrase, not biometrics</strong>. The guarantee rests on the key being <strong>out-of-band</strong> (off the AI's machine), PIN-encrypted, and recoverable via your 24 words. A hardware-backed / biometric option (a native app or WebAuthn/passkeys) is <a href="#rationale">on the roadmap</a>.</p>
+      <p>The human's private key is an <strong>ed25519 key generated on the phone</strong> (in the signer web page, via bundled TweetNaCl) and never leaves it — stored <strong>encrypted</strong> (sealed with <code>nacl.secretbox</code> under a key derived from your <strong>PIN/passphrase</strong>; only ciphertext is kept) and unlocked by that PIN to sign. The AI's machine only ever sees the public key, so a compromised dev machine or rogue agent still cannot sign as the human. <strong>Precisely (no overclaim):</strong> the key lives in the phone's <strong>browser storage — not</strong> the device's hardware keystore (Secure Enclave / Android Keystore) — and signing is gated by a <strong>PIN/passphrase, not biometrics</strong>. The guarantee rests on the key being <strong>out-of-band</strong> (off the AI's machine), PIN-encrypted, and recoverable via your 24 words. A hardware-backed / biometric option (a native app or WebAuthn/passkeys) is <a href="#roadmap">on the roadmap</a>.</p>
       <div class="note"><span class="k">What you see is what you sign (WYSIWYS)</span><p>The phone doesn't just <em>display</em> a spec and trust the laptop — before you can Accept, it <strong>recomputes each Cell's sha256 on-device</strong> from the exact spec block it's showing and <strong>refuses to sign unless that hash equals what your signature would bind</strong>. The review you read is rendered <em>from</em> those verified bytes, not from anything the laptop could style independently. So a compromised laptop or hijacked AI <strong>cannot show you one spec and have you sign another</strong> — on any mismatch the phone hides the Accept button and warns you. It runs even over plain HTTP (a self-contained hash on the phone), so there is no silent gap, and it applies identically to LAN and relay signing. <strong>Every kind of phone signing is covered, not just Cell approvals</strong>: for governance actions — issuing a <em>grant</em>, sealing the <em>foundation</em>, <em>enrolling</em>/<em>revoking</em> a signer, <em>re-rooting</em>, setting <em>policy</em> — the phone renders the screen <em>from the exact event it signs</em> (heading, fields, and the raw signed bytes) and refuses if no event is present. What you see is always what you sign.</p>
       <p><strong>Why the phone, when the AI already shows the Brief and Cells in the harness?</strong> Because what the AI prints in the terminal is the <em>untrusted producer describing its own work</em> — the one thing that can't be the check on itself. A hijacked AI could display one thing in the harness and hand a different thing to be signed. So the check lives on a separate device: the phone re-derives and re-hashes what it will sign with a key the AI can't touch, so it can't be fooled by anything the harness shows. Trust in three layers, weakest to strongest: (1) the AI's harness preview — convenience, no cryptographic weight; (2) the local <code>yay sign</code> review — computed by the tool from the files on disk, independent of the AI's chat, but still same-machine; (3) the <strong>phone</strong> — fully out-of-band, the only one that holds even if the laptop and AI are entirely compromised.</p></div>
       <h3>The gate &amp; Pink</h3>
@@ -768,7 +769,7 @@ function invoiceTotal(items, mode) {
         <li><strong>Not a replacement for supply-chain provenance</strong> — see below.</li>
       </ul>
       <h3>How it relates to SLSA / in-toto / Sigstore</h3>
-      <p>YayLayer <strong>complements</strong> supply-chain provenance; it covers a different boundary. <strong>SLSA / in-toto</strong> attest <em>how an artifact was built, and by whom</em> — the pipeline's integrity from source to release. <strong>Sigstore</strong> signs <em>an artifact</em> and its identity (with a transparency log). YayLayer attests an <strong>earlier, different thing</strong>: that a <strong>human authorized the intended behaviour</strong> (the signed spec + Brief) and that the <strong>code conforms to that intent</strong>, continuously re-checked, with the verifier signing its own verdict (<code>yay attest</code>). Two halves of "can I trust this code" — <em>where it came from</em> vs <em>whether a human authorized what it does, with the code held to that</em>. Use both; an export bridge to in-toto/Sigstore-friendly attestations is a <a href="#rationale">roadmap</a> item.</p>
+      <p>YayLayer <strong>complements</strong> supply-chain provenance; it covers a different boundary. <strong>SLSA / in-toto</strong> attest <em>how an artifact was built, and by whom</em> — the pipeline's integrity from source to release. <strong>Sigstore</strong> signs <em>an artifact</em> and its identity (with a transparency log). YayLayer attests an <strong>earlier, different thing</strong>: that a <strong>human authorized the intended behaviour</strong> (the signed spec + Brief) and that the <strong>code conforms to that intent</strong>, continuously re-checked, with the verifier signing its own verdict (<code>yay attest</code>). Two halves of "can I trust this code" — <em>where it came from</em> vs <em>whether a human authorized what it does, with the code held to that</em>. Use both; an export bridge to in-toto/Sigstore-friendly attestations is a <a href="#roadmap">roadmap</a> item.</p>
     </section>
 
     <section id="rationale">
@@ -790,8 +791,24 @@ function invoiceTotal(items, mode) {
       </dl>
     </section>
 
+    <section id="roadmap">
+      <p class="eyebrow">13 — Roadmap</p>
+      <h2>What's coming</h2>
+      <p>1.0 ships the whole architecture; the items below are planned for later versions. Each rides the same rails — a capability-versioned verifier, append-only provenance, owner-signed policy — so nothing here changes what a past verdict meant. Directional, not dated commitments; the detailed internal plan lives in the repo's build plan.</p>
+      <ul>
+        <li><strong>Dependency-aware proving</strong> — behavioural proof that follows a unit's cross-file dependencies, so more Cells reach machine-proven Green and cross-file impurity is caught. A capability bump that rolls out via <a href="#howto"><code>yay reverify</code></a> + the grandfathering posture.</li>
+        <li><strong>Hardware-backed / biometric signing</strong> — an opt-in tier where the key lives in the Secure Enclave / Android Keystore (WebAuthn/passkeys or a small native app), released by Face ID / fingerprint. Additive: the sovereign ed25519 + 24-word key stays the recoverable backbone; nobody is forced into platform passkey-sync.</li>
+        <li><strong>Class / instance-method proving</strong> — extend the Ruby/PHP provers (and later others) past top-level functions → proven Green for pure service objects and value objects (e.g. Rails).</li>
+        <li><strong>More language provers</strong> (C# → Rust → Solidity behavioural proof) and a <strong>bring-your-own-adapter plugin loader</strong> — extend YayLayer to your own language or checks without forking; a custom capability fingerprint reads as non-canonical against the registry, so an extension can never masquerade as stock or over-claim.</li>
+        <li><strong>M-of-N multi-sig</strong> — require several signers for crown-jewel Cells, plus merges that union safely while preserving who-approved-what.</li>
+        <li><strong>Notary</strong> — an optional public, append-only timestamp record for attestation hashes (a trusted timestamp + an independent second signature); it never sees your code.</li>
+        <li><strong>Editor &amp; onboarding tooling</strong> (exploring) — inline Cell state + spec folding in your editor, and a preflight/health check.</li>
+      </ul>
+      <p>Want to shape or accelerate any of these? <a href="https://github.com/jonas-developer/yay-layer">Open an issue</a> — real-world use shapes priority most.</p>
+    </section>
+
     <section id="glossary">
-      <p class="eyebrow">13 — Glossary</p>
+      <p class="eyebrow">14 — Glossary</p>
       <h2>Terms</h2>
       <dl>
         <dt>Agent</dt><dd>The AI producing Briefs, specs, and code — the untrusted producer.</dd>
