@@ -1,6 +1,6 @@
 {
   "name": "yay-layer",
-  "version": "1.0.0-rc.1",
+  "version": "1.0.0-rc.2",
   "description": "A protocol for provable, signed AI code. Approved blueprints first, an inspector that checks the build matches, and it can't ship until it passes.",
   "keywords": [
     "ai",
