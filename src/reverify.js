@@ -71,6 +71,10 @@ function reverifyState(p, snap, key, config, opts) {
 const RANK = { GREEN: 0, YELLOW: 1, RED: 2, PINK: 2, UNSIGNED: 2 };
 function classify(from, to) {
   if (from == null) return 'no-baseline';
+  // A Cell that was UNSIGNED in the baseline had no signed verdict to re-judge. Reverify assumes the
+  // reconstructed (archived, approved) tree is signed, so it would read UNSIGNED→GREEN as a spurious
+  // "improvement" — noise, not a real re-assessment. Treat it as non-comparable.
+  if (from === 'UNSIGNED') return 'no-baseline';
   if (from === to) return 'unchanged';
   const rf = RANK[from] != null ? RANK[from] : 2;
   const rt = RANK[to] != null ? RANK[to] : 2;

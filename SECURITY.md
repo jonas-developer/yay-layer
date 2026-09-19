@@ -1,54 +1,41 @@
-# Security Policy
+# Security policy
 
-YayLayer is a trust tool — its whole job is to make AI-written code accountable — so security reports matter a great deal here. Thank you for helping keep it honest.
+YayLayer is a trust tool, so the security of the tool itself matters. Thank you for reporting responsibly.
 
 ## Reporting a vulnerability
 
-**Please do not open a public issue for security problems.** Use one of these private channels instead:
+**Do not open a public issue for a security vulnerability.** Instead, either:
 
-- **GitHub private vulnerability reporting** (preferred): on this repository, go to the **Security** tab → **Report a vulnerability**. This keeps the report private until a fix is ready.
-- **Email:** [contact@yaylayer.com](mailto:contact@yaylayer.com)
+- **Email** [contact@yaylayer.com](mailto:contact@yaylayer.com) with details and, ideally, a proof-of-concept; or
+- Use **GitHub's private vulnerability reporting** ("Report a vulnerability" on the repository's *Security* tab).
 
-Please include, as best you can:
-
-- what the issue is and where (file, command, or endpoint),
-- steps to reproduce or a proof of concept,
-- the impact you think it has,
-- the version (`yay --version`) and your OS / Node version.
-
-## What to expect
-
-YayLayer is early and maintained by a small team, so responses are best-effort:
-
-- **Acknowledgement:** within a few days.
-- **Assessment & fix:** we'll work with you on severity and a timeline, and credit you in the release notes unless you prefer to stay anonymous.
-- **Disclosure:** coordinated — we ask that you give us a reasonable window to ship a fix before any public write-up.
+Please include: affected version (`yay --version`) and verifier **capability** (`yay capability`), the signing mode (local / LAN / relay), and a minimal reproduction. We aim to acknowledge within **3 business days** and to agree a disclosure timeline with you; please give us a reasonable window to fix before public disclosure.
 
 ## Supported versions
 
-While YayLayer is pre-1.0, security fixes land on the **latest** published version.
-
 | Version | Supported |
-| ------- | --------- |
-| 0.1.x   | ✅        |
-| < 0.1   | ❌        |
+|---------|-----------|
+| `1.x` (and the current `1.0.0-rc`) | ✅ |
+| `0.1.x` | ❌ (withdrawn — see `CHANGELOG.md`) |
 
-## Scope
+## Scope — what a report should target
 
-Especially interested in reports that touch the **trust boundary**, since that's where YayLayer's guarantees live:
+The trust model and its guarantees are laid out in the **[threat model](documentation/07-security-model.md#threat-model-one-page)** (also in the [manual](https://yaylayer.com/docs/manual.html)). In scope, for example:
 
-- **Signing & verification** — anything that lets an approval, seal, or roster be forged, replayed, moved to different code, or verified against the wrong key.
-- **The gate** — anything that makes `yay verify --strict` pass code it should block (Red / Unsigned / Pink), i.e. a "false green".
-- **Key custody** — anything that could expose or exfiltrate a signing key (it's meant to stay only on the phone, or in the passphrase-encrypted local keystore).
-- **The relay** (`relay.yaylayer.com` / the `yay-layer-relay` repo) — the relay is an untrusted pass-through by design; report anything that lets it read, alter, or forge end-to-end-encrypted traffic.
-- **The dashboard** — the localhost-gated action endpoints, or anything reachable from another device that shouldn't be.
+- Forging a human signature, or getting unsigned / mismatched / ungoverned code to a **PASS** verdict.
+- **WYSIWYS** bypass — making the phone sign something other than what it displays.
+- Tampering with a signed spec, seal, roster, or attestation **without detection**.
+- The AI/agent widening its own authority past a grant, or signing without the human key.
+- Shipping the verifier's **private** signing key in the npm package (it must never be there).
 
-## Out of scope
+## Out of scope (by design — see the threat model's *non-guarantees*)
 
-- Vulnerabilities in third-party dependencies (report those upstream; tell us if YayLayer's usage makes them exploitable).
-- Findings that require an already-compromised machine or a key the attacker already holds.
-- Missing hardening that is documented as deferred (e.g. Secure-Enclave / biometric key storage) — mention it, but it's known.
+- **Host-admin bypass:** whoever controls the git host's settings can turn the CI gate off — enforcement is only as strong as your branch-protection policy + account security. (Detection still survives: such code stays cryptographically unsigned/mismatched to any `yay verify`.)
+- **Signing a bad spec**, or approving malicious behaviour — the human is the boundary.
+- **"Green" read as a proof of correctness / security** — it is a bounded conformance check, not a proof for all inputs or an absence-of-vulnerabilities claim.
+- **Verifier blind spots** in signed-only languages, and third-party dependencies (`node_modules`).
 
-## A note on the model
+## Good to know
 
-By design, the human signs the **specification**, and `yay verify` continuously re-derives whether the code still matches it. A signing key never leaves the phone (or the encrypted local keystore), and no code hash is ever inside the signed object. Reports that break any of these properties are exactly what we want to hear about.
+- The verifier's **private** key is machine-held and gitignored; only the **public** key is committed. Anyone can verify an attestation (`yay attest verify`, or in-browser at [yaylayer.com/verify](https://yaylayer.com/verify)) but cannot forge one.
+- Never commit private keys or secrets: `.yaylayer/keys/`, `*.keystore`, and `.env*` are gitignored.

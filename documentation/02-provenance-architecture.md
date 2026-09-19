@@ -116,6 +116,8 @@ Why not a fully bespoke object store? Reimplementing git's packing/GC is a lot o
 
 Switching Standard → Durable later archives *future* approvals' code; a `backfill` command can pull history in.
 
+> **Losing the Durable archive key — what's recoverable.** The archive blobs are AES-256-GCM under a scrypt key derived from your passphrase / `$YAY_ARCHIVE_KEY`, and **YayLayer never stores that key** — so if it's lost, the *encrypted blobs are permanently unreadable* (no backdoor, by design). **But Durable is a *redundant* layer.** Everything that establishes trust — the **spec objects** (`.yaylayer/objects/`), the **seals** (`lock.json`), the **verifier attestations** (`attest.json`), and the **roster** — is plaintext, committed in git, *not* encrypted under the archive key. So losing the key loses only the extra "survives even if git is lost" copy; your code and full provenance remain intact via git, and you can re-archive future state under a new key. You only truly lose the archived source if the key **and** git are both gone. **Treat the archive key like the 24-word phrase:** back it up out-of-band (a password manager, not the repo), and on a team share it as a project secret so it isn't single-person.
+
 ## Governance — designed in, not bolted on
 
 🔭 Later. The real cost of "keep code forever" isn't disk; it's **data governance** (secrets, PII, licensed code, deletion obligations). So Durable mode ships *with* governance:

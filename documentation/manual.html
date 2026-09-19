@@ -348,6 +348,7 @@ function memoKey(...parts){ return parts.join('|'); }</code></pre>
           <tr><td>Best for</td><td>Normal projects</td><td>Regulated / long-lived audit</td></tr>
         </tbody>
       </table></div>
+      <div class="note"><span class="k">Losing the Durable archive key — what's recoverable</span><p>The archive blobs are AES-256-GCM under a scrypt key from your passphrase / <code>$YAY_ARCHIVE_KEY</code>, and YayLayer <strong>never stores that key</strong> — lose it and the encrypted blobs are <strong>permanently unreadable</strong> (no backdoor, by design). But Durable is a <strong>redundant</strong> layer: the trust-bearing records — spec objects (<code>.yaylayer/objects/</code>), seals (<code>lock.json</code>), verifier attestations (<code>attest.json</code>), the roster — are plaintext, committed in git, <em>not</em> encrypted under the archive key. So you lose only the extra "survives even if git is lost" copy; your code and full provenance stay intact via git, and you can re-archive future state under a new key. You truly lose the archived source only if the key <strong>and</strong> git are both gone. <strong>Back the archive key up out-of-band</strong> (a password manager, not the repo), like the 24-word phrase — and on a team, share it as a project secret so it isn't single-person.</p></div>
 
       <h3>Governance — designed in, not bolted on</h3>
       <p>The real cost of "keep code forever" isn't disk — it's governance. Durable mode ships <em>with</em> it:</p>
