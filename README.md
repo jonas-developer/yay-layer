@@ -188,6 +188,8 @@ The failure mode for any approval tool is fatigue: *"pull out the phone → appr
 
 Tune it with **`yay batch <n>`** (raise/lower the barrier), `yay batch off` (a Brief per change), or the batch control in the dashboard's Briefs tab. Committing/pushing always flushes pending batches, so nothing rots unsigned.
 
+> **Authorization timing — the exact claim.** *Forward authorization* signs intent **before** the code exists (the default discipline). Batch mode is **post-implementation signing**: code exists **locally** (Unsigned) before its signature. Either way the invariant holds — **local code may exist before authorization, but nothing reaches a protected branch before it**: the CI gate blocks Unsigned from `main`. So "spec-first" describes the discipline; the *enforced* guarantee is that acceptance to `main` always follows a signature.
+
 ## Commands
 
 | Command | What it does |
@@ -215,6 +217,8 @@ Tune it with **`yay batch <n>`** (raise/lower the barrier), `yay batch off` (a B
 ## Colors
 
 🟢 **GREEN** code proven to match a signed spec · 🟡 **YELLOW** matches but flagged (prose-only, undeclared effect, unproven) · 🔴 **RED** code ≠ spec (or tampered signature) · ⚪ **UNSIGNED** awaiting a signature · 🩷 **PINK** code with **no formal specification at all** — untracked, never described or signed.
+
+> **What "Green" means — and doesn't.** Green = a human signed this Cell's spec **and** today's verifier, at its documented capability, found the code conforms by *executing it against spec-derived inputs* and mutation-grading the result. It is a **bounded, deterministic conformance check** — **not** a formal proof of correctness for all inputs, a security audit, or a guarantee the code is free of vulnerabilities. Languages without a behavioural prover cap at **Yellow** (signed, not machine-proven).
 
 **Total coverage is the whole point.** PINK is the most dangerous state — unknown territory where silent bugs hide — so it **blocks the gate just like Red and Unsigned.** YayLayer never silently ignores code it doesn't understand: **any named unit** with no spec block — a function, object method, class method, or arrow-prop, *even nested inside an IIFE, object, or class* — shows up **Pink** (`«unitName»`) until you `yay adopt` it and sign it. Top-level imperative code that runs at load is flagged too. That way "green gate" honestly means *the whole project is covered*, not just the parts someone happened to tag. (The signature covers the **spec**, so you can still refactor freely; only a changed promise re-prompts you. Coverage uses a real parser — [`@babel/parser`](https://babeljs.io/docs/babel-parser) — so **JS, TypeScript, JSX and TSX** are all handled; genuinely unparseable files degrade gracefully to file-level grouping.)
 

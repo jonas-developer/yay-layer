@@ -19,6 +19,8 @@ Concretely:
 - For autonomous work, a human issues a bounded **grant** (**Autopilot**) so the AI can produce and provisionally act within limits, to be **ratified** by a human afterward.
 - Every authorization, verification, and ratification is an **immutable, content-addressed, attributable record**.
 
+> **What "Green" means — and doesn't.** Green = a human signed this Cell's spec **and** today's verifier, at its documented capability, found the code conforms by *executing it against spec-derived inputs* and mutation-grading the result. It is a **bounded, deterministic conformance check** — **not** a formal proof of correctness for all inputs, a security audit, or a guarantee the code is free of vulnerabilities. Languages without a behavioural prover cap at **Yellow** (signed, not machine-proven). A verdict is always "Green under *this* verifier + capability + exercised inputs, at this time" (see [Verifier versioning](02-provenance-architecture.md#verifier-versioning)).
+
 ## The triad
 
 Three actors, three different kinds of claim, so no actor grades its own work:

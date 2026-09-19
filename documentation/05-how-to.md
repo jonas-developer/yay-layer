@@ -28,6 +28,8 @@ The default discipline your AI follows (Constitution, Article 4):
 
 Batch mode is **on by default**: small changes get their spec + code immediately (so you can try them, Unsigned) and accumulate into a per-concern batch. At the barrier (default 5) — or before a commit/push — you're shown the batch and asked *close & sign / add one more / keep going*.
 
+> **Two authorization-timing models — and the invariant.** *Forward authorization* signs the intent **before** the code exists (the default discipline, Constitution Art. 4). Batch mode is **post-implementation signing**: code exists **locally** (as **Unsigned**) before you sign it. Either way the security guarantee is the same — **local code may exist before authorization, but nothing reaches a protected branch before authorization**: the CI gate blocks Unsigned from `main`. Sensitive, behaviour-changing, or policy-required Cells are never batched — they get their own Brief immediately.
+
 ```bash
 yay batch 8      # raise the barrier
 yay batch off    # a Brief per change
