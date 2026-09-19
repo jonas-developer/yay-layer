@@ -52,6 +52,19 @@ That promise is what separates YayLayer from a signing convenience. It turns the
 - **Not** a blockchain. Tamper-evidence is an append-only hash chain; no consensus, no tokens, no network.
 - **Not** an AI grading itself. The verifier is deliberately **non-AI** — bounded, reproducible, versioned, and cryptographically identifiable.
 
+## Maturity levels — start small, grow into it
+
+YayLayer has a lot of surface, but you don't meet it all at once. Each level is optional depth on top of the last; newcomers live at Level 1.
+
+| Level | What you add | Get it from |
+|-------|--------------|-------------|
+| **1 · Core loop** | A spec'd **Cell**, a signed **Brief**, `yay verify` (Green ↔ Red). | [Quickstart / How-to](05-how-to.md) |
+| **2 · Enforce & collaborate** | The **CI gate** (`yay gate`), **teams** (signed roster), signing **policy**. | [How-to](05-how-to.md) · [Teams](08-teams-roles-and-recovery.md) |
+| **3 · Delegate** | **Autopilot** grants + **ratification** + earned-autonomy from rejections. | [Autopilot](03-autopilot-delegated-execution.md) |
+| **4 · Audit & regulate** | **Durable** mode, verifier **attestations** + keyless verify, **reverify**, the **foundation seal**, the integrity **witness**. | [Provenance](02-provenance-architecture.md) |
+
+Everything above Level 1 is there when a project — or an auditor — needs it, and out of the way until then.
+
 ## Where to go next
 
 - New to the model → [01 — Concepts](01-concepts.md).
