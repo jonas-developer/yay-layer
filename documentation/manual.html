@@ -802,7 +802,8 @@ function invoiceTotal(items, mode) {
         <li><strong>More language provers</strong> (C# → Rust → Solidity behavioural proof) and a <strong>bring-your-own-adapter plugin loader</strong> — extend YayLayer to your own language or checks without forking; a custom capability fingerprint reads as non-canonical against the registry, so an extension can never masquerade as stock or over-claim.</li>
         <li><strong>M-of-N multi-sig</strong> — require several signers for crown-jewel Cells, plus merges that union safely while preserving who-approved-what.</li>
         <li><strong>Notary</strong> — an optional public, append-only timestamp record for attestation hashes (a trusted timestamp + an independent second signature); it never sees your code.</li>
-        <li><strong>Editor &amp; onboarding tooling</strong> (exploring) — inline Cell state + spec folding in your editor, and a preflight/health check.</li>
+        <li><strong>Spec-quality linting (<code>yay lint</code>)</strong> — an <strong>AI-side self-check</strong> the AI runs on its <em>own</em> spec <em>before</em> it asks you to sign: it flags a vague or too-weak <code>ensures</code> (or an undeclared input) and suggests a stronger, machine-checkable form. The AI writes the spec and the Brief; this keeps the promise solid before it ever reaches you to approve.</li>
+        <li><strong>Onboarding &amp; editor tooling</strong> (exploring) — <code>yay doctor</code>, a preflight/health check that verifies your whole setup (node/git, signing reachable, the CI gate + branch protection, trust-root pin, foundation seal) and prints a green/red "are you actually protected?" checklist; plus an editor extension with inline Cell state + spec folding.</li>
       </ul>
       <p>Want to shape or accelerate any of these? <a href="https://github.com/jonas-developer/yay-layer">Open an issue</a> — real-world use shapes priority most.</p>
     </section>
