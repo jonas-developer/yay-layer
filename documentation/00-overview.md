@@ -15,7 +15,7 @@ Concretely:
 - Code is organized into **Cells** — a unit of code with a **specification** block above it (behavioral promises, in a tiny structured grammar).
 - A **human signs the spec + a plain-English Brief** with a key that lives on their **phone**. The signature covers the *intent*, **never the code bytes**.
 - A deterministic, **non-AI verifier** re-derives whether the code satisfies the signed spec and assigns a state: **Green / Yellow / Red / Unsigned / Pink**.
-- A CI **gate** blocks anything not-Green from `main` — enforcement lives in infrastructure the AI doesn't control, not in a local hook.
+- A CI **gate** blocks **Red, Unsigned, and Pink** from `main` (Yellow — signed but not machine-proven — is allowed) — enforcement lives in infrastructure the AI doesn't control, not in a local hook.
 - For autonomous work, a human issues a bounded **grant** (**Autopilot**) so the AI can produce and provisionally act within limits, to be **ratified** by a human afterward.
 - Every authorization, verification, and ratification is an **immutable, content-addressed, attributable record**.
 
